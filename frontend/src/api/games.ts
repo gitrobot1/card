@@ -3,6 +3,7 @@ import { loadSession } from './auth'
 import { parseResponse, readApiError } from './client'
 import type { DouDizhuHint, DouDizhuRoom, DouDizhuState, GameMeta } from '../types/doudizhu'
 import type { ZhajinhuaRoom, ZhajinhuaState } from '../types/zhajinhua'
+import type { UnoState } from '../types/uno'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const { apiBaseUrl } = getAppConfig()
@@ -180,4 +181,30 @@ export function nextZhajinhuaRoom(roomId: string, ready: boolean) {
     method: 'POST',
     body: JSON.stringify({ ready }),
   })
+}
+
+export function startUnoGame(botCount: number) {
+  return apiFetch<UnoState>('/api/games/uno/start', {
+    method: 'POST',
+    body: JSON.stringify({ bot_count: botCount }),
+  })
+}
+
+export function getUnoState(gameId: string) {
+  return apiFetch<UnoState>(`/api/games/uno/${gameId}`)
+}
+
+export function playUnoCard(gameId: string, cardId: string, color?: string) {
+  return apiFetch<UnoState>(`/api/games/uno/${gameId}/play`, {
+    method: 'POST',
+    body: JSON.stringify(color ? { card_id: cardId, color } : { card_id: cardId }),
+  })
+}
+
+export function drawUnoCard(gameId: string) {
+  return apiFetch<UnoState>(`/api/games/uno/${gameId}/draw`, { method: 'POST' })
+}
+
+export function tickUnoGame(gameId: string) {
+  return apiFetch<UnoState>(`/api/games/uno/${gameId}/tick`, { method: 'POST' })
 }

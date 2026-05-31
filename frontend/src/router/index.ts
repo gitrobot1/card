@@ -6,6 +6,8 @@ import DoudizhuView from '../views/DoudizhuView.vue'
 import ZhajinhuaModeView from '../views/ZhajinhuaModeView.vue'
 import ZhajinhuaRoomView from '../views/ZhajinhuaRoomView.vue'
 import ZhajinhuaView from '../views/ZhajinhuaView.vue'
+import UnoModeView from '../views/UnoModeView.vue'
+import UnoView from '../views/UnoView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -19,6 +21,8 @@ const router = createRouter({
     { path: '/games/zhajinhua/solo', name: 'zhajinhua-solo', component: ZhajinhuaView },
     { path: '/games/zhajinhua/online', name: 'zhajinhua-online', component: ZhajinhuaRoomView },
     { path: '/games/zhajinhua/play/:gameId', name: 'zhajinhua-play', component: ZhajinhuaView },
+    { path: '/games/uno', name: 'uno-mode', component: UnoModeView },
+    { path: '/games/uno/solo', name: 'uno-solo', component: UnoView },
   ],
 })
 

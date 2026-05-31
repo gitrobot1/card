@@ -23,6 +23,6 @@ func Catalog() []Meta {
 		{Type: TypeZhajinhua, Name: "扎金花", Description: "2-8人比牌，牌型倍率结算", Enabled: true},
 		{Type: TypeDouNiu, Name: "斗牛", Description: "凑十比点数，敬请期待", Enabled: false},
 		{Type: TypeSanguosha, Name: "三国杀", Description: "身份策略卡牌，敬请期待", Enabled: false},
-		{Type: TypeUNO, Name: "UNO", Description: "经典变色牌，敬请期待", Enabled: false},
+		{Type: TypeUNO, Name: "UNO", Description: "2-8人变色牌，先出完获胜", Enabled: true},
 	}
 }

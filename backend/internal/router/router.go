@@ -20,6 +20,7 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	roomService := service.NewDouDizhuRoomService()
 	zhajinhuaService := service.NewZhajinhuaService()
 	zhajinhuaRoomService := service.NewZhajinhuaRoomService()
+	unoService := service.NewUnoService()
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
@@ -34,6 +35,7 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	gameHandler := &handler.GameHandler{DouDizhu: douDizhuService}
 	roomHandler := &handler.RoomHandler{Rooms: roomService, DouDizhu: douDizhuService}
 	zhHandler := &handler.ZhajinhuaHandler{Games: zhajinhuaService, Rooms: zhajinhuaRoomService}
+	unoHandler := &handler.UnoHandler{Games: unoService}
 
 	api := r.Group("/api")
 	api.Use(middleware.AuthRequired(authService))
@@ -67,6 +69,12 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 		api.POST("/games/zhajinhua/:gameId/raise", zhHandler.Raise)
 		api.POST("/games/zhajinhua/:gameId/compare", zhHandler.Compare)
 		api.POST("/games/zhajinhua/:gameId/tick", zhHandler.Tick)
+
+		api.POST("/games/uno/start", unoHandler.Start)
+		api.GET("/games/uno/:gameId", unoHandler.GetState)
+		api.POST("/games/uno/:gameId/play", unoHandler.Play)
+		api.POST("/games/uno/:gameId/draw", unoHandler.Draw)
+		api.POST("/games/uno/:gameId/tick", unoHandler.Tick)
 	}
 
 	return r

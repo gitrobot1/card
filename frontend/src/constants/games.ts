@@ -3,7 +3,7 @@ export const GAME_ROUTES: Record<string, string | null> = {
   zhajinhua: '/games/zhajinhua',
   douniu: null,
   sanguosha: null,
-  uno: null,
+  uno: '/games/uno',
 }
 
 export function suitColor(suit: string) {
