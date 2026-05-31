@@ -18,6 +18,8 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	authService := service.NewAuthService(db, &cfg.Auth)
 	douDizhuService := service.NewDouDizhuService()
 	roomService := service.NewDouDizhuRoomService()
+	zhajinhuaService := service.NewZhajinhuaService()
+	zhajinhuaRoomService := service.NewZhajinhuaRoomService()
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
@@ -31,6 +33,7 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 
 	gameHandler := &handler.GameHandler{DouDizhu: douDizhuService}
 	roomHandler := &handler.RoomHandler{Rooms: roomService, DouDizhu: douDizhuService}
+	zhHandler := &handler.ZhajinhuaHandler{Games: zhajinhuaService, Rooms: zhajinhuaRoomService}
 
 	api := r.Group("/api")
 	api.Use(middleware.AuthRequired(authService))
@@ -49,6 +52,21 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 		api.POST("/games/doudizhu/:gameId/pass", gameHandler.PassDouDizhu)
 		api.GET("/games/doudizhu/:gameId/hint", gameHandler.HintDouDizhu)
 		api.POST("/games/doudizhu/:gameId/tick", gameHandler.TickDouDizhu)
+
+		api.POST("/games/zhajinhua/start", zhHandler.Start)
+		api.POST("/games/zhajinhua/rooms/join", zhHandler.JoinRoom)
+		api.GET("/games/zhajinhua/rooms/:roomId", zhHandler.GetRoom)
+		api.POST("/games/zhajinhua/rooms/:roomId/leave", zhHandler.LeaveRoom)
+		api.POST("/games/zhajinhua/rooms/:roomId/ready", zhHandler.ReadyRoom)
+		api.POST("/games/zhajinhua/rooms/:roomId/start", zhHandler.StartRoom)
+		api.POST("/games/zhajinhua/rooms/:roomId/next", zhHandler.ReadyNext)
+		api.GET("/games/zhajinhua/:gameId", zhHandler.GetState)
+		api.POST("/games/zhajinhua/:gameId/look", zhHandler.Look)
+		api.POST("/games/zhajinhua/:gameId/fold", zhHandler.Fold)
+		api.POST("/games/zhajinhua/:gameId/follow", zhHandler.Follow)
+		api.POST("/games/zhajinhua/:gameId/raise", zhHandler.Raise)
+		api.POST("/games/zhajinhua/:gameId/compare", zhHandler.Compare)
+		api.POST("/games/zhajinhua/:gameId/tick", zhHandler.Tick)
 	}
 
 	return r

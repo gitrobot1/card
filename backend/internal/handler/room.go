@@ -159,6 +159,12 @@ func writeRoomError(c *gin.Context, err error) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "你不在该房间中"})
 	case errors.Is(err, service.ErrRoomNotWaiting):
 		c.JSON(http.StatusConflict, gin.H{"error": "房间已开始或不可加入"})
+	case errors.Is(err, service.ErrNotRoomHost):
+		c.JSON(http.StatusForbidden, gin.H{"error": "只有房主可以开始游戏"})
+	case errors.Is(err, service.ErrNotAllReady):
+		c.JSON(http.StatusConflict, gin.H{"error": "请等待全员准备"})
+	case errors.Is(err, service.ErrZhajinhuaNeedMorePlayers):
+		c.JSON(http.StatusConflict, gin.H{"error": "至少需要 2 人才能开始"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}

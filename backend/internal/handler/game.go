@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/time/card/backend/internal/game"
 	"github.com/time/card/backend/internal/game/doudizhu"
 	"github.com/time/card/backend/internal/service"
 )
@@ -14,7 +15,7 @@ type GameHandler struct {
 }
 
 func (h *GameHandler) Catalog(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"games": h.DouDizhu.Catalog()})
+	c.JSON(http.StatusOK, gin.H{"games": game.Catalog()})
 }
 
 func (h *GameHandler) StartDouDizhu(c *gin.Context) {

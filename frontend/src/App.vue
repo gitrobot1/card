@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { RouterView } from 'vue-router'
 import LoginPanel from './components/LoginPanel.vue'
+import AppToast from './components/AppToast.vue'
 import { useAuth } from './composables/useAuth'
 import {
   clearRememberUsername,
@@ -92,4 +93,5 @@ async function handleLogin(payload: { username: string; remember: boolean }) {
       @logout="logout"
     />
   </RouterView>
+  <AppToast />
 </template>

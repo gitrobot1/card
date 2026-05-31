@@ -2,6 +2,7 @@ import { getAppConfig } from '../config/loadConfig'
 import { loadSession } from './auth'
 import { parseResponse, readApiError } from './client'
 import type { DouDizhuHint, DouDizhuRoom, DouDizhuState, GameMeta } from '../types/doudizhu'
+import type { ZhajinhuaRoom, ZhajinhuaState } from '../types/zhajinhua'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const { apiBaseUrl } = getAppConfig()
@@ -105,4 +106,78 @@ export function nextDouDizhuRoom(roomId: string, gameId: string, ready: boolean)
       body: JSON.stringify({ ready }),
     },
   )
+}
+
+export function startZhajinhuaGame(botCount: number) {
+  return apiFetch<ZhajinhuaState>('/api/games/zhajinhua/start', {
+    method: 'POST',
+    body: JSON.stringify({ bot_count: botCount }),
+  })
+}
+
+export function getZhajinhuaState(gameId: string) {
+  return apiFetch<ZhajinhuaState>(`/api/games/zhajinhua/${gameId}`)
+}
+
+export function zhajinhuaLook(gameId: string) {
+  return apiFetch<ZhajinhuaState>(`/api/games/zhajinhua/${gameId}/look`, { method: 'POST' })
+}
+
+export function zhajinhuaFold(gameId: string) {
+  return apiFetch<ZhajinhuaState>(`/api/games/zhajinhua/${gameId}/fold`, { method: 'POST' })
+}
+
+export function zhajinhuaFollow(gameId: string) {
+  return apiFetch<ZhajinhuaState>(`/api/games/zhajinhua/${gameId}/follow`, { method: 'POST' })
+}
+
+export function zhajinhuaRaise(gameId: string, amount: number) {
+  return apiFetch<ZhajinhuaState>(`/api/games/zhajinhua/${gameId}/raise`, {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  })
+}
+
+export function zhajinhuaCompare(gameId: string, targetIndex: number) {
+  return apiFetch<ZhajinhuaState>(`/api/games/zhajinhua/${gameId}/compare`, {
+    method: 'POST',
+    body: JSON.stringify({ target_index: targetIndex }),
+  })
+}
+
+export function tickZhajinhuaGame(gameId: string) {
+  return apiFetch<ZhajinhuaState>(`/api/games/zhajinhua/${gameId}/tick`, { method: 'POST' })
+}
+
+export function joinZhajinhuaRoom(roomId?: string) {
+  return apiFetch<ZhajinhuaRoom>('/api/games/zhajinhua/rooms/join', {
+    method: 'POST',
+    body: JSON.stringify(roomId ? { room_id: roomId } : {}),
+  })
+}
+
+export function fetchZhajinhuaRoom(roomId: string) {
+  return apiFetch<ZhajinhuaRoom>(`/api/games/zhajinhua/rooms/${roomId}`)
+}
+
+export function leaveZhajinhuaRoom(roomId: string) {
+  return apiFetch<ZhajinhuaRoom>(`/api/games/zhajinhua/rooms/${roomId}/leave`, { method: 'POST' })
+}
+
+export function readyZhajinhuaRoom(roomId: string, ready: boolean) {
+  return apiFetch<ZhajinhuaRoom>(`/api/games/zhajinhua/rooms/${roomId}/ready`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
+}
+
+export function startZhajinhuaRoom(roomId: string) {
+  return apiFetch<ZhajinhuaRoom>(`/api/games/zhajinhua/rooms/${roomId}/start`, { method: 'POST' })
+}
+
+export function nextZhajinhuaRoom(roomId: string, ready: boolean) {
+  return apiFetch<ZhajinhuaRoom>(`/api/games/zhajinhua/rooms/${roomId}/next`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
 }

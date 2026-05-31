@@ -34,6 +34,27 @@ type Card struct {
 	Label string `json:"label"`
 }
 
+func NewDeck52() []Card {
+	labels := map[Rank]string{
+		3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10",
+		11: "J", 12: "Q", 13: "K", 14: "A", 15: "2",
+	}
+	suits := []Suit{SuitSpade, SuitHeart, SuitClub, SuitDiamond}
+
+	deck := make([]Card, 0, 52)
+	for rank := Rank3; rank <= Rank2; rank++ {
+		for _, suit := range suits {
+			deck = append(deck, Card{
+				ID:    fmt.Sprintf("%s_%d", suit, rank),
+				Suit:  suit,
+				Rank:  rank,
+				Label: labels[rank],
+			})
+		}
+	}
+	return deck
+}
+
 func NewDeck54() []Card {
 	labels := map[Rank]string{
 		3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10",
