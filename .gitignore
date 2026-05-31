@@ -1,0 +1,19 @@
+# Dependencies
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+backend/bin/
+backend/tmp/
+
+# Local config (copy from *.example.*)
+backend/config/config.yaml
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Env overrides
+.env
+.env.local

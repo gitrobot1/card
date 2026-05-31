@@ -1,0 +1,28 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: "debug" # debug | release
+
+mysql:
+  host: "127.0.0.1"
+  port: 3306
+  database: "card_db"
+  username: "admin"
+  password: "123456"
+  charset: "utf8mb4"
+  parse_time: true
+  loc: "Local"
+  max_open_conns: 25
+  max_idle_conns: 10
+  conn_max_lifetime: "1h"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: ""
+  db: 0
+  pool_size: 10
+
+auth:
+  jwt_secret: "card-dev-secret-change-in-production"
+  token_ttl: "720h" # 30 days
