@@ -3,7 +3,7 @@ import { loadSession } from './auth'
 import { parseResponse, readApiError } from './client'
 import type { DouDizhuHint, DouDizhuRoom, DouDizhuState, GameMeta } from '../types/doudizhu'
 import type { ZhajinhuaRoom, ZhajinhuaState } from '../types/zhajinhua'
-import type { UnoState } from '../types/uno'
+import type { UnoRoom, UnoState } from '../types/uno'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const { apiBaseUrl } = getAppConfig()
@@ -205,6 +205,47 @@ export function drawUnoCard(gameId: string) {
   return apiFetch<UnoState>(`/api/games/uno/${gameId}/draw`, { method: 'POST' })
 }
 
+export function voteEndUno(gameId: string) {
+  return apiFetch<UnoState>(`/api/games/uno/${gameId}/vote-end`, { method: 'POST' })
+}
+
+export function rollUnoFirst(gameId: string) {
+  return apiFetch<UnoState>(`/api/games/uno/${gameId}/roll-first`, { method: 'POST' })
+}
+
 export function tickUnoGame(gameId: string) {
   return apiFetch<UnoState>(`/api/games/uno/${gameId}/tick`, { method: 'POST' })
+}
+
+export function joinUnoRoom(roomId?: string) {
+  return apiFetch<UnoRoom>('/api/games/uno/rooms/join', {
+    method: 'POST',
+    body: JSON.stringify(roomId ? { room_id: roomId } : {}),
+  })
+}
+
+export function fetchUnoRoom(roomId: string) {
+  return apiFetch<UnoRoom>(`/api/games/uno/rooms/${roomId}`)
+}
+
+export function leaveUnoRoom(roomId: string) {
+  return apiFetch<UnoRoom>(`/api/games/uno/rooms/${roomId}/leave`, { method: 'POST' })
+}
+
+export function readyUnoRoom(roomId: string, ready: boolean) {
+  return apiFetch<UnoRoom>(`/api/games/uno/rooms/${roomId}/ready`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
+}
+
+export function startUnoRoom(roomId: string) {
+  return apiFetch<UnoRoom>(`/api/games/uno/rooms/${roomId}/start`, { method: 'POST' })
+}
+
+export function nextUnoRoom(roomId: string, ready: boolean) {
+  return apiFetch<UnoRoom>(`/api/games/uno/rooms/${roomId}/next`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
 }

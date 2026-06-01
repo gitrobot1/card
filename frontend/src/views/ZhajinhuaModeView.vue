@@ -19,8 +19,7 @@ function goOnline() {
     <section class="hero">
       <div class="hero__top">
         <div>
-          <p class="hero__tag">扎金花</p>
-          <h1>选择模式</h1>
+          <h1>扎金花 - 选择模式</h1>
           <p class="hero__desc">2-8 人比牌，牌型越高结算倍率越大</p>
         </div>
         <button type="button" class="hero__logout" @click="router.push('/')">← 返回大厅</button>
@@ -42,11 +41,14 @@ function goOnline() {
         </button>
       </div>
 
-      <button type="button" class="game-card" @click="goOnline">
+      <div class="game-card game-card--setup">
         <span class="game-card__tag game-card__tag--online">联机</span>
         <h2>多人联机</h2>
-        <p>2-8 真人同桌，全员准备后由房主开始</p>
-      </button>
+        <p class="zjh-mode__hint">2-8 人，邀请好友同房间对战</p>
+        <button type="button" class="ddz__btn ddz__btn--primary zjh-mode__start" @click="goOnline">
+          进入联机房间
+        </button>
+      </div>
     </section>
 
     <section class="zjh-multiplier-legend">

@@ -18,7 +18,7 @@ const emit = defineEmits<{
 
 const hoverIndex = ref<number | null>(null)
 
-const canHover = computed(() => props.hoverable !== false)
+const canHover = computed(() => props.hoverable === true)
 
 const sortedCards = computed(() =>
   [...props.cards].sort((a, b) => {
@@ -92,7 +92,13 @@ function onLeave() {
 </script>
 
 <template>
-  <div class="hand-cards" :class="{ 'hand-cards--view-only': !interactive }">
+  <div
+    class="hand-cards"
+    :class="{
+      'hand-cards--view-only': !interactive,
+      'hand-cards--hoverable': canHover,
+    }"
+  >
     <div class="hand-cards__row" :style="slotStyle">
       <button
         v-for="(card, index) in sortedCards"

@@ -1,6 +1,6 @@
 import gsap from 'gsap'
 import type { UnoEvent } from '../types/uno'
-import { unoColorClass } from '../types/uno'
+import { unoCardCenterClass, unoColorClass } from '../types/uno'
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -42,7 +42,7 @@ export async function animateUnoPlayEvent(
 
   const el = document.createElement('div')
   el.className = `uno-fly-card uno-card ${unoColorClass(card.color)}`
-  el.innerHTML = `<span class="uno-card__center">${card.label}</span>`
+  el.innerHTML = `<span class="${unoCardCenterClass(card.label)}">${card.label}</span>`
   document.body.appendChild(el)
 
   const startX = fromRect.left + fromRect.width / 2 - 41
@@ -104,7 +104,7 @@ export async function animateUnoDrawEvent(
     el.innerHTML = '<span class="uno-card__back-mark">UNO</span>'
   } else {
     el.className = `uno-fly-card uno-card ${unoColorClass(card.color)}`
-    el.innerHTML = `<span class="uno-card__center">${card.label}</span>`
+    el.innerHTML = `<span class="${unoCardCenterClass(card.label)}">${card.label}</span>`
   }
   document.body.appendChild(el)
 
@@ -189,7 +189,7 @@ export async function animateUnoRevealTopCard(
 
   const el = document.createElement('div')
   el.className = `uno-fly-card uno-card ${colorClass}`
-  el.innerHTML = `<span class="uno-card__center">${label}</span>`
+  el.innerHTML = `<span class="${unoCardCenterClass(label)}">${label}</span>`
   document.body.appendChild(el)
 
   gsap.set(el, {

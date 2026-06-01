@@ -1,24 +1,17 @@
 package service
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/google/uuid"
 )
 
 const (
-	MinZhajinhuaRoomPlayers = 2
-	MaxZhajinhuaRoomPlayers = 8
+	MinUnoRoomPlayers = 2
+	MaxUnoRoomPlayers = 8
 )
 
-var (
-	ErrZhajinhuaNeedMorePlayers = errors.New("need at least 2 players")
-	ErrNotRoomHost              = errors.New("not room host")
-	ErrNotAllReady              = errors.New("not all players ready")
-)
-
-type ZhajinhuaRoom struct {
+type UnoRoom struct {
 	ID         string       `json:"id"`
 	Status     string       `json:"status"`
 	GameID     string       `json:"game_id,omitempty"`
@@ -26,85 +19,85 @@ type ZhajinhuaRoom struct {
 	Players    []RoomPlayer `json:"players"`
 }
 
-type ZhajinhuaRoomService struct {
+type UnoRoomService struct {
 	mu    sync.RWMutex
-	rooms map[string]*zhajinhuaRoomState
+	rooms map[string]*unoRoomState
 }
 
-type zhajinhuaRoomState struct {
-	room      ZhajinhuaRoom
+type unoRoomState struct {
+	room      UnoRoom
 	userSeats map[uint64]int
 }
 
-func NewZhajinhuaRoomService() *ZhajinhuaRoomService {
-	return &ZhajinhuaRoomService{rooms: make(map[string]*zhajinhuaRoomState)}
+func NewUnoRoomService() *UnoRoomService {
+	return &UnoRoomService{rooms: make(map[string]*unoRoomState)}
 }
 
-func (s *ZhajinhuaRoomService) Join(userID uint64, username string) (ZhajinhuaRoom, error) {
+func (s *UnoRoomService) Join(userID uint64, username string) (UnoRoom, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing := s.findByUserLocked(userID); existing != nil {
 		return existing.room, nil
 	}
 	for _, st := range s.rooms {
-		if st.room.Status == "waiting" && len(st.room.Players) < MaxZhajinhuaRoomPlayers {
+		if st.room.Status == "waiting" && len(st.room.Players) < MaxUnoRoomPlayers {
 			return s.addPlayerLocked(st, userID, username)
 		}
 	}
 	id := uuid.NewString()
-	st := &zhajinhuaRoomState{
-		room:      ZhajinhuaRoom{ID: id, Status: "waiting"},
+	st := &unoRoomState{
+		room:      UnoRoom{ID: id, Status: "waiting"},
 		userSeats: map[uint64]int{},
 	}
 	s.rooms[id] = st
 	return s.addPlayerLocked(st, userID, username)
 }
 
-func (s *ZhajinhuaRoomService) JoinRoom(roomID string, userID uint64, username string) (ZhajinhuaRoom, error) {
+func (s *UnoRoomService) JoinRoom(roomID string, userID uint64, username string) (UnoRoom, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing := s.findByUserLocked(userID); existing != nil {
 		if existing.room.ID == roomID {
 			return existing.room, nil
 		}
-		return ZhajinhuaRoom{}, ErrNotInRoom
+		return UnoRoom{}, ErrNotInRoom
 	}
 	st, ok := s.rooms[roomID]
 	if !ok {
-		return ZhajinhuaRoom{}, ErrRoomNotFound
+		return UnoRoom{}, ErrRoomNotFound
 	}
 	if st.room.Status != "waiting" {
-		return ZhajinhuaRoom{}, ErrRoomNotWaiting
+		return UnoRoom{}, ErrRoomNotWaiting
 	}
-	if len(st.room.Players) >= MaxZhajinhuaRoomPlayers {
-		return ZhajinhuaRoom{}, ErrRoomFull
+	if len(st.room.Players) >= MaxUnoRoomPlayers {
+		return UnoRoom{}, ErrRoomFull
 	}
 	return s.addPlayerLocked(st, userID, username)
 }
 
-func (s *ZhajinhuaRoomService) Get(roomID string, userID uint64) (ZhajinhuaRoom, error) {
+func (s *UnoRoomService) Get(roomID string, userID uint64) (UnoRoom, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	st, ok := s.rooms[roomID]
 	if !ok {
-		return ZhajinhuaRoom{}, ErrRoomNotFound
+		return UnoRoom{}, ErrRoomNotFound
 	}
 	if _, ok := st.userSeats[userID]; !ok {
-		return ZhajinhuaRoom{}, ErrNotInRoom
+		return UnoRoom{}, ErrNotInRoom
 	}
 	return st.room, nil
 }
 
-func (s *ZhajinhuaRoomService) Leave(roomID string, userID uint64) (ZhajinhuaRoom, error) {
+func (s *UnoRoomService) Leave(roomID string, userID uint64) (UnoRoom, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st, ok := s.rooms[roomID]
 	if !ok {
-		return ZhajinhuaRoom{}, ErrRoomNotFound
+		return UnoRoom{}, ErrRoomNotFound
 	}
 	seat, ok := st.userSeats[userID]
 	if !ok {
-		return ZhajinhuaRoom{}, ErrNotInRoom
+		return UnoRoom{}, ErrNotInRoom
 	}
 	wasHost := st.room.HostUserID == userID
 	players := st.room.Players[:seat]
@@ -121,7 +114,7 @@ func (s *ZhajinhuaRoomService) Leave(roomID string, userID uint64) (ZhajinhuaRoo
 	}
 	if len(st.room.Players) == 0 {
 		delete(s.rooms, roomID)
-		return ZhajinhuaRoom{}, nil
+		return UnoRoom{}, nil
 	}
 	if wasHost {
 		st.room.HostUserID = st.room.Players[0].UserID
@@ -134,24 +127,24 @@ func (s *ZhajinhuaRoomService) Leave(roomID string, userID uint64) (ZhajinhuaRoo
 	return st.room, nil
 }
 
-func (s *ZhajinhuaRoomService) SetReady(roomID string, userID uint64, ready bool) (ZhajinhuaRoom, bool, error) {
+func (s *UnoRoomService) SetReady(roomID string, userID uint64, ready bool) (UnoRoom, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	st, ok := s.rooms[roomID]
 	if !ok {
-		return ZhajinhuaRoom{}, false, ErrRoomNotFound
+		return UnoRoom{}, false, ErrRoomNotFound
 	}
 	seat, ok := st.userSeats[userID]
 	if !ok {
-		return ZhajinhuaRoom{}, false, ErrNotInRoom
+		return UnoRoom{}, false, ErrNotInRoom
 	}
 	if st.room.Status != "waiting" {
 		return st.room, false, ErrRoomNotWaiting
 	}
 
 	st.room.Players[seat].Ready = ready
-	allReady := len(st.room.Players) >= MinZhajinhuaRoomPlayers
+	allReady := len(st.room.Players) >= MinUnoRoomPlayers
 	if allReady {
 		for _, p := range st.room.Players {
 			if !p.Ready {
@@ -163,25 +156,25 @@ func (s *ZhajinhuaRoomService) SetReady(roomID string, userID uint64, ready bool
 	return st.room, allReady, nil
 }
 
-func (s *ZhajinhuaRoomService) Start(roomID string, userID uint64, games *ZhajinhuaService) (ZhajinhuaRoom, error) {
+func (s *UnoRoomService) Start(roomID string, userID uint64, games *UnoService) (UnoRoom, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	st, ok := s.rooms[roomID]
 	if !ok {
-		return ZhajinhuaRoom{}, ErrRoomNotFound
+		return UnoRoom{}, ErrRoomNotFound
 	}
 	if _, ok := st.userSeats[userID]; !ok {
-		return ZhajinhuaRoom{}, ErrNotInRoom
+		return UnoRoom{}, ErrNotInRoom
 	}
 	if st.room.HostUserID != userID {
-		return ZhajinhuaRoom{}, ErrNotRoomHost
+		return UnoRoom{}, ErrNotRoomHost
 	}
 	if st.room.Status != "waiting" {
 		return st.room, ErrRoomNotWaiting
 	}
-	if len(st.room.Players) < MinZhajinhuaRoomPlayers {
-		return ZhajinhuaRoom{}, ErrZhajinhuaNeedMorePlayers
+	if len(st.room.Players) < MinUnoRoomPlayers {
+		return UnoRoom{}, ErrZhajinhuaNeedMorePlayers
 	}
 	for i := range st.room.Players {
 		if st.room.Players[i].UserID == st.room.HostUserID {
@@ -202,24 +195,24 @@ func (s *ZhajinhuaRoomService) Start(roomID string, userID uint64, games *Zhajin
 	}
 	gameID, _, err := games.CreateOnlineGame(userIDs, names)
 	if err != nil {
-		return ZhajinhuaRoom{}, err
+		return UnoRoom{}, err
 	}
 	st.room.Status = "playing"
 	st.room.GameID = gameID
 	return st.room, nil
 }
 
-func (s *ZhajinhuaRoomService) SetReadyForNext(roomID string, userID uint64, ready bool) (ZhajinhuaRoom, bool, error) {
+func (s *UnoRoomService) SetReadyForNext(roomID string, userID uint64, ready bool) (UnoRoom, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	st, ok := s.rooms[roomID]
 	if !ok {
-		return ZhajinhuaRoom{}, false, ErrRoomNotFound
+		return UnoRoom{}, false, ErrRoomNotFound
 	}
 	seat, ok := st.userSeats[userID]
 	if !ok {
-		return ZhajinhuaRoom{}, false, ErrNotInRoom
+		return UnoRoom{}, false, ErrNotInRoom
 	}
 
 	if st.room.Status == "playing" {
@@ -234,7 +227,7 @@ func (s *ZhajinhuaRoomService) SetReadyForNext(roomID string, userID uint64, rea
 	}
 
 	st.room.Players[seat].Ready = ready
-	allReady := len(st.room.Players) >= MinZhajinhuaRoomPlayers
+	allReady := len(st.room.Players) >= MinUnoRoomPlayers
 	if allReady {
 		for _, p := range st.room.Players {
 			if !p.Ready {
@@ -246,7 +239,7 @@ func (s *ZhajinhuaRoomService) SetReadyForNext(roomID string, userID uint64, rea
 	return st.room, allReady, nil
 }
 
-func (s *ZhajinhuaRoomService) PlayersForGame(roomID string) ([]uint64, []string, error) {
+func (s *UnoRoomService) PlayersForGame(roomID string) ([]uint64, []string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -254,7 +247,7 @@ func (s *ZhajinhuaRoomService) PlayersForGame(roomID string) ([]uint64, []string
 	if !ok {
 		return nil, nil, ErrRoomNotFound
 	}
-	if len(st.room.Players) < MinZhajinhuaRoomPlayers {
+	if len(st.room.Players) < MinUnoRoomPlayers {
 		return nil, nil, ErrZhajinhuaNeedMorePlayers
 	}
 	userIDs := make([]uint64, len(st.room.Players))
@@ -266,7 +259,7 @@ func (s *ZhajinhuaRoomService) PlayersForGame(roomID string) ([]uint64, []string
 	return userIDs, names, nil
 }
 
-func (s *ZhajinhuaRoomService) SetPlaying(roomID, gameID string) {
+func (s *UnoRoomService) SetPlaying(roomID, gameID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if st, ok := s.rooms[roomID]; ok {
@@ -275,7 +268,7 @@ func (s *ZhajinhuaRoomService) SetPlaying(roomID, gameID string) {
 	}
 }
 
-func (s *ZhajinhuaRoomService) addPlayerLocked(st *zhajinhuaRoomState, userID uint64, username string) (ZhajinhuaRoom, error) {
+func (s *UnoRoomService) addPlayerLocked(st *unoRoomState, userID uint64, username string) (UnoRoom, error) {
 	for _, p := range st.room.Players {
 		if p.UserID == userID {
 			return st.room, nil
@@ -290,7 +283,7 @@ func (s *ZhajinhuaRoomService) addPlayerLocked(st *zhajinhuaRoomState, userID ui
 	return st.room, nil
 }
 
-func (s *ZhajinhuaRoomService) findByUserLocked(userID uint64) *zhajinhuaRoomState {
+func (s *UnoRoomService) findByUserLocked(userID uint64) *unoRoomState {
 	for _, st := range s.rooms {
 		if _, ok := st.userSeats[userID]; ok {
 			return st

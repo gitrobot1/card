@@ -4,6 +4,10 @@ import "math/rand"
 
 func RunAITurns(g *Game, events *[]GameEvent) {
 	for g.Phase == PhasePlaying && !g.IsHumanTurn() && !g.IsFinished() {
+		if !g.isActive(g.CurrentTurn) {
+			g.skipToActiveTurn()
+			continue
+		}
 		seat := g.CurrentTurn
 
 		if g.hasDrawStack() {

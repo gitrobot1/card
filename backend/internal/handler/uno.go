@@ -11,6 +11,7 @@ import (
 
 type UnoHandler struct {
 	Games *service.UnoService
+	Rooms *service.UnoRoomService
 }
 
 type unoStartRequest struct {
@@ -75,6 +76,26 @@ func (h *UnoHandler) Draw(c *gin.Context) {
 	c.JSON(http.StatusOK, state)
 }
 
+func (h *UnoHandler) VoteEnd(c *gin.Context) {
+	userID, _ := currentUser(c)
+	state, err := h.Games.VoteEnd(c.Param("gameId"), userID)
+	if err != nil {
+		writeUnoError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, state)
+}
+
+func (h *UnoHandler) RollFirst(c *gin.Context) {
+	userID, _ := currentUser(c)
+	state, err := h.Games.RollFirst(c.Param("gameId"), userID)
+	if err != nil {
+		writeUnoError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, state)
+}
+
 func (h *UnoHandler) Tick(c *gin.Context) {
 	userID, _ := currentUser(c)
 	state, err := h.Games.Tick(c.Param("gameId"), userID)
@@ -83,6 +104,106 @@ func (h *UnoHandler) Tick(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, state)
+}
+
+type unoReadyRequest struct {
+	Ready bool `json:"ready"`
+}
+
+func (h *UnoHandler) JoinRoom(c *gin.Context) {
+	userID, username := currentUser(c)
+	var req joinRoomRequest
+	_ = c.ShouldBindJSON(&req)
+	var room service.UnoRoom
+	var err error
+	if req.RoomID != "" {
+		room, err = h.Rooms.JoinRoom(req.RoomID, userID, username)
+	} else {
+		room, err = h.Rooms.Join(userID, username)
+	}
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *UnoHandler) GetRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	room, err := h.Rooms.Get(c.Param("roomId"), userID)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *UnoHandler) LeaveRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	room, err := h.Rooms.Leave(c.Param("roomId"), userID)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *UnoHandler) ReadyRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	var req unoReadyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req.Ready = true
+	}
+	room, _, err := h.Rooms.SetReady(c.Param("roomId"), userID, req.Ready)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *UnoHandler) StartRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	room, err := h.Rooms.Start(c.Param("roomId"), userID, h.Games)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *UnoHandler) ReadyNext(c *gin.Context) {
+	userID, _ := currentUser(c)
+	roomID := c.Param("roomId")
+
+	var req unoReadyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
+	room, allReady, err := h.Rooms.SetReadyForNext(roomID, userID, req.Ready)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+
+	if allReady {
+		userIDs, names, err := h.Rooms.PlayersForGame(roomID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		gameID, _, err := h.Games.CreateOnlineGame(userIDs, names)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		h.Rooms.SetPlaying(roomID, gameID)
+		room, _ = h.Rooms.Get(roomID, userID)
+	}
+
+	c.JSON(http.StatusOK, room)
 }
 
 func writeUnoError(c *gin.Context, err error) {
@@ -101,8 +222,14 @@ func writeUnoError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的牌"})
 	case errors.Is(err, uno.ErrInvalidColor):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择有效颜色"})
+	case errors.Is(err, uno.ErrWrongPhase):
+		c.JSON(http.StatusConflict, gin.H{"error": "当前阶段不能执行此操作"})
 	case errors.Is(err, uno.ErrGameOver):
 		c.JSON(http.StatusConflict, gin.H{"error": "本局已结束"})
+	case errors.Is(err, uno.ErrCannotVoteEnd):
+		c.JSON(http.StatusConflict, gin.H{"error": "当前不能投票结束"})
+	case errors.Is(err, uno.ErrAlreadyVoted):
+		c.JSON(http.StatusConflict, gin.H{"error": "你已经同意结束了"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}

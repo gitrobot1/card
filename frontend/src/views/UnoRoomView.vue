@@ -2,20 +2,20 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  fetchZhajinhuaRoom,
-  joinZhajinhuaRoom,
-  leaveZhajinhuaRoom,
-  readyZhajinhuaRoom,
-  startZhajinhuaRoom,
+  fetchUnoRoom,
+  joinUnoRoom,
+  leaveUnoRoom,
+  readyUnoRoom,
+  startUnoRoom,
 } from '../api/games'
 import { loadSession } from '../api/auth'
 import { showToast } from '../composables/useToast'
-import type { ZhajinhuaRoom } from '../types/zhajinhua'
+import type { UnoRoom } from '../types/uno'
 
 const router = useRouter()
 const route = useRoute()
 
-const room = ref<ZhajinhuaRoom | null>(null)
+const room = ref<UnoRoom | null>(null)
 const loading = ref(false)
 const selfReady = ref(false)
 
@@ -42,7 +42,7 @@ const canStart = computed(
 )
 const invitePath = computed(() => {
   if (!room.value) return ''
-  return `/games/zhajinhua/online?room=${room.value.id}`
+  return `/games/uno/online?room=${room.value.id}`
 })
 
 let pollTimer: number | null = null
@@ -51,11 +51,11 @@ function toastError(message: string) {
   showToast(message, 'error')
 }
 
-function goToGame(next: ZhajinhuaRoom) {
+function goToGame(next: UnoRoom) {
   if (next.status !== 'playing' || !next.game_id) return
   stopPolling()
   router.replace({
-    name: 'zhajinhua-play',
+    name: 'uno-play',
     params: { gameId: next.game_id },
     query: { room: next.id },
   })
@@ -64,7 +64,7 @@ function goToGame(next: ZhajinhuaRoom) {
 async function refreshRoom() {
   if (!room.value?.id) return
   try {
-    const next = await fetchZhajinhuaRoom(room.value.id)
+    const next = await fetchUnoRoom(room.value.id)
     room.value = next
     const me = next.players.find((p) => p.user_id === selfUserId.value)
     selfReady.value = me?.ready ?? false
@@ -90,7 +90,7 @@ async function enterRoom() {
   loading.value = true
   try {
     const inviteRoomId = route.query.room as string | undefined
-    room.value = await joinZhajinhuaRoom(inviteRoomId)
+    room.value = await joinUnoRoom(inviteRoomId)
     const me = room.value.players.find((p) => p.user_id === selfUserId.value)
     selfReady.value = me?.ready ?? false
     if (room.value.status === 'playing' && room.value.game_id) {
@@ -110,7 +110,7 @@ async function toggleReady() {
   loading.value = true
   const nextReady = !selfReady.value
   try {
-    room.value = await readyZhajinhuaRoom(room.value.id, nextReady)
+    room.value = await readyUnoRoom(room.value.id, nextReady)
     selfReady.value = nextReady
     goToGame(room.value)
   } catch (err) {
@@ -124,7 +124,7 @@ async function handleStart() {
   if (!room.value || loading.value || !canStart.value) return
   loading.value = true
   try {
-    room.value = await startZhajinhuaRoom(room.value.id)
+    room.value = await startUnoRoom(room.value.id)
     goToGame(room.value)
   } catch (err) {
     toastError(err instanceof Error ? err.message : '开始失败')
@@ -135,18 +135,18 @@ async function handleStart() {
 
 async function handleLeave() {
   if (!room.value) {
-    router.push('/games/zhajinhua')
+    router.push('/games/uno')
     return
   }
   loading.value = true
   try {
-    await leaveZhajinhuaRoom(room.value.id)
+    await leaveUnoRoom(room.value.id)
   } catch {
     // ignore leave errors when navigating away
   } finally {
     loading.value = false
     stopPolling()
-    router.push('/games/zhajinhua')
+    router.push('/games/uno')
   }
 }
 
@@ -170,7 +170,7 @@ onUnmounted(stopPolling)
     <section class="hero">
       <div class="hero__top">
         <div>
-          <p class="hero__tag">扎金花 · 联机</p>
+          <p class="hero__tag">UNO · 联机</p>
           <h1>等待房间</h1>
           <p class="hero__desc">2-8 人，其他玩家准备后房主开始</p>
         </div>

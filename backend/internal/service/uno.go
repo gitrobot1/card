@@ -33,6 +33,23 @@ func (s *UnoService) CreateGame(userID uint64, humanName string, botCount int) (
 	return g.PublicViewForSeat(0, nil), nil
 }
 
+func (s *UnoService) CreateOnlineGame(userIDs []uint64, names []string) (string, uno.PublicState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	g, err := uno.NewOnlineGame(uuid.NewString(), names)
+	if err != nil {
+		return "", uno.PublicState{}, err
+	}
+	seats := make(map[uint64]int, len(userIDs))
+	for i, uid := range userIDs {
+		seats[uid] = i
+	}
+	id := g.ID
+	s.games[id] = &unoBinding{game: g, seats: seats}
+	return id, g.PublicViewForSeat(0, nil), nil
+}
+
 func (s *UnoService) GetState(gameID string, userID uint64) (uno.PublicState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -59,6 +76,51 @@ func (s *UnoService) Draw(gameID string, userID uint64) (uno.PublicState, error)
 	return s.act(gameID, userID, func(g *uno.Game, seat int, ev *[]uno.GameEvent) error {
 		return g.Draw(seat, ev)
 	})
+}
+
+func (s *UnoService) VoteEnd(gameID string, userID uint64) (uno.PublicState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	b, ok := s.games[gameID]
+	if !ok {
+		return uno.PublicState{}, ErrGameNotFound
+	}
+	seat, err := s.seatLocked(b, userID)
+	if err != nil {
+		return uno.PublicState{}, err
+	}
+	var events []uno.GameEvent
+	if err := b.game.VoteEnd(seat, &events); err != nil {
+		return uno.PublicState{}, err
+	}
+	if b.game.HasAI() {
+		uno.RunAIVoteEnd(b.game, &events)
+	}
+	return b.game.PublicViewForSeat(seat, events), nil
+}
+
+func (s *UnoService) RollFirst(gameID string, userID uint64) (uno.PublicState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	b, ok := s.games[gameID]
+	if !ok {
+		return uno.PublicState{}, ErrGameNotFound
+	}
+	seat, err := s.seatLocked(b, userID)
+	if err != nil {
+		return uno.PublicState{}, err
+	}
+	g := b.game
+	if g.Phase != uno.PhaseRollForFirst {
+		return g.PublicViewForSeat(seat, nil), nil
+	}
+	var events []uno.GameEvent
+	if err := g.RollRound(&events); err != nil {
+		return uno.PublicState{}, err
+	}
+	return s.finalize(b, seat, events), nil
 }
 
 func (s *UnoService) Tick(gameID string, userID uint64) (uno.PublicState, error) {

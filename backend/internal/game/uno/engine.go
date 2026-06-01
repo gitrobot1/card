@@ -26,16 +26,19 @@ var (
 type Phase string
 
 const (
-	PhasePlaying  Phase = "playing"
-	PhaseFinished Phase = "finished"
+	PhaseRollForFirst Phase = "roll_for_first"
+	PhasePlaying      Phase = "playing"
+	PhaseFinished     Phase = "finished"
 )
 
 type Player struct {
-	Index     int    `json:"index"`
-	Name      string `json:"name"`
-	IsAI      bool   `json:"is_ai"`
-	Hand      []Card `json:"hand,omitempty"`
-	HandCount int    `json:"hand_count"`
+	Index       int    `json:"index"`
+	Name        string `json:"name"`
+	IsAI        bool   `json:"is_ai"`
+	Hand        []Card `json:"hand,omitempty"`
+	HandCount   int    `json:"hand_count"`
+	Eliminated  bool   `json:"eliminated,omitempty"`
+	FinishRank  int    `json:"finish_rank,omitempty"`
 }
 
 type Game struct {
@@ -50,14 +53,21 @@ type Game struct {
 	DrawCount     int       `json:"draw_count"`
 	DiscardCount  int       `json:"discard_count"`
 	WinnerIndex   *int      `json:"winner_index,omitempty"`
+	Placements    []int     `json:"placements,omitempty"`
+	CanVoteToEnd  bool      `json:"can_vote_to_end,omitempty"`
+	EndVotes      []int     `json:"end_votes,omitempty"`
 	Message       string    `json:"message"`
 	PendingDrawPenalty int  `json:"pending_draw_penalty"`
 	DrawStackWild4Only bool `json:"draw_stack_wild4_only"`
 	MustPlayAfterStack bool `json:"must_play_after_stack"`
+	OpeningTurn        bool      `json:"opening_turn"`
 	TurnDeadlineUnix int64  `json:"turn_deadline_unix"`
 	TurnDeadline  time.Time `json:"-"`
 	drawPile    []Card
 	discardPile []Card
+	rollContenders []int
+	rollRoundSums  map[int]int
+	EliminationNextRank int
 }
 
 type PublicState struct {
@@ -82,22 +92,27 @@ func NewSoloGame(id, humanName string, botCount int) (*Game, error) {
 	return newGame(id, names, isAI, 0)
 }
 
+func NewOnlineGame(id string, names []string) (*Game, error) {
+	if len(names) < MinPlayers || len(names) > MaxPlayers {
+		return nil, fmt.Errorf("player count must be %d-%d", MinPlayers, MaxPlayers)
+	}
+	isAI := make([]bool, len(names))
+	return newGame(id, names, isAI, 0)
+}
+
 func newGame(id string, names []string, isAI []bool, humanSeat int) (*Game, error) {
 	if len(names) < MinPlayers || len(names) > MaxPlayers {
 		return nil, fmt.Errorf("player count must be %d-%d", MinPlayers, MaxPlayers)
 	}
 	g := &Game{
 		ID:          id,
-		Phase:       PhasePlaying,
 		HumanPlayer: humanSeat,
 		Direction:   1,
 	}
 	for i, name := range names {
 		g.Players = append(g.Players, Player{Index: i, Name: name, IsAI: isAI[i]})
 	}
-	g.deal()
-	g.resetTurnTimer()
-	g.Message = fmt.Sprintf("%s 出牌", g.Players[g.CurrentTurn].Name)
+	g.initRollForFirst()
 	return g, nil
 }
 
@@ -108,27 +123,12 @@ func (g *Game) deal() {
 		deck = deck[InitialHand:]
 	}
 	g.drawPile = deck
-	for {
-		if len(g.drawPile) == 0 {
-			g.refillDrawPile()
-		}
-		top := g.drawPile[len(g.drawPile)-1]
-		g.drawPile = g.drawPile[:len(g.drawPile)-1]
-		if IsActionValue(top.Value) && !IsWildCard(top) {
-			g.discardPile = append(g.discardPile, top)
-			continue
-		}
-		g.discardPile = append(g.discardPile, top)
-		g.TopCard = top
-		if IsWildCard(top) {
-			g.CurrentColor = ColorRed
-		} else {
-			g.CurrentColor = top.Color
-		}
-		break
-	}
+	g.discardPile = nil
+	g.TopCard = Card{}
+	g.CurrentColor = ColorRed
+	g.OpeningTurn = true
+	g.initEliminationTracking()
 	g.syncCounts()
-	g.CurrentTurn = 0
 }
 
 func (g *Game) syncCounts() {
@@ -168,6 +168,9 @@ func (g *Game) ensureTurn(seat int) error {
 	if g.Phase != PhasePlaying {
 		return ErrGameOver
 	}
+	if !g.isActive(seat) {
+		return ErrGameOver
+	}
 	if g.CurrentTurn != seat {
 		return ErrNotYourTurn
 	}
@@ -185,6 +188,9 @@ func (g *Game) hasDrawStack() bool {
 func (g *Game) canPlayCard(seat int, card Card) bool {
 	if len(g.Players[seat].Hand) == 1 && IsActionValue(card.Value) {
 		return false
+	}
+	if g.OpeningTurn && seat == g.CurrentTurn {
+		return true
 	}
 	if g.hasDrawStack() {
 		v := Value(card.Value)
@@ -250,9 +256,12 @@ func (g *Game) Play(seat int, cardID string, chosen Color, events *[]GameEvent) 
 	})
 	g.Message = msg
 	g.MustPlayAfterStack = false
+	if g.OpeningTurn {
+		g.OpeningTurn = false
+	}
 
 	if len(p.Hand) == 0 {
-		g.finishWinner(seat, events)
+		g.handleEmptyHand(seat, card, events)
 		return nil
 	}
 
@@ -354,7 +363,13 @@ func (g *Game) resolveTurnAfterPlay(card Card, events *[]GameEvent) {
 
 func (g *Game) nextSeat(seat int) int {
 	n := len(g.Players)
-	return (seat + g.Direction + n) % n
+	for i := 0; i < n; i++ {
+		seat = (seat + g.Direction + n) % n
+		if g.isActive(seat) {
+			return seat
+		}
+	}
+	return seat
 }
 
 func (g *Game) advanceTurn(events *[]GameEvent) {
@@ -364,6 +379,8 @@ func (g *Game) advanceTurn(events *[]GameEvent) {
 }
 
 func (g *Game) finishWinner(seat int, events *[]GameEvent) {
+	g.Players[seat].FinishRank = 1
+	g.Placements = g.buildPlacements()
 	g.Phase = PhaseFinished
 	g.WinnerIndex = &seat
 	p := g.Players[seat]
@@ -456,6 +473,7 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 	for i, p := range g.Players {
 		players[i] = Player{
 			Index: p.Index, Name: p.Name, IsAI: p.IsAI, HandCount: len(p.Hand),
+			Eliminated: p.Eliminated, FinishRank: p.FinishRank,
 		}
 	}
 	var myHand []Card
@@ -467,10 +485,13 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 			ID: g.ID, Phase: g.Phase, Players: players, HumanPlayer: seat,
 			CurrentTurn: g.CurrentTurn, Direction: g.Direction, CurrentColor: g.CurrentColor,
 			TopCard: g.TopCard, DrawCount: g.DrawCount, DiscardCount: g.DiscardCount,
-			WinnerIndex: g.WinnerIndex, Message: g.Message,
+			WinnerIndex: g.WinnerIndex, Placements: append([]int(nil), g.Placements...),
+			CanVoteToEnd: g.CanVoteToEnd, EndVotes: append([]int(nil), g.EndVotes...),
+			Message: g.Message,
 			PendingDrawPenalty: g.PendingDrawPenalty,
 			DrawStackWild4Only: g.DrawStackWild4Only,
 			MustPlayAfterStack: g.MustPlayAfterStack,
+			OpeningTurn:        g.OpeningTurn,
 			TurnDeadlineUnix: g.TurnDeadlineUnix,
 		},
 		MyHand: myHand,

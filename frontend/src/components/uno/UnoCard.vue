@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { UnoCard } from '../../types/uno'
-import { unoColorClass } from '../../types/uno'
+import { unoCardCenterClass, unoColorClass } from '../../types/uno'
 
 const props = defineProps<{
   card: UnoCard
@@ -29,7 +29,7 @@ const props = defineProps<{
       <span class="uno-card__logo">UNO</span>
     </template>
     <template v-else>
-      <span class="uno-card__center">{{ card.label }}</span>
+      <span :class="unoCardCenterClass(card.label)">{{ card.label }}</span>
     </template>
   </div>
 </template>

@@ -3,7 +3,7 @@ package uno
 import "testing"
 
 func TestHumanPlayThenAIActs(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -30,7 +30,7 @@ func TestHumanPlayThenAIActs(t *testing.T) {
 }
 
 func TestAIStackDrawThenPlay(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 1
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -47,7 +47,7 @@ func TestAIStackDrawThenPlay(t *testing.T) {
 }
 
 func TestAIDrawAdvancesTurn(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 1
 	g.CurrentColor = ColorBlue
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}

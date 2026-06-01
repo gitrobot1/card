@@ -7,7 +7,9 @@ import ZhajinhuaModeView from '../views/ZhajinhuaModeView.vue'
 import ZhajinhuaRoomView from '../views/ZhajinhuaRoomView.vue'
 import ZhajinhuaView from '../views/ZhajinhuaView.vue'
 import UnoModeView from '../views/UnoModeView.vue'
+import UnoRoomView from '../views/UnoRoomView.vue'
 import UnoView from '../views/UnoView.vue'
+import DiceDemoView from '../views/DiceDemoView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,6 +25,9 @@ const router = createRouter({
     { path: '/games/zhajinhua/play/:gameId', name: 'zhajinhua-play', component: ZhajinhuaView },
     { path: '/games/uno', name: 'uno-mode', component: UnoModeView },
     { path: '/games/uno/solo', name: 'uno-solo', component: UnoView },
+    { path: '/games/uno/online', name: 'uno-online', component: UnoRoomView },
+    { path: '/games/uno/play/:gameId', name: 'uno-play', component: UnoView },
+    { path: '/dev/dice', name: 'dice-demo', component: DiceDemoView },
   ],
 })
 

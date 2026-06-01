@@ -7,6 +7,9 @@ type GameEvent struct {
 	Card        *Card  `json:"card,omitempty"`
 	Color       Color  `json:"color,omitempty"`
 	Amount      int    `json:"amount,omitempty"`
+	Dice1       int    `json:"dice1,omitempty"`
+	Dice2       int    `json:"dice2,omitempty"`
+	TiedSeats   []int  `json:"tied_seats,omitempty"`
 	Message     string `json:"message,omitempty"`
 }
 

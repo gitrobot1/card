@@ -10,18 +10,57 @@ func TestNewSoloGame(t *testing.T) {
 	if len(g.Players) != 3 {
 		t.Fatalf("expected 3 players, got %d", len(g.Players))
 	}
+	if g.Phase != PhaseRollForFirst {
+		t.Fatalf("expected roll phase, got %s", g.Phase)
+	}
+	g.SkipRollForFirst(0)
+	if g.OpeningTurn != true {
+		t.Fatal("expected opening turn after deal")
+	}
+	if g.TopCard.ID != "" {
+		t.Fatal("expected no starter top card")
+	}
+	if g.DiscardCount != 0 {
+		t.Fatalf("expected empty discard, got %d", g.DiscardCount)
+	}
 	for _, p := range g.Players {
 		if len(p.Hand) != InitialHand {
 			t.Fatalf("expected %d cards, got %d", InitialHand, len(p.Hand))
 		}
 	}
-	if g.TopCard.ID == "" {
-		t.Fatal("expected top card")
+}
+
+func TestOpeningTurnAnyCard(t *testing.T) {
+	g, err := NewSoloGame("test", "玩家", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.SkipRollForFirst(0)
+	if !g.OpeningTurn {
+		t.Fatal("expected opening turn")
+	}
+	g.CurrentTurn = 0
+	g.Players[0].Hand = []Card{
+		{ID: "b3", Color: ColorBlue, Value: "3", Label: "3"},
+		{ID: "y5", Color: ColorYellow, Value: "5", Label: "5"},
+	}
+	if !g.canPlayCard(0, g.Players[0].Hand[0]) {
+		t.Fatal("opening turn should allow any card")
+	}
+	var events []GameEvent
+	if err := g.Play(0, "b3", "", &events); err != nil {
+		t.Fatal(err)
+	}
+	if g.OpeningTurn {
+		t.Fatal("opening turn should end after first play")
+	}
+	if g.TopCard.ID != "b3" {
+		t.Fatal("expected first played card as top")
 	}
 }
 
 func TestPlayMatchingColor(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -39,7 +78,7 @@ func TestPlayMatchingColor(t *testing.T) {
 }
 
 func TestWild4PlayableAnytime(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorBlue, Value: "3", Label: "3"}
 	g.Players[0].Hand = []Card{
@@ -52,7 +91,7 @@ func TestWild4PlayableAnytime(t *testing.T) {
 }
 
 func TestDrawAdvancesTurn(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "9", Label: "9"}
@@ -74,7 +113,7 @@ func TestDrawAdvancesTurn(t *testing.T) {
 }
 
 func TestDraw2Stack(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -125,7 +164,7 @@ func TestDraw2Stack(t *testing.T) {
 }
 
 func TestLastActionCardCannotPlay(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -142,7 +181,7 @@ func TestLastActionCardCannotPlay(t *testing.T) {
 }
 
 func TestLastActionCardCannotStackDraw2(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.PendingDrawPenalty = 2
 	g.Players[0].Hand = []Card{
@@ -154,7 +193,7 @@ func TestLastActionCardCannotStackDraw2(t *testing.T) {
 }
 
 func TestVoluntaryDrawWithPlayableCards(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -176,7 +215,7 @@ func TestVoluntaryDrawWithPlayableCards(t *testing.T) {
 }
 
 func TestStackDrawThenPlay(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -206,7 +245,7 @@ func TestStackDrawThenPlay(t *testing.T) {
 }
 
 func TestStackDrawThenVoluntaryDraw(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}
@@ -246,7 +285,7 @@ func TestStackDrawThenVoluntaryDraw(t *testing.T) {
 }
 
 func TestWild4StackBlocksDraw2(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 1
 	g.PendingDrawPenalty = 4
 	g.DrawStackWild4Only = true
@@ -263,7 +302,7 @@ func TestWild4StackBlocksDraw2(t *testing.T) {
 }
 
 func TestDraw2StackAllowsWild4(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 1
 	g.PendingDrawPenalty = 2
 	g.DrawStackWild4Only = false
@@ -280,7 +319,7 @@ func TestDraw2StackAllowsWild4(t *testing.T) {
 }
 
 func TestSkipForcesNextDraw(t *testing.T) {
-	g, _ := NewSoloGame("test", "玩家", 1)
+	g := readyGame(t, 1)
 	g.CurrentTurn = 0
 	g.CurrentColor = ColorRed
 	g.TopCard = Card{Color: ColorRed, Value: "5", Label: "5"}

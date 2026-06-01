@@ -7,10 +7,7 @@ import (
 )
 
 func TestEightPlayerReverseAIChain(t *testing.T) {
-	g, err := NewSoloGame("test", "玩家", 7)
-	if err != nil {
-		t.Fatal(err)
-	}
+	g := readyGame(t, 7)
 	g.CurrentTurn = 0
 	g.Direction = 1
 	g.CurrentColor = ColorBlue

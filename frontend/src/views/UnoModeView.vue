@@ -8,6 +8,10 @@ const botCount = ref(1)
 function goSolo() {
   router.push({ path: '/games/uno/solo', query: { bots: String(botCount.value) } })
 }
+
+function goOnline() {
+  router.push('/games/uno/online')
+}
 </script>
 
 <template>
@@ -15,8 +19,7 @@ function goSolo() {
     <section class="hero">
       <div class="hero__top">
         <div>
-          <p class="hero__tag">UNO</p>
-          <h1>选择模式</h1>
+          <h1>UNO - 选择模式</h1>
           <p class="hero__desc">先出完手牌者胜 · 2-8 人</p>
         </div>
         <button type="button" class="hero__logout" @click="router.push('/')">← 返回大厅</button>
@@ -38,10 +41,13 @@ function goSolo() {
         </button>
       </div>
 
-      <div class="game-card game-card--disabled">
+      <div class="game-card game-card--setup">
         <span class="game-card__tag game-card__tag--online">联机</span>
         <h2>多人联机</h2>
-        <p>开发中，后续支持 2-8 人联机</p>
+        <p class="zjh-mode__hint">2-8 人，邀请好友同房间对战</p>
+        <button type="button" class="ddz__btn ddz__btn--primary zjh-mode__start" @click="goOnline">
+          进入联机房间
+        </button>
       </div>
     </section>
   </main>
