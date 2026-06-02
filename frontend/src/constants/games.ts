@@ -1,7 +1,7 @@
 export const GAME_ROUTES: Record<string, string | null> = {
   doudizhu: '/games/doudizhu',
   zhajinhua: '/games/zhajinhua',
-  douniu: null,
+  douniu: '/games/douniu',
   sanguosha: null,
   uno: '/games/uno',
 }

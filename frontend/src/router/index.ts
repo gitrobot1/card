@@ -9,6 +9,9 @@ import ZhajinhuaView from '../views/ZhajinhuaView.vue'
 import UnoModeView from '../views/UnoModeView.vue'
 import UnoRoomView from '../views/UnoRoomView.vue'
 import UnoView from '../views/UnoView.vue'
+import DouNiuModeView from '../views/DouNiuModeView.vue'
+import DouNiuRoomView from '../views/DouNiuRoomView.vue'
+import DouNiuView from '../views/DouNiuView.vue'
 import DiceDemoView from '../views/DiceDemoView.vue'
 
 const router = createRouter({
@@ -27,6 +30,10 @@ const router = createRouter({
     { path: '/games/uno/solo', name: 'uno-solo', component: UnoView },
     { path: '/games/uno/online', name: 'uno-online', component: UnoRoomView },
     { path: '/games/uno/play/:gameId', name: 'uno-play', component: UnoView },
+    { path: '/games/douniu', name: 'douniu-mode', component: DouNiuModeView },
+    { path: '/games/douniu/solo', name: 'douniu-solo', component: DouNiuView },
+    { path: '/games/douniu/online', name: 'douniu-online', component: DouNiuRoomView },
+    { path: '/games/douniu/play/:gameId', name: 'douniu-play', component: DouNiuView },
     { path: '/dev/dice', name: 'dice-demo', component: DiceDemoView },
   ],
 })

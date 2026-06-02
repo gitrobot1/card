@@ -13,6 +13,8 @@ withDefaults(
     dealing?: boolean
     /** 仅展示点数，不展示花色（结算亮牌） */
     rankOnly?: boolean
+    /** 斗牛：组成「牛」的点数牌高亮 */
+    niuHighlight?: boolean
   }>(),
   {
     selected: false,
@@ -22,6 +24,7 @@ withDefaults(
     hint: false,
     dealing: false,
     rankOnly: false,
+    niuHighlight: false,
   },
 )
 
@@ -43,6 +46,7 @@ const emit = defineEmits<{ click: [] }>()
         'playing-card--hint': hint,
         'playing-card--dealing': dealing,
         'playing-card--rank-only': rankOnly,
+        'playing-card--niu-highlight': niuHighlight,
       },
     ]"
     :disabled="stacked ? undefined : dealing"

@@ -4,7 +4,11 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function animateOneCardFromCenter(el: HTMLElement, originElement: HTMLElement, duration = 0.2) {
+async function animateOneCardFromCenterInternal(
+  el: HTMLElement,
+  originElement: HTMLElement,
+  duration = 0.2,
+) {
   const originRect = originElement.getBoundingClientRect()
   const originX = originRect.left + originRect.width / 2
   const originY = originRect.top + originRect.height / 2
@@ -46,6 +50,14 @@ async function animateOneCardFromCenter(el: HTMLElement, originElement: HTMLElem
   })
 }
 
+export async function animateOneCardFromCenter(
+  el: HTMLElement,
+  originElement: HTMLElement,
+  duration = 0.2,
+) {
+  await animateOneCardFromCenterInternal(el, originElement, duration)
+}
+
 export async function animateCardsFromCenter(
   cardElements: HTMLElement[],
   originElement: HTMLElement,
@@ -56,7 +68,7 @@ export async function animateCardsFromCenter(
   }
 
   for (let i = 0; i < cardElements.length; i++) {
-    await animateOneCardFromCenter(cardElements[i], originElement)
+    await animateOneCardFromCenterInternal(cardElements[i], originElement)
     if (i < cardElements.length - 1) {
       await sleep(staggerMs)
     }
@@ -72,7 +84,7 @@ export async function animateCardsFromCenterBatch(
   if (cardElements.length === 0) {
     return
   }
-  await Promise.all(cardElements.map((el) => animateOneCardFromCenter(el, originElement, duration)))
+  await Promise.all(cardElements.map((el) => animateOneCardFromCenterInternal(el, originElement, duration)))
 }
 
 export async function animateOpponentDeal(count: number, onTick: (current: number) => void, staggerMs = 45) {

@@ -9,6 +9,7 @@ import (
 	"github.com/time/card/backend/internal/handler"
 	"github.com/time/card/backend/internal/middleware"
 	"github.com/time/card/backend/internal/service"
+	cardws "github.com/time/card/backend/internal/ws"
 	"gorm.io/gorm"
 )
 
@@ -22,6 +23,9 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	zhajinhuaRoomService := service.NewZhajinhuaRoomService()
 	unoService := service.NewUnoService()
 	unoRoomService := service.NewUnoRoomService()
+	douniuService := service.NewDouNiuService()
+	douniuRoomService := service.NewDouNiuRoomService()
+	douniuHub := cardws.NewDouNiuHub()
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
@@ -37,6 +41,11 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	roomHandler := &handler.RoomHandler{Rooms: roomService, DouDizhu: douDizhuService}
 	zhHandler := &handler.ZhajinhuaHandler{Games: zhajinhuaService, Rooms: zhajinhuaRoomService}
 	unoHandler := &handler.UnoHandler{Games: unoService, Rooms: unoRoomService}
+	dnHandler := &handler.DouNiuHandler{Games: douniuService, Rooms: douniuRoomService, Hub: douniuHub}
+	dnWSHandler := &handler.DouNiuWSHandler{Auth: authService, Games: douniuService, Rooms: douniuRoomService, Hub: douniuHub}
+
+	r.GET("/ws/douniu/rooms/:roomId", dnWSHandler.Room)
+	r.GET("/ws/douniu/games/:gameId", dnWSHandler.Game)
 
 	api := r.Group("/api")
 	api.Use(middleware.AuthRequired(authService))
@@ -84,6 +93,18 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 		api.POST("/games/uno/:gameId/vote-end", unoHandler.VoteEnd)
 		api.POST("/games/uno/:gameId/roll-first", unoHandler.RollFirst)
 		api.POST("/games/uno/:gameId/tick", unoHandler.Tick)
+
+		api.POST("/games/douniu/start", dnHandler.Start)
+		api.POST("/games/douniu/rooms/join", dnHandler.JoinRoom)
+		api.GET("/games/douniu/rooms/:roomId", dnHandler.GetRoom)
+		api.POST("/games/douniu/rooms/:roomId/leave", dnHandler.LeaveRoom)
+		api.POST("/games/douniu/rooms/:roomId/ready", dnHandler.ReadyRoom)
+		api.POST("/games/douniu/rooms/:roomId/start", dnHandler.StartRoom)
+		api.POST("/games/douniu/rooms/:roomId/next", dnHandler.ReadyNext)
+		api.GET("/games/douniu/:gameId", dnHandler.GetState)
+		api.POST("/games/douniu/:gameId/grab", dnHandler.GrabBanker)
+		api.POST("/games/douniu/:gameId/bet", dnHandler.PlaceBet)
+		api.POST("/games/douniu/:gameId/tick", dnHandler.Tick)
 	}
 
 	return r

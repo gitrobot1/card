@@ -3,6 +3,7 @@ import { loadSession } from './auth'
 import { parseResponse, readApiError } from './client'
 import type { DouDizhuHint, DouDizhuRoom, DouDizhuState, GameMeta } from '../types/doudizhu'
 import type { ZhajinhuaRoom, ZhajinhuaState } from '../types/zhajinhua'
+import type { DouNiuRoom, DouNiuState } from '../types/douniu'
 import type { UnoRoom, UnoState } from '../types/uno'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -245,6 +246,71 @@ export function startUnoRoom(roomId: string) {
 
 export function nextUnoRoom(roomId: string, ready: boolean) {
   return apiFetch<UnoRoom>(`/api/games/uno/rooms/${roomId}/next`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
+}
+
+export function startDouNiuGame(botCount: number, previousGameId?: string) {
+  return apiFetch<DouNiuState>('/api/games/douniu/start', {
+    method: 'POST',
+    body: JSON.stringify({
+      bot_count: botCount,
+      previous_game_id: previousGameId || undefined,
+    }),
+  })
+}
+
+export function getDouNiuState(gameId: string) {
+  return apiFetch<DouNiuState>(`/api/games/douniu/${gameId}`)
+}
+
+export function grabDouNiuBanker(gameId: string, multiplier: number) {
+  return apiFetch<DouNiuState>(`/api/games/douniu/${gameId}/grab`, {
+    method: 'POST',
+    body: JSON.stringify({ multiplier }),
+  })
+}
+
+export function betDouNiu(gameId: string, multiplier: number) {
+  return apiFetch<DouNiuState>(`/api/games/douniu/${gameId}/bet`, {
+    method: 'POST',
+    body: JSON.stringify({ multiplier }),
+  })
+}
+
+export function tickDouNiuGame(gameId: string) {
+  return apiFetch<DouNiuState>(`/api/games/douniu/${gameId}/tick`, { method: 'POST' })
+}
+
+export function joinDouNiuRoom(roomId?: string) {
+  return apiFetch<DouNiuRoom>('/api/games/douniu/rooms/join', {
+    method: 'POST',
+    body: JSON.stringify(roomId ? { room_id: roomId } : {}),
+  })
+}
+
+export function fetchDouNiuRoom(roomId: string) {
+  return apiFetch<DouNiuRoom>(`/api/games/douniu/rooms/${roomId}`)
+}
+
+export function leaveDouNiuRoom(roomId: string) {
+  return apiFetch<DouNiuRoom>(`/api/games/douniu/rooms/${roomId}/leave`, { method: 'POST' })
+}
+
+export function readyDouNiuRoom(roomId: string, ready: boolean) {
+  return apiFetch<DouNiuRoom>(`/api/games/douniu/rooms/${roomId}/ready`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
+}
+
+export function startDouNiuRoom(roomId: string) {
+  return apiFetch<DouNiuRoom>(`/api/games/douniu/rooms/${roomId}/start`, { method: 'POST' })
+}
+
+export function nextDouNiuRoom(roomId: string, ready: boolean) {
+  return apiFetch<DouNiuRoom>(`/api/games/douniu/rooms/${roomId}/next`, {
     method: 'POST',
     body: JSON.stringify({ ready }),
   })

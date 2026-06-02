@@ -1078,6 +1078,7 @@ watch(
       >
         重新开局
       </button>
+      <div v-else class="zjh__header-spacer" aria-hidden="true" />
     </header>
 
     <section v-if="state" class="zjh__table">
