@@ -3,9 +3,9 @@ package router
 import (
 	"net/http"
 
-	appconfig "github.com/time/card/backend/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
+	appconfig "github.com/time/card/backend/internal/config"
 	"github.com/time/card/backend/internal/handler"
 	"github.com/time/card/backend/internal/middleware"
 	"github.com/time/card/backend/internal/service"
@@ -26,6 +26,7 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	douniuService := service.NewDouNiuService()
 	douniuRoomService := service.NewDouNiuRoomService()
 	douniuHub := cardws.NewDouNiuHub()
+	yuzhoushaService := service.NewYuzhoushaService()
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
@@ -43,6 +44,7 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	unoHandler := &handler.UnoHandler{Games: unoService, Rooms: unoRoomService}
 	dnHandler := &handler.DouNiuHandler{Games: douniuService, Rooms: douniuRoomService, Hub: douniuHub}
 	dnWSHandler := &handler.DouNiuWSHandler{Auth: authService, Games: douniuService, Rooms: douniuRoomService, Hub: douniuHub}
+	yzsHandler := &handler.YuzhoushaHandler{Games: yuzhoushaService}
 
 	r.GET("/ws/douniu/rooms/:roomId", dnWSHandler.Room)
 	r.GET("/ws/douniu/games/:gameId", dnWSHandler.Game)
@@ -105,6 +107,25 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 		api.POST("/games/douniu/:gameId/grab", dnHandler.GrabBanker)
 		api.POST("/games/douniu/:gameId/bet", dnHandler.PlaceBet)
 		api.POST("/games/douniu/:gameId/tick", dnHandler.Tick)
+
+		api.GET("/games/yuzhousha/modes", yzsHandler.Modes)
+		api.GET("/games/yuzhousha/packs", yzsHandler.Packs)
+		api.GET("/games/yuzhousha/heroes", yzsHandler.Heroes)
+		api.POST("/games/yuzhousha/start", yzsHandler.Start)
+		api.GET("/games/yuzhousha/:gameId", yzsHandler.GetState)
+		api.POST("/games/yuzhousha/:gameId/skill", yzsHandler.UseSkill)
+		api.POST("/games/yuzhousha/:gameId/play", yzsHandler.PlayCard)
+		api.POST("/games/yuzhousha/:gameId/shan", yzsHandler.RespondShan)
+		api.POST("/games/yuzhousha/:gameId/respond", yzsHandler.RespondCard)
+		api.POST("/games/yuzhousha/:gameId/pass", yzsHandler.PassResponse)
+		api.POST("/games/yuzhousha/:gameId/bagua", yzsHandler.BaguaJudge)
+		api.POST("/games/yuzhousha/:gameId/end", yzsHandler.EndPlay)
+		api.POST("/games/yuzhousha/:gameId/discard", yzsHandler.DiscardCard)
+		api.POST("/games/yuzhousha/:gameId/prepare/pass", yzsHandler.PassPrepare)
+		api.POST("/games/yuzhousha/:gameId/draw/pass", yzsHandler.PassDraw)
+		api.POST("/games/yuzhousha/:gameId/peek-deck", yzsHandler.FinishPeekDeck)
+		api.POST("/games/yuzhousha/:gameId/guanxing", yzsHandler.FinishGuanxing)
+		api.POST("/games/yuzhousha/:gameId/tick", yzsHandler.Tick)
 	}
 
 	return r

@@ -1,6 +1,6 @@
 # Card Hub
 
-一个卡牌游戏平台，当前已实现 **斗地主（Dou Dizhu）** 的完整单机与联机玩法。后续预留炸金花、斗牛、三国杀、UNO 等游戏入口。
+一个卡牌游戏平台，当前已实现 **斗地主（Dou Dizhu）** 的完整单机与联机玩法。后续预留炸金花、斗牛、宇宙杀、UNO 等游戏入口。
 
 ## 功能概览
 
@@ -112,12 +112,13 @@ card/
 - 联机房间与对局状态当前为 **内存存储**，后端重启后房间数据会丢失
 - 联机模式使用轮询同步状态（约 1.5s），尚未接入 WebSocket
 - 本地敏感配置请勿提交：`backend/config/config.yaml`、`.env` 等
+- **宇宙杀**开发规范与 2v2 测试：见 [`backend/internal/game/yuzhousha/dev-guide.md`](backend/internal/game/yuzhousha/dev-guide.md)
 
 ## 后续规划
 
 - [ ] WebSocket 实时同步
 - [ ] 房间持久化（Redis）
-- [ ] 炸金花、斗牛、三国杀、UNO
+- [ ] 炸金花、斗牛、宇宙杀、UNO
 
 ## License
 

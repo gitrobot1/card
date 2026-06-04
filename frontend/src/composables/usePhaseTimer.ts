@@ -34,16 +34,25 @@ export function usePhaseTimer(
     }
   }
 
+  function startTimer() {
+    clearTimer()
+    updateSeconds()
+    timerId = setInterval(updateSeconds, 200)
+  }
+
+  // 仅在阶段/截止时间变化时重置触发标记，避免 loading 导致 active 闪烁后重复超时
   watch(
-    () => [deadlineUnix.value, phase.value, active.value],
+    () => [deadlineUnix.value, phase.value] as const,
     () => {
       timeoutTriggered = false
-      clearTimer()
-      updateSeconds()
-      timerId = setInterval(updateSeconds, 200)
+      startTimer()
     },
     { immediate: true },
   )
+
+  watch(active, () => {
+    updateSeconds()
+  })
 
   onUnmounted(clearTimer)
 

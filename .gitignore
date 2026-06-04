@@ -48,6 +48,24 @@ lerna-debug.log*
 # =========================
 coverage/
 *.out
+.gocache/
+backend/test/.gocache/
+backend/test/yuzhousha/sim_logs/*.log
+!backend/test/yuzhousha/sim_logs/README.md
+**/__pycache__/
+
+# =========================
+# Frontend dev artifacts
+# =========================
+frontend/.vite/
+frontend/.eslintcache
+*.local
+
+# =========================
+# Cursor / agent local state (keep .cursor/skills tracked)
+# =========================
+.cursor/projects/
+.cursor/plans/
 
 # =========================
 # Go binaries & profiling

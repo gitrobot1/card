@@ -5,6 +5,7 @@ import type { DouDizhuHint, DouDizhuRoom, DouDizhuState, GameMeta } from '../typ
 import type { ZhajinhuaRoom, ZhajinhuaState } from '../types/zhajinhua'
 import type { DouNiuRoom, DouNiuState } from '../types/douniu'
 import type { UnoRoom, UnoState } from '../types/uno'
+import type { YuzhoushaState, YzsModeMeta, YzsPackMeta, YzsHeroesPage, YzsHeroesQuery } from '../types/yuzhousha'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const { apiBaseUrl } = getAppConfig()
@@ -314,4 +315,151 @@ export function nextDouNiuRoom(roomId: string, ready: boolean) {
     method: 'POST',
     body: JSON.stringify({ ready }),
   })
+}
+
+export function fetchYuzhoushaModes() {
+  return apiFetch<{ modes: YzsModeMeta[] }>('/api/games/yuzhousha/modes')
+}
+
+export function fetchYuzhoushaPacks() {
+  return apiFetch<{ packs: YzsPackMeta[] }>('/api/games/yuzhousha/packs')
+}
+
+export function fetchYuzhoushaHeroes(query: YzsHeroesQuery = {}) {
+  const params = new URLSearchParams()
+  if (query.mode) params.set('mode', query.mode)
+  if (query.kingdom) params.set('kingdom', query.kingdom)
+  if (query.pack) params.set('pack', query.pack)
+  if (query.page) params.set('page', String(query.page))
+  if (query.page_size) params.set('page_size', String(query.page_size))
+  const qs = params.toString()
+  return apiFetch<YzsHeroesPage>(`/api/games/yuzhousha/heroes${qs ? `?${qs}` : ''}`)
+}
+
+export function startYuzhoushaGame(characterId: string, mode: '1v1' | '2v2' = '1v1') {
+  return apiFetch<YuzhoushaState>('/api/games/yuzhousha/start', {
+    method: 'POST',
+    body: JSON.stringify({ character_id: characterId, mode }),
+  })
+}
+
+export interface YuzhoushaSkillPayload {
+  targetIndex?: number
+  cardIds?: string[]
+  targetZone?: string
+  targetCardId?: string
+}
+
+export function useYuzhoushaSkill(
+  gameId: string,
+  skillId: string,
+  payload: YuzhoushaSkillPayload = {},
+) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/skill`, {
+    method: 'POST',
+    body: JSON.stringify({
+      skill_id: skillId,
+      target_index: payload.targetIndex ?? 0,
+      card_ids: payload.cardIds ?? [],
+      target_zone: payload.targetZone ?? '',
+      target_card_id: payload.targetCardId ?? '',
+    }),
+  })
+}
+
+export function getYuzhoushaState(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}`)
+}
+
+export interface YuzhoushaPlayTarget {
+  targetIndex: number
+  targetZone?: string
+  targetCardId?: string
+}
+
+export function playYuzhoushaCard(
+  gameId: string,
+  cardId: string,
+  target: number | YuzhoushaPlayTarget,
+) {
+  const body =
+    typeof target === 'number'
+      ? { card_id: cardId, target_index: target }
+      : {
+          card_id: cardId,
+          target_index: target.targetIndex,
+          target_zone: target.targetZone,
+          target_card_id: target.targetCardId,
+        }
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/play`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function respondYuzhoushaShan(gameId: string, cardId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/shan`, {
+    method: 'POST',
+    body: JSON.stringify({ card_id: cardId }),
+  })
+}
+
+export function respondYuzhoushaCard(gameId: string, cardId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/respond`, {
+    method: 'POST',
+    body: JSON.stringify({ card_id: cardId }),
+  })
+}
+
+export function passYuzhoushaResponse(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/pass`, { method: 'POST' })
+}
+
+export function baguaYuzhoushaJudge(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/bagua`, { method: 'POST' })
+}
+
+export function endYuzhoushaPlay(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/end`, { method: 'POST' })
+}
+
+export function discardYuzhoushaCards(gameId: string, cardIds: string[]) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/discard`, {
+    method: 'POST',
+    body: JSON.stringify({ card_ids: cardIds }),
+  })
+}
+
+export function passYuzhoushaPrepare(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/prepare/pass`, {
+    method: 'POST',
+  })
+}
+
+export function passYuzhoushaDraw(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/draw/pass`, {
+    method: 'POST',
+  })
+}
+
+export function finishYuzhoushaPeekDeck(
+  gameId: string,
+  payload: { top_card_ids: string[]; bottom_card_ids: string[] },
+) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/peek-deck`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** @deprecated 使用 finishYuzhoushaPeekDeck */
+export function finishYuzhoushaGuanxing(
+  gameId: string,
+  payload: { top_card_ids: string[]; bottom_card_ids: string[] },
+) {
+  return finishYuzhoushaPeekDeck(gameId, payload)
+}
+
+export function tickYuzhoushaGame(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/tick`, { method: 'POST' })
 }

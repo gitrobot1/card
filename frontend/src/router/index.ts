@@ -1,18 +1,21 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
-import DoudizhuModeView from '../views/DoudizhuModeView.vue'
-import DoudizhuRoomView from '../views/DoudizhuRoomView.vue'
-import DoudizhuView from '../views/DoudizhuView.vue'
-import ZhajinhuaModeView from '../views/ZhajinhuaModeView.vue'
-import ZhajinhuaRoomView from '../views/ZhajinhuaRoomView.vue'
-import ZhajinhuaView from '../views/ZhajinhuaView.vue'
-import UnoModeView from '../views/UnoModeView.vue'
-import UnoRoomView from '../views/UnoRoomView.vue'
-import UnoView from '../views/UnoView.vue'
-import DouNiuModeView from '../views/DouNiuModeView.vue'
-import DouNiuRoomView from '../views/DouNiuRoomView.vue'
-import DouNiuView from '../views/DouNiuView.vue'
-import DiceDemoView from '../views/DiceDemoView.vue'
+import DoudizhuModeView from '../views/doudizhu/DoudizhuModeView.vue'
+import DoudizhuRoomView from '../views/doudizhu/DoudizhuRoomView.vue'
+import DoudizhuView from '../views/doudizhu/DoudizhuView.vue'
+import ZhajinhuaModeView from '../views/zhajinhua/ZhajinhuaModeView.vue'
+import ZhajinhuaRoomView from '../views/zhajinhua/ZhajinhuaRoomView.vue'
+import ZhajinhuaView from '../views/zhajinhua/ZhajinhuaView.vue'
+import UnoModeView from '../views/uno/UnoModeView.vue'
+import UnoRoomView from '../views/uno/UnoRoomView.vue'
+import UnoView from '../views/uno/UnoView.vue'
+import DouNiuModeView from '../views/douniu/DouNiuModeView.vue'
+import DouNiuRoomView from '../views/douniu/DouNiuRoomView.vue'
+import DouNiuView from '../views/douniu/DouNiuView.vue'
+import YuzhoushaModeView from '../views/yuzhousha/YuzhoushaModeView.vue'
+import YuzhoushaPickView from '../views/yuzhousha/YuzhoushaPickView.vue'
+import YuzhoushaView from '../views/yuzhousha/YuzhoushaView.vue'
+import DiceDemoView from '../views/dev/DiceDemoView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -34,6 +37,9 @@ const router = createRouter({
     { path: '/games/douniu/solo', name: 'douniu-solo', component: DouNiuView },
     { path: '/games/douniu/online', name: 'douniu-online', component: DouNiuRoomView },
     { path: '/games/douniu/play/:gameId', name: 'douniu-play', component: DouNiuView },
+    { path: '/games/yuzhousha', name: 'yuzhousha-mode', component: YuzhoushaModeView },
+    { path: '/games/yuzhousha/solo/pick', name: 'yuzhousha-pick', component: YuzhoushaPickView },
+    { path: '/games/yuzhousha/play/:gameId', name: 'yuzhousha-play', component: YuzhoushaView },
     { path: '/dev/dice', name: 'dice-demo', component: DiceDemoView },
   ],
 })

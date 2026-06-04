@@ -6,7 +6,7 @@ const (
 	TypeDouDizhu  Type = "doudizhu"
 	TypeZhajinhua Type = "zhajinhua"
 	TypeDouNiu    Type = "douniu"
-	TypeSanguosha Type = "sanguosha"
+	TypeYuzhousha Type = "yuzhousha"
 	TypeUNO       Type = "uno"
 )
 
@@ -22,7 +22,7 @@ func Catalog() []Meta {
 		{Type: TypeDouDizhu, Name: "斗地主", Description: "三人扑克，抢地主对战", Enabled: true},
 		{Type: TypeZhajinhua, Name: "扎金花", Description: "2-8人比牌，牌型倍率结算", Enabled: true},
 		{Type: TypeDouNiu, Name: "斗牛", Description: "看牌抢庄，2-8人比牛结算", Enabled: true},
-		{Type: TypeSanguosha, Name: "三国杀", Description: "身份策略卡牌，敬请期待", Enabled: false},
+		{Type: TypeYuzhousha, Name: "宇宙杀", Description: "1v1 策略对战，基础杀闪桃", Enabled: true},
 		{Type: TypeUNO, Name: "UNO", Description: "2-8人变色牌，先出完获胜", Enabled: true},
 	}
 }

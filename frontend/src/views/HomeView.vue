@@ -27,7 +27,7 @@ onMounted(async () => {
       { type: 'doudizhu', name: '斗地主', description: '三人扑克，抢地主对战', enabled: true },
       { type: 'zhajinhua', name: '扎金花', description: '比牌博弈，敬请期待', enabled: false },
       { type: 'douniu', name: '斗牛', description: '看牌抢庄，2-8人比牛结算', enabled: true },
-      { type: 'sanguosha', name: '三国杀', description: '身份策略卡牌，敬请期待', enabled: false },
+      { type: 'yuzhousha', name: '宇宙杀', description: '1v1 策略对战，基础杀闪桃', enabled: true },
       { type: 'uno', name: 'UNO', description: '经典变色牌，敬请期待', enabled: false },
     ]
   } finally {

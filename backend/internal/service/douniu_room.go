@@ -201,6 +201,9 @@ func (s *DouNiuRoomService) Start(roomID string, userID uint64, games *DouNiuSer
 	}
 	st.room.Status = "playing"
 	st.room.GameID = gameID
+	for i := range st.room.Players {
+		st.room.Players[i].Ready = false
+	}
 	return st.room, nil
 }
 
