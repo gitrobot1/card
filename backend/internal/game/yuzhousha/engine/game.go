@@ -188,31 +188,11 @@ func (g *Game) finishGame(winner int, events *[]GameEvent) {
 }
 
 func (g *Game) IsHumanPending() bool {
-	if g.IsFinished() {
+	seat := g.PendingActorSeat()
+	if seat < 0 || seat >= len(g.Players) {
 		return false
 	}
-	if g.Phase == PhaseResponse && g.Pending != nil {
-		if g.Pending.TieqiPending && g.Pending.SourceIndex == g.HumanPlayer {
-			return true
-		}
-		if g.Pending.ResponseMode == ResponseModePeekDeck {
-			return g.Pending.TargetIndex == g.HumanPlayer
-		}
-		if g.Pending.ResponseMode == ResponseModeDying {
-			return g.Pending.SourceIndex == g.HumanPlayer
-		}
-		return g.Pending.TargetIndex == g.HumanPlayer
-	}
-	if g.Phase == PhasePlaying && g.TurnStep == StepPrepare && g.CurrentTurn == g.HumanPlayer {
-		return true
-	}
-	if g.Phase == PhasePlaying && g.TurnStep == StepDraw && g.isDrawPhaseChoicePending(g.HumanPlayer) {
-		return true
-	}
-	if g.Phase == PhasePlaying && (g.TurnStep == StepPlay || g.TurnStep == StepDiscard) {
-		return g.CurrentTurn == g.HumanPlayer
-	}
-	return false
+	return !g.Players[seat].IsAI
 }
 
 func (g *Game) IsPhaseExpired() bool {
@@ -226,26 +206,30 @@ func (g *Game) ApplyHumanTimeout(events *[]GameEvent) error {
 	if !g.IsHumanPending() || !g.IsPhaseExpired() {
 		return nil
 	}
+	seat := g.PendingActorSeat()
+	if seat < 0 || seat >= len(g.Players) {
+		return nil
+	}
 	if g.Phase == PhaseResponse {
 		if g.Pending != nil && g.Pending.ResponseMode == ResponseModePeekDeck {
-			return g.autoFinishPeekDeck(g.HumanPlayer, events)
+			return g.autoFinishPeekDeck(seat, events)
 		}
-		if g.Pending != nil && g.Pending.TieqiPending && g.Pending.SourceIndex == g.HumanPlayer {
-			return g.SkipTieqi(g.HumanPlayer, events)
+		if g.Pending != nil && g.Pending.TieqiPending && g.Pending.SourceIndex == seat {
+			return g.SkipTieqi(seat, events)
 		}
-		return g.PassResponse(g.HumanPlayer, events)
+		return g.PassResponse(seat, events)
 	}
 	if g.Phase == PhasePlaying && g.TurnStep == StepPrepare {
-		return g.PassPrepare(g.HumanPlayer, events)
+		return g.PassPrepare(seat, events)
 	}
-	if g.Phase == PhasePlaying && g.TurnStep == StepDraw && g.isDrawPhaseChoicePending(g.HumanPlayer) {
-		return g.PassDrawPhase(g.HumanPlayer, events)
+	if g.Phase == PhasePlaying && g.TurnStep == StepDraw && g.isDrawPhaseChoicePending(seat) {
+		return g.PassDrawPhase(seat, events)
 	}
 	if g.Phase == PhasePlaying && g.TurnStep == StepDiscard {
-		g.autoDiscard(g.HumanPlayer, events)
+		g.autoDiscard(seat, events)
 		return g.endTurn(events)
 	}
-	return g.EndPlay(g.HumanPlayer, events)
+	return g.EndPlay(seat, events)
 }
 
 func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
@@ -292,6 +276,7 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 	var pending *PendingCombat
 	if g.Pending != nil {
 		pc := *g.Pending
+		FillPendingRoles(&pc)
 		if pc.ResponseMode == ResponseModeSkillFanjianSuit && seat == pc.TargetIndex {
 			pc.Card = Card{}
 		}
