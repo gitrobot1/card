@@ -90,6 +90,22 @@ export interface YzsPlayer {
   skill_counters?: Record<string, number>
 }
 
+export interface YuzhoushaRoomPlayer {
+  user_id: number
+  username: string
+  ready: boolean
+  character_id?: string
+}
+
+export interface YuzhoushaRoom {
+  id: string
+  mode?: string
+  status: 'waiting' | 'playing' | string
+  game_id?: string
+  host_user_id: number
+  players: YuzhoushaRoomPlayer[]
+}
+
 export interface YzsPendingCombat {
   source_index: number
   target_index: number

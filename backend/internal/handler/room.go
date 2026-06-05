@@ -16,6 +16,7 @@ type RoomHandler struct {
 
 type joinRoomRequest struct {
 	RoomID string `json:"room_id"`
+	Mode   string `json:"mode"`
 }
 
 type readyRequest struct {
@@ -165,6 +166,10 @@ func writeRoomError(c *gin.Context, err error) {
 		c.JSON(http.StatusConflict, gin.H{"error": "请等待全员准备"})
 	case errors.Is(err, service.ErrZhajinhuaNeedMorePlayers):
 		c.JSON(http.StatusConflict, gin.H{"error": "至少需要 2 人才能开始"})
+	case errors.Is(err, service.ErrHeroNotSelected):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请先选择武将"})
+	case errors.Is(err, service.ErrDuplicateHero):
+		c.JSON(http.StatusConflict, gin.H{"error": "该武将已被其他玩家选择"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}

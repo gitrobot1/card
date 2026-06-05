@@ -8,10 +8,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/time/card/backend/internal/game/yuzhousha/engine"
 	"github.com/time/card/backend/internal/service"
+	cardws "github.com/time/card/backend/internal/ws"
 )
 
 type YuzhoushaHandler struct {
 	Games *service.YuzhoushaService
+	Rooms *service.YuzhoushaRoomService
+	Hub   *cardws.YuzhoushaHub
 }
 
 type yzsPlayRequest struct {
@@ -40,6 +43,14 @@ type yzsSkillRequest struct {
 	CardIDs      []string `json:"card_ids"`
 	TargetZone   string   `json:"target_zone"`
 	TargetCardID string   `json:"target_card_id"`
+}
+
+type yzsReadyRequest struct {
+	Ready bool `json:"ready"`
+}
+
+type yzsSetHeroRequest struct {
+	CharacterID string `json:"character_id"`
 }
 
 func (h *YuzhoushaHandler) Heroes(c *gin.Context) {
@@ -84,6 +95,105 @@ func (h *YuzhoushaHandler) Start(c *gin.Context) {
 	c.JSON(http.StatusOK, state)
 }
 
+func (h *YuzhoushaHandler) JoinRoom(c *gin.Context) {
+	userID, username := currentUser(c)
+	var req joinRoomRequest
+	_ = c.ShouldBindJSON(&req)
+	var room service.YuzhoushaRoom
+	var err error
+	if req.RoomID != "" {
+		room, err = h.Rooms.JoinRoom(req.RoomID, userID, username)
+	} else {
+		room, err = h.Rooms.Join(userID, username, req.Mode)
+	}
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	h.broadcastRoom(room)
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *YuzhoushaHandler) GetRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	room, err := h.Rooms.Get(c.Param("roomId"), userID)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *YuzhoushaHandler) LeaveRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	room, err := h.Rooms.Leave(c.Param("roomId"), userID)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	if room.ID != "" {
+		h.broadcastRoom(room)
+	}
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *YuzhoushaHandler) SetHeroRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	var req yzsSetHeroRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.CharacterID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择武将"})
+		return
+	}
+	room, err := h.Rooms.SetHero(c.Param("roomId"), userID, req.CharacterID)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	h.broadcastRoom(room)
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *YuzhoushaHandler) ReadyRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	var req yzsReadyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req.Ready = true
+	}
+	room, _, err := h.Rooms.SetReady(c.Param("roomId"), userID, req.Ready)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	h.broadcastRoom(room)
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *YuzhoushaHandler) StartRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	room, err := h.Rooms.Start(c.Param("roomId"), userID, h.Games)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	h.broadcastRoom(room)
+	c.JSON(http.StatusOK, room)
+}
+
+func (h *YuzhoushaHandler) ReadyNextRoom(c *gin.Context) {
+	userID, _ := currentUser(c)
+	var req yzsReadyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req.Ready = true
+	}
+	room, _, err := h.Rooms.SetReadyForNext(c.Param("roomId"), userID, req.Ready)
+	if err != nil {
+		writeRoomError(c, err)
+		return
+	}
+	h.broadcastRoom(room)
+	c.JSON(http.StatusOK, room)
+}
+
 func (h *YuzhoushaHandler) UseSkill(c *gin.Context) {
 	var req yzsSkillRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.SkillID == "" {
@@ -102,15 +212,19 @@ func (h *YuzhoushaHandler) UseSkill(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) GetState(c *gin.Context) {
 	userID, _ := currentUser(c)
-	state, err := h.Games.GetState(c.Param("gameId"), userID)
+	gameID := c.Param("gameId")
+	state, err := h.Games.GetState(gameID, userID)
 	if err != nil {
 		writeYuzhoushaError(c, err)
 		return
+	}
+	if len(state.Events) > 0 {
+		h.broadcastGame(gameID, state.Events, userID)
 	}
 	c.JSON(http.StatusOK, state)
 }
@@ -135,7 +249,7 @@ func (h *YuzhoushaHandler) PlayCard(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) RespondShan(c *gin.Context) {
@@ -154,7 +268,7 @@ func (h *YuzhoushaHandler) RespondCard(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) PassResponse(c *gin.Context) {
@@ -164,7 +278,7 @@ func (h *YuzhoushaHandler) PassResponse(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) BaguaJudge(c *gin.Context) {
@@ -174,7 +288,7 @@ func (h *YuzhoushaHandler) BaguaJudge(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) EndPlay(c *gin.Context) {
@@ -184,7 +298,7 @@ func (h *YuzhoushaHandler) EndPlay(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) DiscardCard(c *gin.Context) {
@@ -199,7 +313,7 @@ func (h *YuzhoushaHandler) DiscardCard(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 type yzsPeekDeckRequest struct {
@@ -216,7 +330,7 @@ func (h *YuzhoushaHandler) PassPrepare(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) PassDraw(c *gin.Context) {
@@ -226,7 +340,7 @@ func (h *YuzhoushaHandler) PassDraw(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) FinishPeekDeck(c *gin.Context) {
@@ -244,7 +358,7 @@ func (h *YuzhoushaHandler) FinishPeekDeck(c *gin.Context) {
 		writeYuzhoushaError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) FinishGuanxing(c *gin.Context) {
@@ -253,10 +367,14 @@ func (h *YuzhoushaHandler) FinishGuanxing(c *gin.Context) {
 
 func (h *YuzhoushaHandler) Tick(c *gin.Context) {
 	userID, _ := currentUser(c)
-	state, err := h.Games.Tick(c.Param("gameId"), userID)
+	gameID := c.Param("gameId")
+	state, err := h.Games.Tick(gameID, userID)
 	if err != nil {
 		writeYuzhoushaError(c, err)
 		return
+	}
+	if len(state.Events) > 0 {
+		h.broadcastGame(gameID, state.Events, userID)
 	}
 	c.JSON(http.StatusOK, state)
 }

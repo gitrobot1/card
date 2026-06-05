@@ -2,6 +2,7 @@ import {
   computed,
   inject,
   onMounted,
+  onUnmounted,
   provide,
   ref,
   watch,
@@ -9,6 +10,7 @@ import {
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePhaseTimer } from '../usePhaseTimer'
+import { useYuzhoushaGameSocket } from '../useYuzhoushaSocket'
 import { useYzsTargeting } from './useYzsTargeting'
 import { useYzsHints } from './useYzsHints'
 import { useYzsAnimations } from './useYzsAnimations'
@@ -80,6 +82,14 @@ export function useYzsGameInject() {
 export function useYzsGame() {
 const router = useRouter()
 const route = useRoute()
+const isOnline = computed(() => {
+  const raw = route.query.room
+  return typeof raw === 'string' && raw.length > 0
+})
+const roomId = computed(() => {
+  const raw = route.query.room
+  return typeof raw === 'string' && raw ? raw : ''
+})
 const drawAreaRef = ref<HTMLElement | null>(null)
 const handAreaRef = ref<HTMLElement | null>(null)
 const playAreaRef = ref<HTMLElement | null>(null)
@@ -799,7 +809,6 @@ const { centerHint } = useYzsHints({
   isYijiGive,
   isGanglieOffer,
   isGanglieChoice,
-  isDdzJudgeCancel,
   isFankui,
   isGuicai,
   isGuidao,
@@ -1006,6 +1015,68 @@ const {
   runShaFlyBolt,
   discardActorHint,
 } = animations
+
+const wsGameConnected = ref(false)
+let pollTimer: number | null = null
+
+async function applyRemoteGameState(next: YuzhoushaState) {
+  if (!state.value || loading.value || isDealing.value || isAnimating.value) return
+  if (state.value.id !== next.id) {
+    await applyState(next)
+    return
+  }
+  loading.value = true
+  try {
+    await applyState(next)
+  } finally {
+    loading.value = false
+  }
+}
+
+useYuzhoushaGameSocket({
+  gameId: computed(() => {
+    const fromRoute = route.params.gameId
+    if (typeof fromRoute === 'string' && fromRoute) return fromRoute
+    return state.value?.id ?? ''
+  }),
+  enabled: computed(
+    () => isOnline.value && Boolean(state.value?.id) && state.value?.phase !== 'finished',
+  ),
+  currentState: state,
+  onStatus: (status) => {
+    wsGameConnected.value = status === 'open'
+  },
+  onState: applyRemoteGameState,
+})
+
+function stopPollFallback() {
+  if (pollTimer != null) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function startPollFallback() {
+  if (pollTimer != null) return
+  pollTimer = window.setInterval(async () => {
+    if (!isOnline.value || wsGameConnected.value || !state.value?.id || loading.value || isAnimating.value) {
+      return
+    }
+    try {
+      const next = await getYuzhoushaState(state.value.id)
+      await applyRemoteGameState(next)
+    } catch {
+      // ignore poll errors
+    }
+  }, 5000)
+}
+
+watch(wsGameConnected, (open) => {
+  if (isOnline.value && !open) startPollFallback()
+  else stopPollFallback()
+})
+
+onUnmounted(() => stopPollFallback())
 
 let timeoutInFlight = false
 
@@ -1764,7 +1835,12 @@ async function loadGame(gameId: string) {
     await runInitialDealAnimation(next)
   } catch (err) {
     toastError(err instanceof Error ? err.message : '加载对局失败')
-    await router.replace('/games/yuzhousha/solo/pick')
+    if (isOnline.value && roomId.value) {
+      const mode = state.value?.mode ?? '1v1'
+      await router.replace({ path: '/games/yuzhousha/online', query: { room: roomId.value, mode } })
+    } else {
+      await router.replace('/games/yuzhousha/solo/pick')
+    }
   } finally {
     loading.value = false
   }
@@ -1773,6 +1849,11 @@ async function loadGame(gameId: string) {
 async function restart() {
   selectedId.value = ''
   clearTargeting()
+  if (isOnline.value && roomId.value) {
+    const mode = state.value?.mode ?? '1v1'
+    await router.push({ path: '/games/yuzhousha/online', query: { room: roomId.value, mode } })
+    return
+  }
   const mode = state.value?.mode
   const pickPath =
     mode && mode !== '1v1'

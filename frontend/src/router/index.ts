@@ -15,6 +15,7 @@ import DouNiuView from '../views/douniu/DouNiuView.vue'
 import YuzhoushaModeView from '../views/yuzhousha/YuzhoushaModeView.vue'
 import YuzhoushaPickView from '../views/yuzhousha/YuzhoushaPickView.vue'
 import YuzhoushaView from '../views/yuzhousha/YuzhoushaView.vue'
+import YuzhoushaRoomView from '../views/yuzhousha/YuzhoushaRoomView.vue'
 import DiceDemoView from '../views/dev/DiceDemoView.vue'
 
 const router = createRouter({
@@ -39,6 +40,7 @@ const router = createRouter({
     { path: '/games/douniu/play/:gameId', name: 'douniu-play', component: DouNiuView },
     { path: '/games/yuzhousha', name: 'yuzhousha-mode', component: YuzhoushaModeView },
     { path: '/games/yuzhousha/solo/pick', name: 'yuzhousha-pick', component: YuzhoushaPickView },
+    { path: '/games/yuzhousha/online', name: 'yuzhousha-online', component: YuzhoushaRoomView },
     { path: '/games/yuzhousha/play/:gameId', name: 'yuzhousha-play', component: YuzhoushaView },
     { path: '/dev/dice', name: 'dice-demo', component: DiceDemoView },
   ],

@@ -36,6 +36,104 @@ func NewSolo1v1(id, humanName, humanCharID, aiCharID string) (*Game, error) {
 	})
 }
 
+// NewOnline1v1 创建双人在线 1v1 对局（无 AI）。
+func NewOnline1v1(id string, names [2]string, charIDs [2]string) (*Game, error) {
+	for i, charID := range charIDs {
+		if charID == "" {
+			return nil, fmt.Errorf("player %d character required", i)
+		}
+		if err := validateCharacterIDStatic(charID); err != nil {
+			return nil, err
+		}
+		if err := ValidateHeroForMode(Mode1v1, charID); err != nil {
+			return nil, err
+		}
+	}
+	ch0 := buildCharacter(charIDs[0])
+	ch1 := buildCharacter(charIDs[1])
+	g := &Game{
+		ID:          id,
+		HumanPlayer: 0,
+		Phase:       PhasePlaying,
+		Mode:        Mode1v1,
+	}
+	g.Players = []Player{
+		{Index: 0, Name: names[0], IsAI: false, Character: ch0, MaxHP: ch0.MaxHP, HP: ch0.MaxHP},
+		{Index: 1, Name: names[1], IsAI: false, Character: ch1, MaxHP: ch1.MaxHP, HP: ch1.MaxHP},
+	}
+	return finishSoloSetup(g, fmt.Sprintf("%s 先手，请出牌", names[0]))
+}
+
+// NewOnline2v2 创建四人在线 2v2 对局（无 AI）。座位：0 下、1 敌左、2 队友、3 敌右。
+func NewOnline2v2(id string, names [4]string, charIDs [4]string) (*Game, error) {
+	used := map[string]bool{}
+	for i, charID := range charIDs {
+		if charID == "" {
+			return nil, fmt.Errorf("player %d character required", i)
+		}
+		if err := validateCharacterIDStatic(charID); err != nil {
+			return nil, err
+		}
+		if err := ValidateHeroForMode(Mode2v2, charID); err != nil {
+			return nil, err
+		}
+		if used[charID] {
+			return nil, fmt.Errorf("duplicate hero in 2v2 lineup: %s", charID)
+		}
+		used[charID] = true
+	}
+	g := &Game{
+		ID:          id,
+		HumanPlayer: 0,
+		Phase:       PhasePlaying,
+		Mode:        Mode2v2,
+	}
+	g.Players = make([]Player, 4)
+	for i := range names {
+		ch := buildCharacter(charIDs[i])
+		g.Players[i] = Player{
+			Index: i, Name: names[i], IsAI: false,
+			Character: ch, MaxHP: ch.MaxHP, HP: ch.MaxHP,
+		}
+	}
+	return finishSoloSetup(g, fmt.Sprintf("2v2：%s 先手（十字阵）", names[0]))
+}
+
+// NewOnline3pChain 创建三人在线杀上保下对局（无 AI）。座位：0 下、1 下家、2 上家。
+func NewOnline3pChain(id string, names [3]string, charIDs [3]string) (*Game, error) {
+	used := map[string]bool{}
+	for i, charID := range charIDs {
+		if charID == "" {
+			return nil, fmt.Errorf("player %d character required", i)
+		}
+		if err := validateCharacterIDStatic(charID); err != nil {
+			return nil, err
+		}
+		if err := ValidateHeroForMode(Mode3pChain, charID); err != nil {
+			return nil, err
+		}
+		if used[charID] {
+			return nil, fmt.Errorf("duplicate hero in 3p chain lineup: %s", charID)
+		}
+		used[charID] = true
+	}
+	g := &Game{
+		ID:          id,
+		HumanPlayer: 0,
+		Phase:       PhasePlaying,
+		Mode:        Mode3pChain,
+	}
+	g.Players = make([]Player, 3)
+	for i := range names {
+		ch := buildCharacter(charIDs[i])
+		g.Players[i] = Player{
+			Index: i, Name: names[i], IsAI: false,
+			Character: ch, MaxHP: ch.MaxHP, HP: ch.MaxHP,
+		}
+	}
+	return finishSoloSetup(g, fmt.Sprintf("杀上保下：%s 先手", names[0]))
+}
+
 func NewSolo2v2(id, humanName, humanCharID string) (*Game, error) {
 	return setupSolo2v2(soloStartParams{gameID: id, humanName: humanName, humanCharID: humanCharID})
 }

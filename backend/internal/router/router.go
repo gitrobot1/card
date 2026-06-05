@@ -27,6 +27,8 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	douniuRoomService := service.NewDouNiuRoomService()
 	douniuHub := cardws.NewDouNiuHub()
 	yuzhoushaService := service.NewYuzhoushaService()
+	yuzhoushaRoomService := service.NewYuzhoushaRoomService()
+	yuzhoushaHub := cardws.NewYuzhoushaHub()
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery(), corsMiddleware())
@@ -44,10 +46,13 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 	unoHandler := &handler.UnoHandler{Games: unoService, Rooms: unoRoomService}
 	dnHandler := &handler.DouNiuHandler{Games: douniuService, Rooms: douniuRoomService, Hub: douniuHub}
 	dnWSHandler := &handler.DouNiuWSHandler{Auth: authService, Games: douniuService, Rooms: douniuRoomService, Hub: douniuHub}
-	yzsHandler := &handler.YuzhoushaHandler{Games: yuzhoushaService}
+	yzsHandler := &handler.YuzhoushaHandler{Games: yuzhoushaService, Rooms: yuzhoushaRoomService, Hub: yuzhoushaHub}
+	yzsWSHandler := &handler.YuzhoushaWSHandler{Auth: authService, Games: yuzhoushaService, Rooms: yuzhoushaRoomService, Hub: yuzhoushaHub}
 
 	r.GET("/ws/douniu/rooms/:roomId", dnWSHandler.Room)
 	r.GET("/ws/douniu/games/:gameId", dnWSHandler.Game)
+	r.GET("/ws/yuzhousha/rooms/:roomId", yzsWSHandler.Room)
+	r.GET("/ws/yuzhousha/games/:gameId", yzsWSHandler.Game)
 
 	api := r.Group("/api")
 	api.Use(middleware.AuthRequired(authService))
@@ -112,6 +117,13 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 		api.GET("/games/yuzhousha/packs", yzsHandler.Packs)
 		api.GET("/games/yuzhousha/heroes", yzsHandler.Heroes)
 		api.POST("/games/yuzhousha/start", yzsHandler.Start)
+		api.POST("/games/yuzhousha/rooms/join", yzsHandler.JoinRoom)
+		api.GET("/games/yuzhousha/rooms/:roomId", yzsHandler.GetRoom)
+		api.POST("/games/yuzhousha/rooms/:roomId/leave", yzsHandler.LeaveRoom)
+		api.POST("/games/yuzhousha/rooms/:roomId/hero", yzsHandler.SetHeroRoom)
+		api.POST("/games/yuzhousha/rooms/:roomId/ready", yzsHandler.ReadyRoom)
+		api.POST("/games/yuzhousha/rooms/:roomId/start", yzsHandler.StartRoom)
+		api.POST("/games/yuzhousha/rooms/:roomId/next", yzsHandler.ReadyNextRoom)
 		api.GET("/games/yuzhousha/:gameId", yzsHandler.GetState)
 		api.POST("/games/yuzhousha/:gameId/skill", yzsHandler.UseSkill)
 		api.POST("/games/yuzhousha/:gameId/play", yzsHandler.PlayCard)

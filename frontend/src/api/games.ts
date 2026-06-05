@@ -5,7 +5,7 @@ import type { DouDizhuHint, DouDizhuRoom, DouDizhuState, GameMeta } from '../typ
 import type { ZhajinhuaRoom, ZhajinhuaState } from '../types/zhajinhua'
 import type { DouNiuRoom, DouNiuState } from '../types/douniu'
 import type { UnoRoom, UnoState } from '../types/uno'
-import type { YuzhoushaState, YzsModeMeta, YzsPackMeta, YzsHeroesPage, YzsHeroesQuery } from '../types/yuzhousha'
+import type { YuzhoushaState, YzsModeMeta, YzsPackMeta, YzsHeroesPage, YzsHeroesQuery, YuzhoushaRoom } from '../types/yuzhousha'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const { apiBaseUrl } = getAppConfig()
@@ -336,7 +336,7 @@ export function fetchYuzhoushaHeroes(query: YzsHeroesQuery = {}) {
   return apiFetch<YzsHeroesPage>(`/api/games/yuzhousha/heroes${qs ? `?${qs}` : ''}`)
 }
 
-export function startYuzhoushaGame(characterId: string, mode: '1v1' | '2v2' = '1v1') {
+export function startYuzhoushaGame(characterId: string, mode = '1v1') {
   return apiFetch<YuzhoushaState>('/api/games/yuzhousha/start', {
     method: 'POST',
     body: JSON.stringify({ character_id: characterId, mode }),
@@ -462,4 +462,44 @@ export function finishYuzhoushaGuanxing(
 
 export function tickYuzhoushaGame(gameId: string) {
   return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/tick`, { method: 'POST' })
+}
+
+export function joinYuzhoushaRoom(payload: { room_id?: string; mode?: string } = {}) {
+  return apiFetch<YuzhoushaRoom>('/api/games/yuzhousha/rooms/join', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function fetchYuzhoushaRoom(roomId: string) {
+  return apiFetch<YuzhoushaRoom>(`/api/games/yuzhousha/rooms/${roomId}`)
+}
+
+export function leaveYuzhoushaRoom(roomId: string) {
+  return apiFetch<YuzhoushaRoom>(`/api/games/yuzhousha/rooms/${roomId}/leave`, { method: 'POST' })
+}
+
+export function setYuzhoushaRoomHero(roomId: string, characterId: string) {
+  return apiFetch<YuzhoushaRoom>(`/api/games/yuzhousha/rooms/${roomId}/hero`, {
+    method: 'POST',
+    body: JSON.stringify({ character_id: characterId }),
+  })
+}
+
+export function readyYuzhoushaRoom(roomId: string, ready = true) {
+  return apiFetch<YuzhoushaRoom>(`/api/games/yuzhousha/rooms/${roomId}/ready`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
+}
+
+export function startYuzhoushaRoom(roomId: string) {
+  return apiFetch<YuzhoushaRoom>(`/api/games/yuzhousha/rooms/${roomId}/start`, { method: 'POST' })
+}
+
+export function nextYuzhoushaRoom(roomId: string, ready = true) {
+  return apiFetch<YuzhoushaRoom>(`/api/games/yuzhousha/rooms/${roomId}/next`, {
+    method: 'POST',
+    body: JSON.stringify({ ready }),
+  })
 }
