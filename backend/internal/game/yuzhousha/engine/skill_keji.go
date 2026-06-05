@@ -24,7 +24,8 @@ func (g *Game) kejiSkipsDiscard(seat int) bool {
 
 func (g *Game) finishPlayWithKejiOrDiscard(seat int, events *[]GameEvent) error {
 	p := &g.Players[seat]
-	if len(p.Hand) <= p.HP {
+	cap := g.handRetainLimit(seat)
+	if len(p.Hand) <= cap {
 		return g.endTurn(events)
 	}
 	if g.kejiSkipsDiscard(seat) {
@@ -39,7 +40,7 @@ func (g *Game) finishPlayWithKejiOrDiscard(seat int, events *[]GameEvent) error 
 		})
 		return g.endTurn(events)
 	}
-	need := len(p.Hand) - p.HP
+	need := len(p.Hand) - cap
 	g.TurnStep = StepDiscard
 	g.Message = fmt.Sprintf("%s 请一次选择 %d 张牌弃到牌桌", p.Name, need)
 	g.resetTimer()

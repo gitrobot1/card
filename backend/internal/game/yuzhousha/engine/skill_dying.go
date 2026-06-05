@@ -217,6 +217,44 @@ func (g *Game) resolveDyingSaved(events *[]GameEvent) error {
 	return nil
 }
 
+// scatterPlayerCardsOnDeath 阵亡后将手牌、装备、判定区与「营」中牌置入弃牌堆。
+func (g *Game) scatterPlayerCardsOnDeath(seat int, events *[]GameEvent) {
+	if seat < 0 || seat >= len(g.Players) {
+		return
+	}
+	p := &g.Players[seat]
+	var toDiscard []Card
+	if len(p.Hand) > 0 {
+		toDiscard = append(toDiscard, p.Hand...)
+		p.Hand = nil
+	}
+	for _, slot := range []*Card{p.Weapon, p.Armor, p.PlusHorse, p.MinusHorse} {
+		if slot != nil {
+			toDiscard = append(toDiscard, *slot)
+		}
+	}
+	p.Weapon, p.Armor, p.PlusHorse, p.MinusHorse = nil, nil, nil, nil
+	if len(p.JudgeArea) > 0 {
+		toDiscard = append(toDiscard, p.JudgeArea...)
+		p.JudgeArea = nil
+	}
+	if len(p.CampCards) > 0 {
+		toDiscard = append(toDiscard, p.CampCards...)
+		p.CampCards = nil
+	}
+	if len(toDiscard) == 0 {
+		return
+	}
+	g.DiscardPile = append(g.DiscardPile, toDiscard...)
+	g.syncCounts()
+	*events = append(*events, GameEvent{
+		Type:        "death_scatter",
+		PlayerIndex: seat,
+		Message:     fmt.Sprintf("%s 阵亡，弃置所有牌", p.Name),
+		Amount:      len(toDiscard),
+	})
+}
+
 func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 	ctx := g.dyingContext
 	victim := 0
@@ -228,6 +266,7 @@ func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 	g.dyingContext = nil
 	g.Pending = nil
 	if victim >= 0 && victim < len(g.Players) {
+		g.scatterPlayerCardsOnDeath(victim, events)
 		*events = append(*events, GameEvent{
 			Type:        "dying_death",
 			PlayerIndex: victim,

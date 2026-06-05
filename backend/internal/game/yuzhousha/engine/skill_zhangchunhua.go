@@ -19,6 +19,7 @@ func (g *Game) finishJueqingDeath(source, target int, events *[]GameEvent) bool 
 		SkillID:     skill.IDJueqing,
 		Message:     msg,
 	})
+	g.scatterPlayerCardsOnDeath(target, events)
 	if g.checkTeamElimination(events) {
 		return true
 	}

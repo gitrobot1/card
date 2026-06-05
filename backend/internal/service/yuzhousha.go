@@ -81,6 +81,33 @@ func (s *YuzhoushaService) CreateOnlineGame(roomMode string, userIDs []uint64, n
 		copy(nameArr[:], names)
 		copy(charArr[:], charIDs)
 		g, err = engine.NewOnline3pChain(id, nameArr, charArr)
+	case engine.Mode3v3:
+		if n != 6 {
+			return "", fmt.Errorf("online 3v3 requires exactly 6 players")
+		}
+		var nameArr [6]string
+		var charArr [6]string
+		copy(nameArr[:], names)
+		copy(charArr[:], charIDs)
+		g, err = engine.NewOnline3v3(id, nameArr, charArr)
+	case engine.ModeIdentity5:
+		if n != 5 {
+			return "", fmt.Errorf("online identity_5 requires exactly 5 players")
+		}
+		var nameArr [5]string
+		var charArr [5]string
+		copy(nameArr[:], names)
+		copy(charArr[:], charIDs)
+		g, err = engine.NewOnlineIdentity5(id, nameArr, charArr)
+	case engine.ModeIdentity8:
+		if n != 8 {
+			return "", fmt.Errorf("online identity_8 requires exactly 8 players")
+		}
+		var nameArr [8]string
+		var charArr [8]string
+		copy(nameArr[:], names)
+		copy(charArr[:], charIDs)
+		g, err = engine.NewOnlineIdentity8(id, nameArr, charArr)
 	default:
 		return "", ErrOnlineModeUnknown
 	}

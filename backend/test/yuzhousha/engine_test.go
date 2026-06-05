@@ -841,6 +841,37 @@ func TestWuguDistributesCards(t *testing.T) {
 	}
 }
 
+func TestDeathScattersPlayerCards(t *testing.T) {
+	lineup := [5]string{
+		engine.CharLiuBei,
+		engine.CharGuanYu,
+		engine.CharZhangFei,
+		engine.CharZhaoYun,
+		engine.CharZhugeLiang,
+	}
+	roles := [5]string{"lord", "loyalist", "rebel", "rebel", "spy"}
+	g, err := engine.NewSoloIdentity5WithHeroes("death-scatter", lineup, roles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	victim := 2
+	g.Players[victim].Hand = []engine.Card{{ID: "h1", Kind: engine.CardSha, Name: "杀"}}
+	g.Players[victim].Weapon = &engine.Card{ID: "w1", Kind: engine.CardWeapon1, Name: "诸葛连弩"}
+	g.Players[victim].JudgeArea = []engine.Card{{ID: "j1", Kind: engine.CardLeBu, Name: "乐不思蜀"}}
+	discardBefore := len(g.DiscardPile)
+	var events []engine.GameEvent
+	if err := g.ResolveDyingDeathForTest(victim, 0, &events); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Players[victim].Hand) != 0 || g.Players[victim].Weapon != nil || len(g.Players[victim].JudgeArea) != 0 {
+		t.Fatalf("expected victim cards cleared, hand=%d weapon=%v judge=%d",
+			len(g.Players[victim].Hand), g.Players[victim].Weapon, len(g.Players[victim].JudgeArea))
+	}
+	if len(g.DiscardPile)-discardBefore != 3 {
+		t.Fatalf("expected 3 cards scattered to discard, got %d", len(g.DiscardPile)-discardBefore)
+	}
+}
+
 func TestDeckCanExceed52Cards(t *testing.T) {
 	deck := engine.NewBasicDeck()
 	if len(deck) <= 52 {

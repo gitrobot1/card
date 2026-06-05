@@ -123,6 +123,12 @@ func forceProgress(g *engine.Game, events *[]engine.GameEvent) error {
 			return g.PassResponse(seat, events)
 		case engine.ResponseModeWuguPick:
 			return g.AutoPickWuguForSim(events)
+		case engine.ResponseModeSkillFankui:
+			seat, ok := responseActor(g)
+			if !ok {
+				return fmt.Errorf("no fankui actor")
+			}
+			return g.PassFankui(seat, events)
 		}
 		seat, ok := responseActor(g)
 		if !ok {
@@ -160,7 +166,8 @@ func forceProgress(g *engine.Game, events *[]engine.GameEvent) error {
 type simResult struct {
 	steps    int
 	finished bool
-	stuck    bool
+	stuck    bool // fingerprint 不变或 forceProgress 失败
+	timeout  bool // 达到 maxSteps 仍未结束
 }
 
 func appendEventTrail(trail []engine.GameEvent, events []engine.GameEvent) []engine.GameEvent {
@@ -224,7 +231,7 @@ func runAISimulation(t *testing.T, g *engine.Game, maxSteps int) simRun {
 		result: simResult{
 			steps:    steps,
 			finished: g.IsFinished(),
-			stuck:    !g.IsFinished(),
+			timeout:  !g.IsFinished(),
 		},
 		lastEvents: trail,
 		stuckAtFP:  stuckAtFP,

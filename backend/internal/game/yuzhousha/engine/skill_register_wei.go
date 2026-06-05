@@ -129,8 +129,20 @@ func fankuiAIActivate(r skill.Runtime, seat int) error {
 	if source < 0 {
 		return r.PassFankui(seat)
 	}
-	if id := r.FirstTakeableCardID(source); id != "" {
-		return r.FankuiTakeFrom(seat, "hand", id)
+	gr, ok := r.(*gameSkillRuntime)
+	if !ok {
+		if id := r.FirstTakeableCardID(source); id != "" {
+			return r.FankuiTakeFrom(seat, "hand", id)
+		}
+		return r.PassFankui(seat)
+	}
+	p := &gr.g.Players[source]
+	if len(p.Hand) > 0 {
+		return r.FankuiTakeFrom(seat, "hand", p.Hand[0].ID)
+	}
+	zone, id := aiPickTakeTarget(gr.g, source)
+	if id != "" {
+		return r.FankuiTakeFrom(seat, zone, id)
 	}
 	return r.PassFankui(seat)
 }

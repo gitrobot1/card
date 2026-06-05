@@ -34,6 +34,12 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			}
 			return true
 		}
+		if pending.WindowKind == WindowKindTake && g.takeWindow != nil {
+			return g.autoTakeWindowIfNeeded(events)
+		}
+		if pending.WindowKind == WindowKindDiscard && g.discardWindow != nil {
+			return g.autoDiscardWindowIfNeeded(events)
+		}
 		if pending.ResponseMode == ResponseModeSkillGuicai {
 			seat := pending.TargetIndex
 			if !g.Players[seat].IsAI {
@@ -70,21 +76,6 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 				_ = lh.AIActivate(rt, seat)
 			} else {
 				_ = g.PassLeijiOffer(seat, events)
-			}
-			return true
-		}
-		if pending.ResponseMode == ResponseModeSkillFankui {
-			seat := pending.TargetIndex
-			if !g.Players[seat].IsAI {
-				return false
-			}
-			rt := g.skillRuntime(events)
-			if fh, ok := skill.Lookup(SkillFankui); ok && fh.CanActivate(rt, seat) {
-				if err := fh.AIActivate(rt, seat); err != nil {
-					_ = g.PassFankui(seat, events)
-				}
-			} else {
-				_ = g.PassFankui(seat, events)
 			}
 			return true
 		}
@@ -150,50 +141,6 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			}
 			return true
 		}
-		if pending.ResponseMode == ResponseModeSkillTuxi {
-			seat := pending.TargetIndex
-			if !g.Players[seat].IsAI {
-				return false
-			}
-			rt := g.skillRuntime(events)
-			if th, ok := skill.Lookup(SkillTuxi); ok && th.CanActivate(rt, seat) {
-				if err := th.AIActivate(rt, seat); err != nil {
-					_ = g.PassTuxi(seat, events)
-				}
-			} else {
-				_ = g.PassTuxi(seat, events)
-			}
-			return true
-		}
-		if pending.ResponseMode == ResponseModeSkillPojun {
-			seat := pending.SourceIndex
-			if !g.Players[seat].IsAI {
-				return false
-			}
-			rt := g.skillRuntime(events)
-			if ph, ok := skill.Lookup(SkillPojun); ok && ph.CanActivate(rt, seat) {
-				if err := ph.AIActivate(rt, seat); err != nil {
-					_ = g.PassPojun(seat, events)
-				}
-			} else {
-				_ = g.PassPojun(seat, events)
-			}
-			return true
-		}
-		if pending.ResponseMode == ResponseModeSkillPojunDiscard {
-			seat := pending.TargetIndex
-			if !g.Players[seat].IsAI {
-				return false
-			}
-			for g.Pending != nil && g.Pending.ResponseMode == ResponseModeSkillPojunDiscard &&
-				g.Pending.PojunRemaining > 0 && len(g.Players[seat].CampCards) > 0 {
-				cardID := g.Players[seat].CampCards[0].ID
-				if err := g.PojunDiscardCamp(seat, cardID, events); err != nil {
-					break
-				}
-			}
-			return true
-		}
 		if pending.ResponseMode == ResponseModeSkillFanjianSuit {
 			seat := pending.TargetIndex
 			if !g.Players[seat].IsAI {
@@ -215,16 +162,6 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			} else {
 				_ = g.PassTianxiang(seat, events)
 			}
-			return true
-		}
-		if pending.ResponseMode == ResponseModeSkillQixi {
-			seat := pending.TargetIndex
-			if !g.Players[seat].IsAI {
-				return false
-			}
-			zone, cardID := g.aiPickHandTakeTarget(g.Pending.SourceIndex)
-			_ = g.QixiTakeFrom(seat, cardID, events)
-			_ = zone
 			return true
 		}
 		if pending.ResponseMode == ResponseModeSkillYinghun {

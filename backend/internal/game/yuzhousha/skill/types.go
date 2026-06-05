@@ -73,6 +73,10 @@ type Runtime interface {
 	PendingRequiredKind() string
 	PendingResponseMode() string
 	PendingTargetSeat() int
+	PendingWindowKind() string
+	PendingActorSeat() int
+	PendingSubjectSeat() int
+	PendingOriginSeat() int
 	CardPlaysAs(seat int, cardKind, asKind, suit string) bool
 	HandPlaysAs(seat int, asKind string) bool
 	AlivePlayerCount() int
@@ -90,6 +94,9 @@ type Runtime interface {
 	PendingTieqiForSource(seat int) bool
 	FankuiTakeFrom(seat int, zone, cardID string) error
 	PassFankui(seat int) error
+	TakeOne(actor int, zone, cardID string) error
+	PassTake(actor int) error
+	DiscardWindowOne(actor int, cardID string) error
 	PendingFankuiFor(seat int) bool
 	FankuiSourceSeat(actor int) int
 	FirstTakeableCardID(target int) string

@@ -343,7 +343,7 @@ func assertSimFinished(t *testing.T, g *engine.Game, ctx simContext, run simRun)
 		reportSimFailure(t, g, ctx, run)
 		t.FailNow()
 	}
-	if !run.result.finished {
+	if run.result.timeout || !run.result.finished {
 		ctx.Reason = "timeout"
 		reportSimFailure(t, g, ctx, run)
 		t.FailNow()

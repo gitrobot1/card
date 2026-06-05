@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	counterQixiUsed        = "qixi_used_play"
-	ResponseModeSkillQixi  = "skill_qixi"
+	counterQixiUsed       = "qixi_used_play"
+	ResponseModeSkillQixi = "skill_qixi"
 )
 
 func (g *Game) hasBlackHandCard(seat int) bool {
@@ -49,46 +49,29 @@ func (g *Game) ActivateQixi(seat int, cardID string, events *[]GameEvent) error 
 	g.runCardsDiscardedHooks(seat, "cost", []Card{discarded}, events)
 	g.setSkillCounter(seat, counterQixiUsed, 1)
 
-	g.Phase = PhaseResponse
-	g.Pending = &PendingCombat{
-		SourceIndex:  opp,
-		TargetIndex:  seat,
-		ReturnIndex:  seat,
-		ResponseMode: ResponseModeSkillQixi,
-		SkillID:      skill.IDQixi,
-	}
 	msg := fmt.Sprintf("%s 发动【奇袭】，请选择获得 %s 的一张手牌", g.Players[seat].Name, g.Players[opp].Name)
-	g.Message = msg
-	g.appendSkillEvent(events, skill.IDQixi, seat, opp, msg)
-	g.resetTimer()
-	return nil
+	actor := seat
+	return g.OpenTakeWindow(TakeWindowConfig{
+		SkillID:         skill.IDQixi,
+		ResponseMode:    ResponseModeSkillQixi,
+		ActorSeat:       seat,
+		SubjectSeat:     opp,
+		OriginSeat:      seat,
+		MaxTake:         1,
+		AllowedZones:    []ZoneID{ZoneHand},
+		Destination:     TakeDestination{Zone: ZoneHand, Seat: seat},
+		Message:         msg,
+		EventType:       "qixi_take",
+		SkillEventLabel: "奇袭",
+		OnComplete: func(g *Game, events *[]GameEvent) error {
+			return g.finishQixi(actor, events)
+		},
+	}, events)
 }
 
+// QixiTakeFrom 奇袭拿牌（TakeWindow 薄封装）。
 func (g *Game) QixiTakeFrom(seat int, cardID string, events *[]GameEvent) error {
-	if g.Pending == nil || g.Pending.ResponseMode != ResponseModeSkillQixi || g.Pending.TargetIndex != seat {
-		return ErrWrongPhase
-	}
-	source := g.Pending.SourceIndex
-	spec := PlayTarget{SeatIndex: source, Zone: "hand", CardID: cardID}
-	if cardID == "" && len(g.Players[source].Hand) > 0 {
-		spec.CardID = g.Players[source].Hand[0].ID
-	}
-	card, label, ok := g.takeTargetCard(source, spec, events)
-	if !ok {
-		return ErrInvalidTarget
-	}
-	g.Players[seat].Hand = append(g.Players[seat].Hand, card)
-	g.syncCounts()
-	msg := fmt.Sprintf("%s 发动【奇袭】，获得 %s 的%s", g.Players[seat].Name, g.Players[source].Name, label)
-	g.appendSkillEvent(events, skill.IDQixi, seat, source, msg)
-	*events = append(*events, GameEvent{
-		Type:        "qixi_take",
-		PlayerIndex: seat,
-		TargetIndex: source,
-		Card:        &card,
-		Message:     msg,
-	})
-	return g.finishQixi(seat, events)
+	return g.TakeOne(seat, ZoneHand, cardID, events)
 }
 
 func (g *Game) finishQixi(seat int, events *[]GameEvent) error {

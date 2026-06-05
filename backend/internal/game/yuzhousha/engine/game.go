@@ -48,6 +48,8 @@ type Game struct {
 	RoleRevealed     []bool
 	WinnerTeam       *int
 	testRand         *rand.Rand // sim/tests: fixed shuffle source
+	takeWindow       *takeWindowState
+	discardWindow    *discardWindowState
 }
 
 type PublicState struct {

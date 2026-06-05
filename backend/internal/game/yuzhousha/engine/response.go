@@ -215,11 +215,20 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 	if g.Phase != PhaseResponse || g.Pending == nil {
 		return ErrNoPendingCombat
 	}
+	g.ensurePendingRoles()
+	if g.Pending.WindowKind == WindowKindTake && g.takeWindow != nil {
+		if g.IsActorSeat(seat) {
+			return g.PassTake(seat, events)
+		}
+		g.abandonTakeWindow()
+	}
+	if g.Pending.WindowKind == WindowKindDiscard && g.discardWindow != nil {
+		if g.IsActorSeat(seat) {
+			return g.PassDiscardWindow(seat, events)
+		}
+	}
 	if g.Pending.TieqiPending && seat == g.Pending.SourceIndex {
 		return g.SkipTieqi(seat, events)
-	}
-	if g.Pending.ResponseMode == ResponseModeSkillPojun && seat == g.Pending.SourceIndex {
-		return g.PassPojun(seat, events)
 	}
 	if g.Pending.ResponseMode == ResponseModeSkillGuicai && seat == g.Pending.TargetIndex {
 		return g.PassGuicai(seat, events)

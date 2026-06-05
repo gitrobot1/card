@@ -14,7 +14,11 @@ import { loadSession } from '../../api/auth'
 import { useYuzhoushaRoomSocket } from '../../composables/useYuzhoushaSocket'
 import { heroAccentColor } from '../../composables/yuzhousha/resolveYzsHeroDisplay'
 import { skillBlockedInMode } from '../../constants/yzsModes'
-import { normalizeOnlineMode, onlineModeMeta } from '../../constants/yzsOnlineModes'
+import {
+  normalizeOnlineMode,
+  onlineModeMeta,
+  YZS_ONLINE_3V3_SEAT_ROLES,
+} from '../../constants/yzsOnlineModes'
 import { showToast } from '../../composables/useToast'
 import type { YuzhoushaRoom, YzsCharacter } from '../../types/yuzhousha'
 import { YZS_KINGDOM_LABELS } from '../../types/yuzhousha'
@@ -53,6 +57,11 @@ const invitePath = computed(() => {
   if (!room.value) return ''
   return `/games/yuzhousha/online?room=${room.value.id}&mode=${roomMode.value}`
 })
+
+function seatLabel(index: number) {
+  if (roomMode.value !== '3v3') return `${index + 1} 号位`
+  return YZS_ONLINE_3V3_SEAT_ROLES[index] ?? `${index + 1} 号位`
+}
 
 let pollTimer: number | null = null
 
@@ -243,6 +252,9 @@ watch(wsRoomConnected, (open) => {
           <h1>等待房间</h1>
           <p class="hero__desc">
             选择武将并准备 · 需 {{ requiredPlayers }} 人 · 房间 {{ room?.id?.slice(0, 8) ?? '…' }}
+            <span v-if="roomMode === 'identity_5' || roomMode === 'identity_8'">
+              · 开局随机分配身份（主公公开）
+            </span>
             <span v-if="wsRoomConnected" class="yzs-room__ws"> · 已连接</span>
           </p>
         </div>
@@ -253,8 +265,10 @@ watch(wsRoomConnected, (open) => {
     <section v-if="room" class="ddz-room__panel">
       <h2>玩家 ({{ playerCount }}/{{ requiredPlayers }})</h2>
       <ul class="ddz-room__list">
-        <li v-for="p in room.players" :key="p.user_id" class="ddz-room__player">
-          <span>{{ p.username }}{{ p.user_id === room.host_user_id ? '（房主）' : '' }}</span>
+        <li v-for="(p, i) in room.players" :key="p.user_id" class="ddz-room__player">
+          <span>
+            {{ seatLabel(i) }} · {{ p.username }}{{ p.user_id === room.host_user_id ? '（房主）' : '' }}
+          </span>
           <span>
             {{ p.character_id ? '已选将' : '未选将' }}
             · {{ p.ready ? '已准备' : '未准备' }}

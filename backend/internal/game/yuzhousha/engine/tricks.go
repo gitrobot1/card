@@ -152,13 +152,14 @@ func (g *Game) advanceWuguPick(events *[]GameEvent) error {
 }
 
 func (g *Game) nextWuguPicker(current, source int) int {
-	for i := 1; i <= len(g.Players); i++ {
-		seat := (current + i) % len(g.Players)
-		if seat != source || len(g.Players) == 1 {
+	n := len(g.Players)
+	for i := 1; i <= n; i++ {
+		seat := (current + i) % n
+		if g.Players[seat].HP > 0 {
 			return seat
 		}
 	}
-	return g.opponentOf(current)
+	return source
 }
 
 func (g *Game) finishWugu(source int, events *[]GameEvent) error {

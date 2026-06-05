@@ -142,6 +142,140 @@ func NewOnline3pChain(id string, names [3]string, charIDs [3]string) (*Game, err
 	return finishSoloSetup(g, fmt.Sprintf("杀上保下：%s 先手", names[0]))
 }
 
+// NewOnline3v3 创建六人在线 3v3 对局（无 AI）。
+// 座位：0 暖主帅、1 冷前锋、2 冷主帅、3 冷前锋、4 暖前锋、5 暖前锋。
+func NewOnline3v3(id string, names [6]string, charIDs [6]string) (*Game, error) {
+	used := map[string]bool{}
+	for i, charID := range charIDs {
+		if charID == "" {
+			return nil, fmt.Errorf("player %d character required", i)
+		}
+		if err := validateCharacterIDStatic(charID); err != nil {
+			return nil, err
+		}
+		if err := ValidateHeroForMode(Mode3v3, charID); err != nil {
+			return nil, err
+		}
+		if used[charID] {
+			return nil, fmt.Errorf("duplicate hero in 3v3 lineup: %s", charID)
+		}
+		used[charID] = true
+	}
+	g := &Game{
+		ID:          id,
+		HumanPlayer: 0,
+		Phase:       PhasePlaying,
+		Mode:        Mode3v3,
+	}
+	g.Players = make([]Player, 6)
+	for i := range names {
+		ch := buildCharacter(charIDs[i])
+		g.Players[i] = Player{
+			Index: i, Name: names[i], IsAI: false,
+			Character: ch, MaxHP: ch.MaxHP, HP: ch.MaxHP,
+		}
+	}
+	return finishSoloSetup(g, fmt.Sprintf("3v3：%s 先手（暖色主帅）", names[0]))
+}
+
+// NewOnlineIdentity5 创建五人在线身份局（无 AI）。身份随机分配到各座位，主公公开。
+func NewOnlineIdentity5(id string, names [5]string, charIDs [5]string) (*Game, error) {
+	used := map[string]bool{}
+	for i, charID := range charIDs {
+		if charID == "" {
+			return nil, fmt.Errorf("player %d character required", i)
+		}
+		if err := validateCharacterIDStatic(charID); err != nil {
+			return nil, err
+		}
+		if err := ValidateHeroForMode(ModeIdentity5, charID); err != nil {
+			return nil, err
+		}
+		if used[charID] {
+			return nil, fmt.Errorf("duplicate hero in identity lineup: %s", charID)
+		}
+		used[charID] = true
+	}
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	identities, revealed, lordSeat := randomIdentity5Assignment(r)
+	if err := mode.ValidateIdentity5Roles(identities); err != nil {
+		return nil, err
+	}
+	g := &Game{
+		ID:           id,
+		HumanPlayer:  0,
+		Phase:        PhasePlaying,
+		Mode:         ModeIdentity5,
+		LordSeat:     lordSeat,
+		Identities:   identities,
+		RoleRevealed: revealed,
+	}
+	g.Players = make([]Player, 5)
+	for i := range names {
+		ch := buildCharacter(charIDs[i])
+		maxHP := ch.MaxHP
+		hp := maxHP
+		if i == lordSeat {
+			maxHP++
+			hp = maxHP
+		}
+		g.Players[i] = Player{
+			Index: i, Name: names[i], IsAI: false,
+			Character: ch, MaxHP: maxHP, HP: hp,
+		}
+	}
+	return finishIdentitySoloSetup(g, fmt.Sprintf("身份局：%s 担任主公", names[lordSeat]))
+}
+
+// NewOnlineIdentity8 创建八人在线身份局（无 AI）。身份随机分配到各座位，主公公开。
+func NewOnlineIdentity8(id string, names [8]string, charIDs [8]string) (*Game, error) {
+	used := map[string]bool{}
+	for i, charID := range charIDs {
+		if charID == "" {
+			return nil, fmt.Errorf("player %d character required", i)
+		}
+		if err := validateCharacterIDStatic(charID); err != nil {
+			return nil, err
+		}
+		if err := ValidateHeroForMode(ModeIdentity8, charID); err != nil {
+			return nil, err
+		}
+		if used[charID] {
+			return nil, fmt.Errorf("duplicate hero in identity lineup: %s", charID)
+		}
+		used[charID] = true
+	}
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	identities, revealed, lordSeat := randomIdentity8Assignment(r)
+	if err := mode.ValidateIdentity8Roles(identities); err != nil {
+		return nil, err
+	}
+	g := &Game{
+		ID:           id,
+		HumanPlayer:  0,
+		Phase:        PhasePlaying,
+		Mode:         ModeIdentity8,
+		LordSeat:     lordSeat,
+		Identities:   identities,
+		RoleRevealed: revealed,
+	}
+	g.Players = make([]Player, 8)
+	for i := range names {
+		ch := buildCharacter(charIDs[i])
+		maxHP := ch.MaxHP
+		hp := maxHP
+		if i == lordSeat {
+			maxHP++
+			hp = maxHP
+		}
+		g.Players[i] = Player{
+			Index: i, Name: names[i], IsAI: false,
+			Character: ch, MaxHP: maxHP, HP: hp,
+		}
+	}
+	return finishIdentitySoloSetup(g, fmt.Sprintf("八人身份局：%s 担任主公", names[lordSeat]))
+}
+
 func NewSolo2v2(id, humanName, humanCharID string) (*Game, error) {
 	return setupSolo2v2(soloStartParams{gameID: id, humanName: humanName, humanCharID: humanCharID})
 }
@@ -692,6 +826,39 @@ func assignIdentity8Roles(shuffled [7]string) ([]string, []bool) {
 		identities[i+1] = shuffled[i]
 	}
 	return identities, revealed
+}
+
+func randomIdentity5Assignment(r *rand.Rand) (identities []string, revealed []bool, lordSeat int) {
+	roles := []string{mode.RoleLord, mode.RoleLoyalist, mode.RoleSpy, mode.RoleRebel, mode.RoleRebel}
+	r.Shuffle(len(roles), func(i, j int) { roles[i], roles[j] = roles[j], roles[i] })
+	identities = append([]string(nil), roles...)
+	revealed = make([]bool, len(roles))
+	for i, role := range identities {
+		if role == mode.RoleLord {
+			lordSeat = i
+			revealed[i] = true
+		}
+	}
+	return identities, revealed, lordSeat
+}
+
+func randomIdentity8Assignment(r *rand.Rand) (identities []string, revealed []bool, lordSeat int) {
+	roles := []string{
+		mode.RoleLord,
+		mode.RoleLoyalist, mode.RoleLoyalist,
+		mode.RoleSpy,
+		mode.RoleRebel, mode.RoleRebel, mode.RoleRebel, mode.RoleRebel,
+	}
+	r.Shuffle(len(roles), func(i, j int) { roles[i], roles[j] = roles[j], roles[i] })
+	identities = append([]string(nil), roles...)
+	revealed = make([]bool, len(roles))
+	for i, role := range identities {
+		if role == mode.RoleLord {
+			lordSeat = i
+			revealed[i] = true
+		}
+	}
+	return identities, revealed, lordSeat
 }
 
 func finishIdentitySoloSetup(g *Game, message string) (*Game, error) {

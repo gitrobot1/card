@@ -175,6 +175,27 @@ func (r *gameSkillRuntime) PendingTargetSeat() int {
 	}
 	return r.g.Pending.TargetIndex
 }
+func (r *gameSkillRuntime) PendingWindowKind() string {
+	return r.g.PendingWindowKind()
+}
+func (r *gameSkillRuntime) PendingActorSeat() int {
+	return r.g.PendingActorSeat()
+}
+func (r *gameSkillRuntime) PendingSubjectSeat() int {
+	return r.g.PendingSubjectSeat()
+}
+func (r *gameSkillRuntime) PendingOriginSeat() int {
+	return r.g.PendingOriginSeat()
+}
+func (r *gameSkillRuntime) TakeOne(seat int, zone, cardID string) error {
+	return r.g.TakeOne(seat, ZoneID(zone), cardID, r.events)
+}
+func (r *gameSkillRuntime) PassTake(seat int) error {
+	return r.g.PassTake(seat, r.events)
+}
+func (r *gameSkillRuntime) DiscardWindowOne(seat int, cardID string) error {
+	return r.g.DiscardOne(seat, cardID, r.events)
+}
 func (r *gameSkillRuntime) CardPlaysAs(seat int, cardKind, asKind, suit string) bool {
 	return r.g.cardPlaysAs(seat, Card{Kind: cardKind, Suit: suit}, asKind)
 }
@@ -339,6 +360,30 @@ func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) erro
 		return ErrGameOver
 	}
 	if g.Phase == PhaseResponse && g.Pending != nil {
+		g.ensurePendingRoles()
+		if g.Pending.WindowKind == WindowKindTake && g.takeWindow != nil {
+			if req.SkillID != "" && req.SkillID != g.Pending.SkillID {
+				return ErrWrongPhase
+			}
+			zone := req.TargetZone
+			if zone == "" {
+				zone = "hand"
+			}
+			return g.TakeOne(seat, ZoneID(zone), req.TargetCardID, events)
+		}
+		if g.Pending.WindowKind == WindowKindDiscard && g.discardWindow != nil {
+			if req.SkillID != "" && req.SkillID != g.Pending.SkillID {
+				return ErrWrongPhase
+			}
+			cardID := req.TargetCardID
+			if cardID == "" && len(req.CardIDs) > 0 {
+				cardID = req.CardIDs[0]
+			}
+			if cardID == "" {
+				return ErrInvalidCard
+			}
+			return g.DiscardOne(seat, cardID, events)
+		}
 		if g.Pending.TieqiPending && g.Pending.SourceIndex == seat && req.SkillID == SkillTieqi {
 			if !g.hasSkill(seat, req.SkillID) {
 				return ErrInvalidCard

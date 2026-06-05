@@ -78,6 +78,30 @@ function goOnline(mode: string) {
           进入房间
         </button>
       </div>
+      <div class="game-card game-card--setup game-card--online">
+        <span class="game-card__tag">联机 3v3</span>
+        <h2>3v3 竞技 6 人</h2>
+        <p class="zjh-mode__hint">暖色 vs 冷色 · 击败敌方主帅获胜 · 按加入顺序分配座位</p>
+        <button type="button" class="ddz__btn ddz__btn--primary zjh-mode__start" @click="goOnline('3v3')">
+          进入 3v3 房间
+        </button>
+      </div>
+      <div class="game-card game-card--setup game-card--online">
+        <span class="game-card__tag">联机身份</span>
+        <h2>5 人身份局</h2>
+        <p class="zjh-mode__hint">主公+忠臣+内奸+2 反贼 · 开局随机身份 · 主公公开 · 需满 5 人</p>
+        <button type="button" class="ddz__btn ddz__btn--primary zjh-mode__start" @click="goOnline('identity_5')">
+          进入 5 人房间
+        </button>
+      </div>
+      <div class="game-card game-card--setup game-card--online">
+        <span class="game-card__tag">联机身份</span>
+        <h2>8 人身份局</h2>
+        <p class="zjh-mode__hint">标准八人身份 · 开局随机身份 · 主公公开 · 需满 8 人</p>
+        <button type="button" class="ddz__btn ddz__btn--primary zjh-mode__start" @click="goOnline('identity_8')">
+          进入 8 人房间
+        </button>
+      </div>
       <div v-for="mode in modes" :key="mode.id" class="game-card game-card--setup">
         <span class="game-card__tag">{{ mode.tag || mode.id }}</span>
         <h2>{{ mode.name }}</h2>

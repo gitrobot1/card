@@ -12,21 +12,28 @@ const (
 )
 
 func (g *Game) offerFankuiFromAftermath(a *DamageAftermath, events *[]GameEvent) bool {
-	g.Phase = PhaseResponse
-	g.Pending = &PendingCombat{
-		SourceIndex:       a.Source,
-		TargetIndex:       a.Target,
-		ReturnIndex:       a.Resume.ReturnIndex,
-		ResponseMode:      ResponseModeSkillFankui,
-		FankuiRemaining:   1,
-		FankuiResumeMode:  a.Resume.Mode,
-		FankuiResumeCard:  a.Resume.Card,
-		FankuiReturnIndex: a.Resume.ReturnIndex,
+	msg := fmt.Sprintf("%s 可发动【反馈】获得 %s 一张牌", g.Players[a.Target].Name, g.Players[a.Source].Name)
+	err := g.OpenTakeWindow(TakeWindowConfig{
+		SkillID:         skill.IDFankui,
+		ResponseMode:    ResponseModeSkillFankui,
+		ActorSeat:       a.Target,
+		SubjectSeat:     a.Source,
+		OriginSeat:      a.Source,
+		MaxTake:         1,
+		Destination:     TakeDestination{Zone: ZoneHand, Seat: a.Target},
+		Message:         msg,
+		EventType:       "fankui_take",
+		SkillEventLabel: "反馈",
+		OnComplete:      fankuiTakeComplete,
+	}, events)
+	if err != nil {
+		return false
 	}
+	g.Pending.ReturnIndex = a.Resume.ReturnIndex
+	g.Pending.FankuiResumeMode = a.Resume.Mode
+	g.Pending.FankuiResumeCard = a.Resume.Card
+	g.Pending.FankuiReturnIndex = a.Resume.ReturnIndex
 	a.FankuiLeft--
-	g.Message = fmt.Sprintf("%s 可发动【反馈】获得 %s 一张牌", g.Players[a.Target].Name, g.Players[a.Source].Name)
-	g.resetTimer()
-	g.appendSkillEvent(events, skill.IDFankui, a.Target, a.Source, g.Message)
 	return true
 }
 
@@ -49,57 +56,20 @@ func (g *Game) offerFankuiAfterDamage(target, source, damage int, resumeMode str
 	return g.offerFankuiFromAftermath(g.damageAftermath, events)
 }
 
+// FankuiTakeFrom 从伤害来源处拿牌（TakeWindow 薄封装，P1 迁移）。
 func (g *Game) FankuiTakeFrom(seat int, zone, cardID string, events *[]GameEvent) error {
-	if g.Pending == nil || g.Pending.ResponseMode != ResponseModeSkillFankui || g.Pending.TargetIndex != seat {
-		return ErrWrongPhase
-	}
-	if g.Pending.FankuiRemaining <= 0 {
-		return ErrWrongPhase
-	}
 	if zone == "" {
 		zone = "hand"
 	}
-	source := g.Pending.SourceIndex
-	spec := PlayTarget{SeatIndex: source, Zone: zone, CardID: cardID}
-	card, label, ok := g.takeTargetCard(source, spec, events)
-	if !ok {
-		return ErrInvalidTarget
-	}
-	g.Players[seat].Hand = append(g.Players[seat].Hand, card)
-	g.syncCounts()
-	g.Pending.FankuiRemaining--
-	msg := fmt.Sprintf("%s 发动【反馈】，获得 %s 的%s", g.Players[seat].Name, g.Players[source].Name, label)
-	g.appendSkillEvent(events, skill.IDFankui, seat, source, msg)
-	*events = append(*events, GameEvent{
-		Type:        "fankui_take",
-		PlayerIndex: seat,
-		TargetIndex: source,
-		Card:        &card,
-		Message:     msg,
-	})
-	if g.Pending.FankuiRemaining > 0 && g.hasTakeableCard(source) {
-		g.Message = fmt.Sprintf("%s 可继续发动【反馈】", g.Players[seat].Name)
-		g.resetTimer()
-		return nil
-	}
-	return g.resumeAfterFankui(events)
+	return g.TakeOne(seat, ZoneID(zone), cardID, events)
 }
 
+// PassFankui 跳过本次反馈拿牌（TakeWindow 薄封装）。
 func (g *Game) PassFankui(seat int, events *[]GameEvent) error {
-	if g.Pending == nil || g.Pending.ResponseMode != ResponseModeSkillFankui {
-		return ErrWrongPhase
-	}
-	if seat != g.Pending.TargetIndex {
-		return ErrNotYourTurn
-	}
-	if g.Pending.FankuiRemaining > 0 {
-		g.Pending.FankuiRemaining--
-	}
-	if g.Pending.FankuiRemaining > 0 && g.hasTakeableCard(g.Pending.SourceIndex) {
-		g.Message = fmt.Sprintf("%s 跳过【反馈】，仍可再发动", g.Players[seat].Name)
-		g.resetTimer()
-		return nil
-	}
+	return g.PassTake(seat, events)
+}
+
+func fankuiTakeComplete(g *Game, events *[]GameEvent) error {
 	return g.resumeAfterFankui(events)
 }
 

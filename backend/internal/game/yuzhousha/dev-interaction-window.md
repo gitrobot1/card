@@ -1,6 +1,6 @@
 # 宇宙杀 · 交互窗口与 Pending 语义规范（API 草案 v0.1）
 
-> **状态**：设计稿，尚未实现。  
+> **状态**：P0–P3 已实现（TakeWindow + DiscardWindow + 反馈/突袭/奇袭/破军）。P4 起待做。
 > **读者**：后续 AI / 人类开发者。  
 > **目的**：统一「从目标处取/弃牌」与「谁该操作 pending」两类重复逻辑，降低界徐盛类技能接入成本。  
 > **关联文档**：`[dev-guide.md](./dev-guide.md)`、`[skill/doc.go](../../skill/doc.go)`
@@ -34,9 +34,9 @@
 | Phase       | ID                  | 交付物                                       | 验收                                    |
 | ----------- | ------------------- | ----------------------------------------- | ------------------------------------- |
 | P0-第一个ai已实现 | `pending-semantics` | Actor/Subject 字段 + 推导函数                   | 联机 1v1 超时、前端 `isMyResponse` 无 mode 特例 |
-| P1          | `take-window-core`  | TakeWindow 引擎 + 迁移反馈/突袭/奇袭                | 原 scenario 全绿                         |
-| P2          | `take-window-pojun` | 破军迁入 TakeWindow（dest=camp）                | 破军 + 古锭刀/藤甲 scenario                  |
-| P3          | `discard-window`    | DiscardWindow + 破军回合末弃营                   | 同上                                    |
+| P1-done          | `take-window-core`  | TakeWindow 引擎 + 迁移反馈/突袭/奇袭                | 原 scenario 全绿                         |
+| P2-done          | `take-window-pojun` | 破军迁入 TakeWindow（dest=camp）                | 破军 + 古锭刀/藤甲 scenario                  |
+| P3-done          | `discard-window`    | DiscardWindow + 破军回合末弃营                   | 同上                                    |
 | P4          | `frontend-template` | `makeTakeWindowHandler` + 删 useYzsGame 特例 | `npm run build`                       |
 | P5          | `cleanup`           | 删除旧 ResponseMode 重复逻辑                     | grep 无 `SourceIndex == seat` 技能特例     |
 
@@ -522,7 +522,8 @@ cd frontend && npm run build
 | ------------------------------------ | --------------------------------------- |
 | `TestTakeWindow_FankuiTakeOne`       | 开窗 → TakeOne hand → 牌进 actor 手          |
 | `TestTakeWindow_PassEarly`           | MaxTake=3 但 Pass 只拿 1 张                 |
-| `TestTakeWindow_AISweeps`            | AI 拿满                                   |
+| `TestDiscardWindow_PojunCampOne`     | 开窗 → DiscardOne → 牌进弃牌堆                  |
+| `TestDiscardWindow_AISweeps`         | AI 弃满 required 张                           |
 | `TestPendingSemantics_PojunActor`    | Actor=source, Subject=target            |
 | `TestPendingSemantics_TuxiActor`     | 迁移后 Actor=seat0, Subject=opponent       |
 | `TestPendingSemantics_OnlineTimeout` | 双真人 seat1 pending 时 seat0 tick 不代为 pass |
@@ -584,3 +585,8 @@ cd frontend && npm run build
 | v0.1 | 2026-06-04 | 初稿：TakeWindow + Pending Actor/Subject |
 
 
+后续会有大量武将、装备、锦囊重新调整效果，要重新sim以及skill
+
+联机模式3v3，五人身份、8人身份未做
+
+所有模式都没有经过真人测试

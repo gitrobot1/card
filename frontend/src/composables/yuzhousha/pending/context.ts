@@ -29,6 +29,7 @@ export interface PendingContext {
   fankuiTargetOptions: ComputedRef<TakeTargetOption[]>
   tuxiTargetOptions: ComputedRef<TakeTargetOption[]>
   qixiTargetOptions: ComputedRef<TakeTargetOption[]>
+  pojunTargetOptions: ComputedRef<TakeTargetOption[]>
   myCharacterSkills: ComputedRef<YzsSkillMeta[]>
   peekDeckSkillId: ComputedRef<string>
   yijiGiveRemaining: ComputedRef<number>
