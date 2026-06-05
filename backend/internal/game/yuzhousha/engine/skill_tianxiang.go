@@ -138,6 +138,7 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 	if damage <= 0 {
 		damage = 1
 	}
+	damage = g.adjustDamageAmount(source, target, damage, card, card.Kind == CardHuoGong, resume.IgnoreArmor)
 	if !resume.SkipTianxiang && g.canOfferTianxiang(target, damage) {
 		return g.offerTianxiangWindow(source, target, damage, card, resume, events)
 	}

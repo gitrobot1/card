@@ -106,9 +106,10 @@ func (g *Game) ApplyLiuli(seat int, cardID string, redirect int, events *[]GameE
 		IgnoreArmor:  ignoreArmor,
 		TieqiPending: tieqiPending,
 	}
+	g.initPojunOnShaPending(source, redirect, g.Pending)
 	g.Message = fmt.Sprintf("%s 对 %s 使用【杀】，等待出闪", g.Players[source].Name, g.Players[redirect].Name)
 	g.resetTimer()
-	return nil
+	return g.advanceShaBeforeTargetResponse(events)
 }
 
 func (g *Game) PassLiuli(seat int, events *[]GameEvent) error {
@@ -120,5 +121,5 @@ func (g *Game) PassLiuli(seat int, events *[]GameEvent) error {
 	msg := fmt.Sprintf("%s 未发动【流离】", g.Players[seat].Name)
 	g.Message = msg
 	g.resetTimer()
-	return nil
+	return g.advanceShaBeforeTargetResponse(events)
 }

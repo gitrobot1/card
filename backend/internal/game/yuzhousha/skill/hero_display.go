@@ -6,6 +6,7 @@ var kingdomAccent = map[string]string{
 	KingdomWei: "#4a5568",
 	KingdomWu:  "#2b6cb0",
 	KingdomQun: "#6b46c1",
+	KingdomShen: "#d4af37",
 }
 
 // Per-hero accent overrides (from legacy frontend palette).
@@ -37,6 +38,8 @@ var heroAccent = map[string]string{
 	CharJiaXu:           "#4a5568",
 	CharZhangJiao:       "#6b46c1",
 	CharZhangChunhua:    "#805ad5",
+	CharSpZhaoYun:       "#4a7c59",
+	CharShenZhaoYun:     "#d4af37",
 }
 
 func ResolveAccentColor(def CharacterDef) string {

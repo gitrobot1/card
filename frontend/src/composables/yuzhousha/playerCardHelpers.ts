@@ -19,7 +19,7 @@ export function removeJudgeCardFromPlayer(player: YzsPlayer, card: YzsCard | und
 
 export function equipSlotOf(card: YzsCard) {
   if (card.kind.startsWith('weapon_')) return 'weapon'
-  if (card.kind === 'armor') return 'armor'
+  if (card.kind === 'armor' || card.kind === 'armor_vine') return 'armor'
   if (card.kind === 'plus_horse') return 'plus_horse'
   if (card.kind === 'minus_horse') return 'minus_horse'
   return ''

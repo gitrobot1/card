@@ -8,6 +8,8 @@ const (
 	TargetJuedou   = "juedou"
 	TargetLebu     = "lebu"
 	TargetBingliang = "bingliang"
+	TargetHuogong  = "huogong"
+	TargetTiesuo   = "tiesuo"
 )
 
 // TargetContext extends Context with combat/targeting queries for play validation.
@@ -18,11 +20,35 @@ type TargetContext interface {
 	CanBingliangTarget(from, to int) bool
 	TargetBlocked(target int, cardKind string) bool
 	PlayerHP(seat int) (hp, maxHP int)
+	HandCount(seat int) int
 }
 
-// ValidPlayTargets returns enemy seats that are legal targets for cardKind from source.
+// ValidPlayTargets returns legal target seats for cardKind from source.
 func ValidPlayTargets(ctx TargetContext, source int, cardKind string) []int {
-	candidates := EnemiesOf(ctx, source)
+	if cardKind == TargetTiesuo {
+		out := make([]int, 0, 2)
+		if IsValidPlayTarget(ctx, source, source, cardKind) {
+			out = append(out, source)
+		}
+		var candidates []int
+		if IsIdentity(ctx) {
+			candidates = IdentityPlayTargets(ctx, source)
+		} else {
+			candidates = EnemiesOf(ctx, source)
+		}
+		for _, t := range candidates {
+			if IsValidPlayTarget(ctx, source, t, cardKind) {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	var candidates []int
+	if IsIdentity(ctx) {
+		candidates = IdentityPlayTargets(ctx, source)
+	} else {
+		candidates = EnemiesOf(ctx, source)
+	}
 	out := make([]int, 0, len(candidates))
 	for _, t := range candidates {
 		if IsValidPlayTarget(ctx, source, t, cardKind) {
@@ -34,7 +60,16 @@ func ValidPlayTargets(ctx TargetContext, source int, cardKind string) []int {
 
 // IsValidPlayTarget reports whether source may choose target for cardKind.
 func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) bool {
-	if !IsEnemy(ctx, source, target) || ctx.AliveHP(target) <= 0 {
+	if ctx.AliveHP(target) <= 0 {
+		return false
+	}
+	if cardKind == TargetTiesuo && source == target {
+		return true
+	}
+	if source == target {
+		return false
+	}
+	if !IsIdentity(ctx) && !IsEnemy(ctx, source, target) {
 		return false
 	}
 	if ctx.TargetBlocked(target, cardKind) {
@@ -49,6 +84,10 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 		return ctx.CanBingliangTarget(source, target)
 	case TargetJuedou, TargetLebu:
 		return true
+	case TargetHuogong:
+		return ctx.HandCount(target) > 0
+	case TargetTiesuo:
+		return true
 	default:
 		if needsOpponentTarget(cardKind) {
 			return true
@@ -59,7 +98,7 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 
 func needsOpponentTarget(kind string) bool {
 	switch kind {
-	case TargetGuohe, TargetTannang, TargetJuedou, TargetLebu, TargetBingliang:
+	case TargetGuohe, TargetTannang, TargetJuedou, TargetLebu, TargetBingliang, TargetHuogong, TargetTiesuo:
 		return true
 	default:
 		return false
@@ -69,6 +108,24 @@ func needsOpponentTarget(kind string) bool {
 // PickAITarget chooses a seat to target for cardKind; falls back to DefaultEnemy.
 func PickAITarget(ctx TargetContext, source int, cardKind string) int {
 	valid := ValidPlayTargets(ctx, source, cardKind)
+	if Is3v3(ctx) {
+		enemyCmd := CommanderSeat3v3(1 - TeamOf3v3(source))
+		for _, t := range valid {
+			if t == enemyCmd {
+				return enemyCmd
+			}
+		}
+	}
+	if IsIdentity(ctx) {
+		if ic, ok := ctx.(IdentityContext); ok {
+			enemy := DefaultEnemyIdentity(ic, source)
+			for _, t := range valid {
+				if t == enemy {
+					return enemy
+				}
+			}
+		}
+	}
 	if len(valid) == 0 {
 		return DefaultEnemy(ctx, source)
 	}

@@ -16,6 +16,20 @@ func (g *Game) drawCountFor(seat int) int {
 	return base + bonus
 }
 
+func (g *Game) handRetainLimit(seat int) int {
+	if seat < 0 || seat >= len(g.Players) {
+		return 0
+	}
+	limit := g.Players[seat].HP
+	rt := g.skillRuntime(nil)
+	for _, h := range g.playerSkillHandlers(seat) {
+		if extra := h.HandRetainLimit(rt, seat); extra > limit {
+			limit = extra
+		}
+	}
+	return limit
+}
+
 func (g *Game) drawSkillCards(seat int, skillID string, count int, message string, events *[]GameEvent) error {
 	if count <= 0 {
 		return nil

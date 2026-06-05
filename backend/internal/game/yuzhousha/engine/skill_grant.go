@@ -45,10 +45,16 @@ func (g *Game) syncPlayerSkillsMeta(seat int) {
 		}
 		m := h.Meta()
 		if m.Kind == skill.KindLord {
-			m.InactiveIn1v1 = true
+			m.InactiveIn1v1 = !lordSkillsActive(g.Mode)
 		}
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	p.Character.Skills = out
+}
+
+func (g *Game) syncAllPlayerSkillsMeta() {
+	for i := range g.Players {
+		g.syncPlayerSkillsMeta(i)
+	}
 }

@@ -52,6 +52,11 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 				target = seat
 			}
 			return g.playLuanwuSha(seat, cardID, target, events)
+		case ResponseModeHuoGong:
+			if seat != g.Pending.TargetIndex {
+				return ErrNotYourTurn
+			}
+			return g.respondHuoGongDiscard(seat, cardID, events)
 		default:
 			return ErrPendingCombat
 		}
@@ -86,9 +91,9 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 		return g.playTao(seat, cardID, events)
 	case CardJiu:
 		return g.playJiu(seat, cardID, events)
-	case CardGuoHe, CardTanNang, CardNanMan, CardWanJian, CardJueDou, CardLeBu, CardBingLiang, CardShanDian, CardWuGu, CardTaoYuan, CardWuZhong:
+	case CardGuoHe, CardTanNang, CardNanMan, CardWanJian, CardJueDou, CardLeBu, CardBingLiang, CardShanDian, CardWuGu, CardTaoYuan, CardWuZhong, CardHuoGong, CardTieSuo:
 		return g.playTrick(seat, cardID, target, events)
-	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardArmor, CardPlusHorse, CardMinusHorse:
+	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardArmor, CardArmorVine, CardPlusHorse, CardMinusHorse:
 		return g.playEquip(seat, cardID, events)
 	default:
 		return ErrInvalidCard
@@ -161,6 +166,7 @@ func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameE
 		TieqiPending:    tieqiPending,
 		ResponsesNeeded: g.wushuangResponsesNeeded(seat, CardSha),
 	}
+	g.initPojunOnShaPending(seat, targetIndex, g.Pending)
 	g.Message = msg
 	g.resetTimer()
 
@@ -171,8 +177,11 @@ func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameE
 		Card:        &played,
 		Message:     g.Message,
 	})
+	g.notifyBecameTarget(targetIndex, seat, played, events)
 	if g.canOfferLiuli(targetIndex) {
 		g.offerLiuliWindow(targetIndex, events)
+	} else {
+		_ = g.advanceShaBeforeTargetResponse(events)
 	}
 	return nil
 }
@@ -180,6 +189,12 @@ func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameE
 func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events *[]GameEvent) error {
 	idx, cardObj, ok := g.findCard(seat, cardID)
 	if !ok {
+		return ErrInvalidCard
+	}
+	if g.is3v3() && cardObj.Kind == CardShanDian {
+		return ErrInvalidCard
+	}
+	if g.isIdentity() && cardObj.Kind == CardShanDian {
 		return ErrInvalidCard
 	}
 
@@ -196,6 +211,21 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 	}
 	if cardObj.Kind == CardBingLiang && !g.canBingliangTarget(seat, target) {
 		return ErrInvalidTarget
+	}
+	if cardObj.Kind == CardHuoGong && len(g.Players[target].Hand) == 0 {
+		return ErrInvalidTarget
+	}
+	if cardObj.Kind == CardTieSuo && target == seat {
+		played := g.removeHandCard(seat, idx, events)
+		g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
+		*events = append(*events, GameEvent{
+			Type:        "play_trick",
+			PlayerIndex: seat,
+			TargetIndex: seat,
+			Card:        &played,
+			Message:     fmt.Sprintf("%s 使用【%s】", g.Players[seat].Name, played.Name),
+		})
+		return g.playTieSuoRecast(seat, played, events)
 	}
 	effectTarget := targetSpec.SeatIndex
 	if effectTarget < 0 || effectTarget >= len(g.Players) {
@@ -223,8 +253,10 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 
 	switch played.Kind {
 	case CardLeBu:
+		g.notifyBecameTarget(target, seat, played, events)
 		return g.placeLebu(seat, target, played, events)
 	case CardBingLiang:
+		g.notifyBecameTarget(target, seat, played, events)
 		return g.placeBingliang(seat, target, played, events)
 	case CardShanDian:
 		return g.placeShandian(seat, played, events)
@@ -235,6 +267,7 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 		if effectTarget < 0 || effectTarget >= len(g.Players) {
 			effectTarget = target
 		}
+		g.notifyBecameTarget(effectTarget, seat, played, events)
 		responder := effectTarget
 		if !g.isEnemy(seat, effectTarget) {
 			responder = g.opponentOf(seat)
@@ -244,6 +277,11 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 		return g.startAoeTrick(seat, played, CardSha, events)
 	case CardWanJian:
 		return g.startAoeTrick(seat, played, CardShan, events)
+	case CardHuoGong:
+		return g.playHuoGong(seat, played, target, events)
+	case CardTieSuo:
+		g.notifyBecameTarget(target, seat, played, events)
+		return g.resolveTieSuoChain(seat, target, played, events)
 	default:
 		return ErrInvalidCard
 	}
@@ -515,9 +553,9 @@ func (g *Game) playEquip(seat int, cardID string, events *[]GameEvent) error {
 
 func equipSlot(kind string) string {
 	switch kind {
-	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5:
+	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6:
 		return EquipWeapon
-	case CardArmor:
+	case CardArmor, CardArmorVine:
 		return EquipArmor
 	case CardPlusHorse:
 		return EquipPlusHorse
@@ -554,7 +592,7 @@ func (g *Game) setEquipment(seat int, card Card) *Card {
 
 func trickNeedsOpponentTarget(kind string) bool {
 	switch kind {
-	case CardGuoHe, CardTanNang, CardJueDou, CardLeBu, CardBingLiang:
+	case CardGuoHe, CardTanNang, CardJueDou, CardLeBu, CardBingLiang, CardHuoGong, CardTieSuo:
 		return true
 	default:
 		return false
@@ -563,7 +601,7 @@ func trickNeedsOpponentTarget(kind string) bool {
 
 func trickNeedsSelfTarget(kind string) bool {
 	switch kind {
-	case CardShanDian, CardWuGu:
+	case CardShanDian, CardWuGu, CardTieSuo:
 		return true
 	default:
 		return false
@@ -708,7 +746,7 @@ func (g *Game) startCardResponse(seat, target int, card Card, requiredKind strin
 }
 
 func (g *Game) startAoeTrick(source int, card Card, requiredKind string, events *[]GameEvent) error {
-	queue := g.aoeResponderQueue(source)
+	queue := g.filterAoeQueue(g.aoeResponderQueue(source), card.Kind)
 	if len(queue) == 0 {
 		g.notifyInstantTrickUsed(source, card.Kind, events)
 		return nil

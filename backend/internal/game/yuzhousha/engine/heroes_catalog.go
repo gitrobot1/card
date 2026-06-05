@@ -78,7 +78,7 @@ func ListHeroes(q HeroesQuery) HeroesPage {
 	slice := filtered[start:end]
 	heroes := make([]HeroPublic, len(slice))
 	for i, def := range slice {
-		heroes[i] = buildHeroPublic(def)
+		heroes[i] = buildHeroPublic(def, modeID)
 	}
 
 	return HeroesPage{
@@ -148,8 +148,15 @@ func heroAllowedForPool(pool mode.HeroPoolSpec, def skill.CharacterDef) bool {
 	return true
 }
 
-func buildHeroPublic(def skill.CharacterDef) HeroPublic {
+func buildHeroPublic(def skill.CharacterDef, modeID string) HeroPublic {
 	c := buildCharacter(def.ID)
+	if mode.LordSkillsActive(modeID) {
+		for i := range c.Skills {
+			if c.Skills[i].Kind == skill.KindLord {
+				c.Skills[i].InactiveIn1v1 = false
+			}
+		}
+	}
 	display := skill.ResolveHeroDisplay(def.ID, "")
 	return HeroPublic{
 		ID:            c.ID,

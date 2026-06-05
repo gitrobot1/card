@@ -43,6 +43,7 @@ func (g *Game) resolveWugu(source int, events *[]GameEvent) error {
 	}
 	if count == 0 {
 		g.Message = fmt.Sprintf("%s 使用【五谷丰登】，牌堆不足", g.Players[source].Name)
+		g.syncCounts()
 		return nil
 	}
 	revealed := make([]Card, 0, count)
@@ -99,6 +100,16 @@ func (g *Game) pickWuguCard(seat int, cardID string, events *[]GameEvent) error 
 	if idx < 0 {
 		return ErrInvalidCard
 	}
+	return g.pickWuguCardByIndex(seat, idx, events)
+}
+
+func (g *Game) pickWuguCardByIndex(seat, idx int, events *[]GameEvent) error {
+	if g.Pending == nil || g.Pending.ResponseMode != ResponseModeWuguPick {
+		return ErrWrongPhase
+	}
+	if idx < 0 || idx >= len(g.Pending.RevealedCards) {
+		return ErrInvalidCard
+	}
 	picked := g.Pending.RevealedCards[idx]
 	g.Pending.RevealedCards = append(g.Pending.RevealedCards[:idx], g.Pending.RevealedCards[idx+1:]...)
 	g.Players[seat].Hand = append(g.Players[seat].Hand, picked)
@@ -110,6 +121,19 @@ func (g *Game) pickWuguCard(seat int, cardID string, events *[]GameEvent) error 
 		Message:     fmt.Sprintf("%s 获得 %s", g.Players[seat].Name, picked.Label),
 	})
 	return g.advanceWuguPick(events)
+}
+
+func (g *Game) autoPickWuguCard(seat int, events *[]GameEvent) error {
+	if g.Pending == nil || g.Pending.ResponseMode != ResponseModeWuguPick {
+		return ErrWrongPhase
+	}
+	if seat != g.Pending.WuguPickSeat {
+		return ErrNotYourTurn
+	}
+	if len(g.Pending.RevealedCards) == 0 {
+		return g.finishWugu(g.Pending.SourceIndex, events)
+	}
+	return g.pickWuguCardByIndex(seat, 0, events)
 }
 
 func (g *Game) advanceWuguPick(events *[]GameEvent) error {

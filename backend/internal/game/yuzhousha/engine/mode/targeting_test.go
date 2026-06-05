@@ -51,6 +51,10 @@ func (s stubTargetCtx) PlayerHP(seat int) (hp, maxHP int) {
 	return hp, maxHP
 }
 
+func (s stubTargetCtx) HandCount(seat int) int {
+	return 1
+}
+
 func TestValidPlayTargets2v2Sha(t *testing.T) {
 	ctx := stubTargetCtx{
 		stubCtx: stubCtx{mode: Solo2v2, players: []int{4, 4, 4, 4}},

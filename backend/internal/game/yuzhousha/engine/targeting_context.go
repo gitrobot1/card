@@ -21,7 +21,21 @@ func (t gameTargetCtx) HasTakeableCard(target int) bool {
 func (t gameTargetCtx) CanBingliangTarget(from, to int) bool {
 	return t.g.canBingliangTarget(from, to)
 }
+func (t gameTargetCtx) HandCount(seat int) int {
+	if seat < 0 || seat >= len(t.g.Players) {
+		return 0
+	}
+	p := &t.g.Players[seat]
+	if len(p.Hand) > 0 {
+		return len(p.Hand)
+	}
+	return p.HandCount
+}
+
 func (t gameTargetCtx) TargetBlocked(target int, cardKind string) bool {
+	if t.g.vineBlocksTrick(target, cardKind) {
+		return true
+	}
 	return t.g.runSkillHooks(nil, skill.HookCall{
 		Kind: skill.HookTargetBlocked, Target: target, CardKind: cardKind,
 	}).Bool

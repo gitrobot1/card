@@ -1,124 +1,274 @@
 # Card Hub
 
-一个卡牌游戏平台，当前已实现 **斗地主（Dou Dizhu）** 的完整单机与联机玩法。后续预留炸金花、斗牛、宇宙杀、UNO 等游戏入口。
+卡牌游戏平台，当前已实现 **斗地主、斗牛、宇宙杀** 等玩法（单机 + 部分联机）。前端 Vue 3，后端 Go + Gin。
 
-## 功能概览
+---
 
-### 斗地主
+## 生产部署（后端）
 
-- **单机模式**：1 人对 2 电脑，支持叫地主、出牌、不出、提示
-- **联机模式**：3 人房间，加入房间 / 准备 / 自动开局 / 下一局
-- **游戏机制**：35 秒回合计时、超时自动处理、AI 出牌、牌型校验
-- **界面与动画**：QQ 风格叠牌手牌、选中牌两侧让位、发牌/出牌/底牌飞入动画
-- **身份与状态**：地主/农民标识、出牌计时圈、不出「不要」提示、结算与准备
+下面以 **Linux 服务器**（常见 x86_64 VPS）为例。后端是单个静态链接友好的 Go 二进制，**推荐在开发机交叉编译后上传**，服务器上 **不必安装 Go**。
 
-## 技术栈
+### 服务器需要什么
 
-| 层级 | 技术 |
+| 组件 | 要求 | 说明 |
+|------|------|------|
+| **Go** | **不需要**（若采用交叉编译） | 仅在服务器上现场编译时才需要，见下文 |
+| **操作系统** | Linux x86_64 / arm64 | 与编译时的 `GOOS` / `GOARCH` 一致 |
+| **MySQL** | 8.x | 首次启动自动建表（GORM AutoMigrate） |
+| **Redis** | 6.x+ | 健康检查与部分功能依赖 |
+| **开放端口** | 默认 **8088**（或由 Nginx 反代，不对外暴露） | 见 `config.yaml` 的 `server.port` |
+
+> 运行时 **只需要**：`card-server` 二进制 + `config.yaml` + 可连通的 MySQL / Redis。  
+> 宇宙杀武将/皮肤等静态数据已 **embed 进二进制**，无需额外拷贝 JSON。
+
+### 开发机：打包后端
+
+在项目根目录执行（需本机已装 **Go 1.23.0**，见 `backend/.go-version`）：
+
+```bash
+cd backend
+
+# 拉依赖（首次或 go.mod 变更后）
+go mod download
+
+# 交叉编译 Linux x86_64 可执行文件（最常见 VPS）
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+  go build -ldflags="-s -w" -o dist/card-server ./cmd/server
+
+# 若是 ARM 服务器（如部分云 ARM 实例）：
+# CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/card-server ./cmd/server
+```
+
+产物：
+
+```text
+backend/dist/card-server    # 单个可执行文件，可直接 scp 到服务器
+```
+
+上传到服务器示例：
+
+```bash
+scp backend/dist/card-server user@your-server:/opt/card/
+scp backend/config/config.example.yaml user@your-server:/opt/card/config.yaml
+```
+
+### 服务器：Go 环境（仅当在服务器上编译时）
+
+若选择在服务器上 `git pull` 后现场编译，需安装：
+
+- **Go 1.23.0**（与 `backend/go.mod` 中 `go 1.23.0` 一致）
+- 无需 GCC（使用 `CGO_ENABLED=0` 纯 Go 编译即可）
+
+```bash
+# 验证版本
+go version   # 应显示 go1.23.0
+
+cd /opt/card/backend
+export GOPROXY=https://goproxy.cn,direct   # 国内可选
+CGO_ENABLED=0 go build -ldflags="-s -w" -o /opt/card/card-server ./cmd/server
+```
+
+**结论**：生产环境更省事的做法是 **开发机交叉编译 → 只上传二进制**；服务器只跑 MySQL、Redis 和 `card-server`。
+
+### 服务器：配置
+
+```bash
+mkdir -p /opt/card
+# 编辑生产配置（勿提交仓库）
+vi /opt/card/config.yaml
+```
+
+由 `backend/config/config.example.yaml` 复制并修改，生产环境建议至少改：
+
+```yaml
+server:
+  host: "0.0.0.0"
+  port: 8088
+  mode: "release"          # 生产务必 release
+
+mysql:
+  host: "127.0.0.1"        # 或内网 RDS 地址
+  port: 3306
+  database: "card_db"
+  username: "card"
+  password: "<强密码>"
+
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  password: ""             # 有密码则填写
+
+auth:
+  jwt_secret: "<随机长字符串>"   # 必须修改
+  token_ttl: "720h"
+```
+
+MySQL 需预先创建空库，例如：
+
+```sql
+CREATE DATABASE card_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'card'@'%' IDENTIFIED BY '<强密码>';
+GRANT ALL ON card_db.* TO 'card'@'%';
+FLUSH PRIVILEGES;
+```
+
+### 服务器：运行
+
+**前台试跑**（确认 MySQL / Redis / 配置无误）：
+
+```bash
+cd /opt/card
+chmod +x card-server
+./card-server -config ./config.yaml
+# 或使用环境变量指定配置路径：
+# CARD_CONFIG_PATH=/opt/card/config.yaml ./card-server
+```
+
+健康检查：
+
+```bash
+curl -s http://127.0.0.1:8088/health
+```
+
+**systemd 常驻**（示例）：
+
+```ini
+# /etc/systemd/system/card-server.service
+[Unit]
+Description=Card Hub API
+After=network.target mysql.service redis.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/card
+Environment=CARD_CONFIG_PATH=/opt/card/config.yaml
+ExecStart=/opt/card/card-server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now card-server
+sudo systemctl status card-server
+journalctl -u card-server -f
+```
+
+### 前端静态资源（简要）
+
+后端 **不** 托管前端页面。生产通常用 Nginx 提供 `frontend/dist`，并把 `/api`、`/health`、`/ws` 反代到 `127.0.0.1:8088`：
+
+```bash
+cd frontend
+npm ci
+npm run build    # 产出 frontend/dist/
+```
+
+同域部署时 `frontend/public/config.json` 中 `apiBaseUrl` 留空即可（浏览器用当前站点 origin）。  
+若 API 在独立域名，部署前改为 `"apiBaseUrl": "https://api.example.com"`。
+
+Nginx 反代要点：
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:8088;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+location /health {
+    proxy_pass http://127.0.0.1:8088;
+}
+location /ws/ {
+    proxy_pass http://127.0.0.1:8088;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+location / {
+    root /var/www/card/dist;
+    try_files $uri $uri/ /index.html;
+}
+```
+
+---
+
+## 本地开发
+
+### 环境要求
+
+| 工具 | 版本 |
 |------|------|
-| 前端 | Vue 3、TypeScript、Vite、Vue Router、GSAP |
-| 后端 | Go 1.23、Gin、GORM、JWT |
-| 数据 | MySQL、Redis |
+| Node.js | `20.19.6`（`frontend/.nvmrc`） |
+| Go | `1.23.0`（`backend/.go-version`） |
+| MySQL | 8.x |
+| Redis | 6.x+ |
 
-## 环境要求
-
-- **Node.js** `20.19.6`（见 `frontend/.nvmrc`）
-- **Go** `1.23.0`（见 `backend/.go-version`）
-- **MySQL** 8.x
-- **Redis** 6.x+
-
-## 快速开始
-
-### 1. 克隆项目
+### 快速启动
 
 ```bash
 git clone git@github.com:gitrobot1/card.git
 cd card
-```
 
-### 2. 配置后端
-
-```bash
 cp backend/config/config.example.yaml backend/config/config.yaml
+# 按需改 MySQL / Redis / JWT
+
+cd backend && ./scripts/run.sh          # http://0.0.0.0:8088
+cd frontend && ./scripts/dev.sh         # http://0.0.0.0:6677
 ```
 
-按需修改 `backend/config/config.yaml` 中的 MySQL、Redis、JWT 等配置。
+浏览器访问 [http://localhost:6677](http://localhost:6677)。  
+开发时 Vite 将 `/api`、`/health`、`/ws` 代理到 `127.0.0.1:8088`。
 
-> 默认后端端口为 **8088**，需与前端 Vite 代理一致。
+同一局域网其他设备用宿主机 IP，例如 `http://192.168.x.x:6677`。
 
-### 3. 准备数据库
-
-创建 MySQL 数据库（默认名 `card_db`），启动 MySQL 与 Redis 后，后端首次运行会自动迁移表结构。
-
-### 4. 启动后端
+### 后端测试
 
 ```bash
 cd backend
-./scripts/run.sh
+./scripts/test.sh smoke -v              # 冒烟
+./scripts/test.sh yzs -v                # 宇宙杀 cardtest
 ```
 
-服务默认监听：`http://0.0.0.0:8088`
+宇宙杀开发规范见 [`backend/internal/game/yuzhousha/dev-guide.md`](backend/internal/game/yuzhousha/dev-guide.md)。
 
-### 5. 启动前端
-
-```bash
-cd frontend
-./scripts/dev.sh
-```
-
-开发服务器默认监听：`http://0.0.0.0:6677`
-
-浏览器访问 [http://localhost:6677](http://localhost:6677) 即可。
-
-### 局域网访问
-
-前后端均已绑定 `0.0.0.0`。同一局域网内其他设备请使用宿主机 IP 访问，例如 `http://192.168.x.x:6677`，不要使用 `localhost`。
+---
 
 ## 项目结构
 
 ```text
 card/
-├── backend/                 # Go 后端
-│   ├── cmd/server/          # 入口
-│   ├── config/              # 配置文件（config.yaml 不入库）
+├── backend/
+│   ├── cmd/server/           # 入口 main.go
+│   ├── config/
+│   │   ├── config.example.yaml
+│   │   └── config.yaml       # 本地/生产配置（不入库）
 │   ├── internal/
-│   │   ├── game/doudizhu/   # 斗地主引擎、AI、牌型
-│   │   ├── handler/         # HTTP 接口
-│   │   ├── service/         # 业务逻辑、房间服务
-│   │   └── ...
-│   └── scripts/run.sh
-├── frontend/                # Vue 前端
-│   ├── src/
-│   │   ├── views/           # 页面（模式选择、房间、对局）
-│   │   ├── components/      # 斗地主 UI 组件
-│   │   └── composables/     # 动画、计时等
-│   └── scripts/dev.sh
+│   │   ├── game/             # 各游戏引擎
+│   │   ├── handler/          # HTTP / WebSocket
+│   │   ├── service/
+│   │   └── router/
+│   └── scripts/
+│       ├── run.sh            # 本地 go run
+│       └── test.sh           # cardtest 套件
+├── frontend/
+│   ├── public/config.json    # 生产 API 地址（可选）
+│   └── src/
 └── README.md
 ```
 
-## 主要路由
+---
 
-| 路径 | 说明 |
-|------|------|
-| `/` | 首页 / 登录 |
-| `/games/doudizhu` | 斗地主模式选择（单机 / 联机） |
-| `/games/doudizhu/solo` | 单机对局 |
-| `/games/doudizhu/online` | 联机房间 |
-| `/games/doudizhu/play/:gameId` | 对局页面 |
+## 运维说明
 
-## 开发说明
+- 联机房间 / 对局状态当前多为 **内存存储**，**重启后端会丢失进行中的房间**（持久化在规划中）。
+- 勿将 `backend/config/config.yaml`、`.env`、`sim_logs/` 提交到 Git。
+- 生产务必修改 `auth.jwt_secret`，并将 `server.mode` 设为 `release`。
 
-- 前端通过 Vite 将 `/api`、`/health` 代理到 `http://127.0.0.1:8088`
-- 联机房间与对局状态当前为 **内存存储**，后端重启后房间数据会丢失
-- 联机模式使用轮询同步状态（约 1.5s），尚未接入 WebSocket
-- 本地敏感配置请勿提交：`backend/config/config.yaml`、`.env` 等
-- **宇宙杀**开发规范与 2v2 测试：见 [`backend/internal/game/yuzhousha/dev-guide.md`](backend/internal/game/yuzhousha/dev-guide.md)
-
-## 后续规划
-
-- [ ] WebSocket 实时同步
-- [ ] 房间持久化（Redis）
-- [ ] 炸金花、斗牛、宇宙杀、UNO
+---
 
 ## License
 

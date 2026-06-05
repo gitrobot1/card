@@ -6,12 +6,17 @@ import { showToast } from '../../composables/useToast'
 import type { YzsCharacter } from '../../types/yuzhousha'
 import { YZS_KINGDOM_LABELS } from '../../types/yuzhousha'
 import { heroAccentColor } from '../../composables/yuzhousha/resolveYzsHeroDisplay'
+import { skillBlockedInMode } from '../../constants/yzsModes'
 
 const PAGE_SIZE = 12
 
 const router = useRouter()
 const route = useRoute()
-const gameMode = computed(() => (route.query.mode === '2v2' ? '2v2' : '1v1'))
+const gameMode = computed(() => {
+  const m = route.query.mode
+  if (typeof m === 'string' && m.length > 0) return m
+  return '1v1'
+})
 const heroes = ref<YzsCharacter[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -21,6 +26,25 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const starting = ref(false)
 const kingdomFilter = ref('')
+
+const pickSubtitle = computed(() => {
+  switch (gameMode.value) {
+    case '2v2':
+      return '2v2 十字阵 · 选将后队友与敌将随机'
+    case '3v3':
+      return '3v3 竞技 · 你担任暖色主帅'
+    case '3p_chain':
+      return '3 人链式 · 杀上家保下家'
+    case '3p_ddz':
+      return '3 人斗地主 · 你担任地主'
+    case 'identity_5':
+      return '5 人身份局 · 标准场（1 忠 1 内 2 反）· 你担任主公'
+    case 'identity_8':
+      return '8 人身份局 · 标准场（2 忠 1 内 4 反）· 你担任主公'
+    default:
+      return '1v1 单机 · 电脑随机选取剩余武将'
+  }
+})
 
 const hasMore = computed(() => page.value < totalPages.value)
 
@@ -111,7 +135,7 @@ async function confirmPick() {
         <div>
           <h1>选择武将</h1>
           <p class="hero__desc">
-            {{ gameMode === '2v2' ? '2v2 十字阵 · 选将后队友与敌将随机' : '1v1 单机 · 电脑随机选取剩余武将' }}
+            {{ pickSubtitle }}
             <span v-if="total > 0" class="yzs-pick__count">
               （已加载 {{ heroes.length }}/{{ total }} 名）
             </span>
@@ -151,8 +175,8 @@ async function confirmPick() {
           <h2 class="yzs-pick__name">{{ hero.name }}</h2>
           <p class="yzs-pick__hp">体力 {{ hero.max_hp }}</p>
           <ul class="yzs-pick__skills">
-            <li v-for="skill in hero.skills" :key="skill.id" :class="{ 'yzs-pick__skill--inactive': skill.inactive_in_1v1 }">
-              <strong>{{ skill.name }}<span v-if="skill.inactive_in_1v1" class="yzs-pick__skill-tag">1v1不可用</span></strong>
+            <li v-for="skill in hero.skills" :key="skill.id" :class="{ 'yzs-pick__skill--inactive': skillBlockedInMode(skill, gameMode) }">
+              <strong>{{ skill.name }}<span v-if="skillBlockedInMode(skill, gameMode)" class="yzs-pick__skill-tag">1v1不可用</span></strong>
               <span>{{ skill.desc }}</span>
             </li>
           </ul>

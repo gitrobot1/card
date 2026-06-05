@@ -165,6 +165,35 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			}
 			return true
 		}
+		if pending.ResponseMode == ResponseModeSkillPojun {
+			seat := pending.SourceIndex
+			if !g.Players[seat].IsAI {
+				return false
+			}
+			rt := g.skillRuntime(events)
+			if ph, ok := skill.Lookup(SkillPojun); ok && ph.CanActivate(rt, seat) {
+				if err := ph.AIActivate(rt, seat); err != nil {
+					_ = g.PassPojun(seat, events)
+				}
+			} else {
+				_ = g.PassPojun(seat, events)
+			}
+			return true
+		}
+		if pending.ResponseMode == ResponseModeSkillPojunDiscard {
+			seat := pending.TargetIndex
+			if !g.Players[seat].IsAI {
+				return false
+			}
+			for g.Pending != nil && g.Pending.ResponseMode == ResponseModeSkillPojunDiscard &&
+				g.Pending.PojunRemaining > 0 && len(g.Players[seat].CampCards) > 0 {
+				cardID := g.Players[seat].CampCards[0].ID
+				if err := g.PojunDiscardCamp(seat, cardID, events); err != nil {
+					break
+				}
+			}
+			return true
+		}
 		if pending.ResponseMode == ResponseModeSkillFanjianSuit {
 			seat := pending.TargetIndex
 			if !g.Players[seat].IsAI {
@@ -231,12 +260,15 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 		}
 		if pending.ResponseMode == ResponseModeDying {
 			seat := pending.SourceIndex
+			victim := pending.TargetIndex
 			if !g.Players[seat].IsAI {
 				return false
 			}
-			if idx := firstPlaysAsCard(g, seat, CardTao); idx >= 0 {
-				_ = g.RespondCard(seat, g.Players[seat].Hand[idx].ID, events)
-				return true
+			if shouldAIDyingRescue(g, seat, victim) {
+				if idx := firstPlaysAsCard(g, seat, CardTao); idx >= 0 {
+					_ = g.RespondCard(seat, g.Players[seat].Hand[idx].ID, events)
+					return true
+				}
 			}
 			_ = g.PassResponse(seat, events)
 			return true
@@ -273,8 +305,9 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			pending.ResponseMode == ResponseModeWuxiekBingliang || pending.ResponseMode == ResponseModeWuxiekShandian {
 			if shouldAIWuxiekTrick(g, seat, pending) {
 				if idx := firstCardKind(g.Players[seat].Hand, CardWuxiek); idx >= 0 {
-					_ = g.RespondWuxiek(seat, g.Players[seat].Hand[idx].ID, events)
-					return true
+					if err := g.RespondWuxiek(seat, g.Players[seat].Hand[idx].ID, events); err == nil {
+						return true
+					}
 				}
 			}
 			_ = g.PassResponse(seat, events)
@@ -291,26 +324,40 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			}
 			return true
 		}
+		if pending.ResponseMode == ResponseModePeekDeck {
+			seat := pending.TargetIndex
+			if !g.Players[seat].IsAI {
+				return false
+			}
+			_ = g.finishPeekDeckAsAI(seat, events)
+			return true
+		}
 		if pending.ResponseMode == ResponseModeWuguPick {
 			picker := pending.WuguPickSeat
 			if !g.Players[picker].IsAI {
 				return false
 			}
 			if len(pending.RevealedCards) > 0 {
-				pick := pending.RevealedCards[0]
-				_ = g.pickWuguCard(picker, pick.ID, events)
-			} else {
-				_ = g.PassResponse(picker, events)
+				if err := g.autoPickWuguCard(picker, events); err == nil {
+					return true
+				}
 			}
-			return true
-		}
-		if pending.ResponseMode == ResponseModePeekDeck {
-			top, bottom := g.aiPartitionPeekDeck(seat, pending.RevealedCards)
-			_ = g.FinishPeekDeck(seat, PeekDeckRequest{TopCardIDs: top, BottomCardIDs: bottom}, events)
+			_ = g.autoPickWuguCard(picker, events)
 			return true
 		}
 		if pending.ResponseMode == ResponseModeSkillJijiang {
-			_ = g.passJijiang(seat, events)
+			ally := pending.TargetIndex
+			lord := pending.JijiangLord
+			if !g.Players[ally].IsAI {
+				return false
+			}
+			if shouldAIRespondJijiang(g, ally, lord) {
+				if idx := firstShaLikeCard(g, ally); idx >= 0 {
+					_ = g.respondJijiangSha(ally, g.Players[ally].Hand[idx].ID, events)
+					return true
+				}
+			}
+			_ = g.passJijiang(ally, events)
 			return true
 		}
 		if pending.ResponseMode == ResponseModeSkillLuanwu {
@@ -326,11 +373,25 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			}
 			return true
 		}
+		if pending.ResponseMode == ResponseModeHuoGong {
+			seat := pending.TargetIndex
+			if len(pending.RevealedCards) > 0 {
+				suit := pending.RevealedCards[0].Suit
+				for _, c := range g.Players[seat].Hand {
+					if c.Suit == suit {
+						_ = g.respondHuoGongDiscard(seat, c.ID, events)
+						return true
+					}
+				}
+			}
+			_ = g.resolveHuoGongFail(seat, events)
+			return true
+		}
 		required := pending.RequiredKind
 		if required == "" {
 			required = CardShan
 		}
-		if required == CardShan && g.Players[seat].Armor != nil && !pending.BaguaUsed && !pending.IgnoreArmor {
+		if required == CardShan && g.hasBaguaArmor(seat) && !pending.BaguaUsed && !pending.IgnoreArmor {
 			if err := g.TryBaguaJudge(seat, events); err == nil {
 				return true
 			}
@@ -420,7 +481,7 @@ func runAIPlayPhase(g *Game, seat int, events *[]GameEvent) bool {
 		return true
 	}
 
-	for _, kind := range []string{CardWeapon5, CardWeapon4, CardWeapon3, CardWeapon2, CardWeapon1, CardArmor, CardPlusHorse, CardMinusHorse} {
+	for _, kind := range []string{CardWeapon6, CardWeapon5, CardWeapon4, CardWeapon3, CardWeapon2, CardWeapon1, CardArmorVine, CardArmor, CardPlusHorse, CardMinusHorse} {
 		idx := firstCardKind(p.Hand, kind)
 		if idx < 0 || !shouldAIEquip(p, kind) {
 			continue
@@ -429,7 +490,7 @@ func runAIPlayPhase(g *Game, seat int, events *[]GameEvent) bool {
 		return true
 	}
 
-	for _, kind := range []string{CardWuZhong, CardTaoYuan, CardWuGu, CardShanDian, CardGuoHe, CardTanNang, CardNanMan, CardWanJian, CardJueDou, CardLeBu, CardBingLiang} {
+	for _, kind := range []string{CardWuZhong, CardTaoYuan, CardWuGu, CardShanDian, CardGuoHe, CardTanNang, CardNanMan, CardWanJian, CardJueDou, CardLeBu, CardBingLiang, CardHuoGong, CardTieSuo} {
 		idx := firstCardKind(p.Hand, kind)
 		if idx < 0 {
 			continue
@@ -447,11 +508,12 @@ func runAIPlayPhase(g *Game, seat int, events *[]GameEvent) bool {
 			continue
 		}
 		playTarget := PlayTarget{SeatIndex: target, Zone: "hand"}
-		if kind == CardShanDian || kind == CardWuGu {
+		if kind == CardShanDian || kind == CardWuGu || kind == CardTieSuo {
 			playTarget = PlayTarget{SeatIndex: seat}
 		}
-		_ = g.playTrick(seat, p.Hand[idx].ID, playTarget, events)
-		return true
+		if err := g.playTrick(seat, p.Hand[idx].ID, playTarget, events); err == nil {
+			return true
+		}
 	}
 
 	if !g.canUseSha(seat) && !p.Drunk && len(g.validPlayTargets(seat, CardSha)) > 0 {
@@ -479,8 +541,10 @@ func runAIPlayPhase(g *Game, seat int, events *[]GameEvent) bool {
 		}
 	}
 
-	_ = g.EndPlay(seat, events)
-	return true
+	if err := g.EndPlay(seat, events); err == nil {
+		return true
+	}
+	return false
 }
 
 func shouldAIEquip(p *Player, kind string) bool {
@@ -550,4 +614,21 @@ func shouldAIWuxiekTrick(g *Game, seat int, pending *PendingCombat) bool {
 			pending.ResponseMode == ResponseModeWuxiekBingliang ||
 			pending.ResponseMode == ResponseModeWuxiekShandian
 	}
+}
+
+func shouldAIDyingRescue(g *Game, rescuer, victim int) bool {
+	if rescuer == victim {
+		return true
+	}
+	if g.is2v2() || g.is3v3() || g.isIdentity() || g.is3pChain() || g.is3pDdz() {
+		return g.isAlly(rescuer, victim)
+	}
+	return false
+}
+
+func shouldAIRespondJijiang(g *Game, ally, lord int) bool {
+	if !lordSkillsActive(g.Mode) {
+		return false
+	}
+	return g.isAlly(ally, lord)
 }

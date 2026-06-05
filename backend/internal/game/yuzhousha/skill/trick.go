@@ -4,7 +4,8 @@ package skill
 func IsJinnangKind(kind string) bool {
 	switch kind {
 	case "guohe", "tannang", "nanman", "wanjian", "juedou",
-		"lebu", "bingliang", "shandian", "wugu", "taoyuan", "wuzhong", "wuxiek":
+		"lebu", "bingliang", "shandian", "wugu", "taoyuan", "wuzhong", "wuxiek",
+		"huogong", "tiesuo":
 		return true
 	default:
 		return false

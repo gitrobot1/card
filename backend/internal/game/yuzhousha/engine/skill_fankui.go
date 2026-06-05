@@ -128,7 +128,7 @@ func (g *Game) applyTieqiJudgeResult(seat int, judgeCard Card, events *[]GameEve
 	g.Message = msg
 	g.resetTimer()
 	g.appendSkillEvent(events, skill.IDTieqi, seat, pending.TargetIndex, msg)
-	return nil
+	return g.advanceShaBeforeTargetResponse(events)
 }
 
 func (g *Game) applyBaguaJudgeResult(seat int, judgeCard Card, events *[]GameEvent) error {

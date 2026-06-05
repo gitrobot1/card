@@ -15,12 +15,20 @@ type Context interface {
 }
 
 func Is2v2(ctx Context) bool {
-	return ctx.ModeID() == Solo2v2 || (ctx.PlayerCount() == 4 && ctx.ModeID() != Solo3pChain && ctx.ModeID() != Solo3pDdz)
+	return ctx.ModeID() == Solo2v2 || (ctx.PlayerCount() == 4 && ctx.ModeID() != Solo3pChain && ctx.ModeID() != Solo3pDdz && ctx.ModeID() != Solo3v3 && !IsIdentityMode(ctx.ModeID()))
 }
 
 func TeamOf(ctx Context, seat int) int {
 	if seat < 0 || seat >= ctx.PlayerCount() {
 		return 0
+	}
+	if Is3v3(ctx) {
+		return TeamOf3v3(seat)
+	}
+	if IsIdentity(ctx) {
+		if ic, ok := ctx.(IdentityContext); ok {
+			return IdentityTeamOf(ic.IdentityOf(seat))
+		}
 	}
 	if ls, ok := landlordSeat(ctx); ok {
 		if seat == ls {
@@ -45,6 +53,9 @@ func IsEnemy(ctx Context, a, b int) bool {
 	if Is3pDdz(ctx) {
 		return TeamOf(ctx, a) != TeamOf(ctx, b)
 	}
+	if IsIdentity(ctx) {
+		return TeamOf(ctx, a) != TeamOf(ctx, b)
+	}
 	if !Is2v2(ctx) {
 		return a != b
 	}
@@ -61,10 +72,22 @@ func IsAlly(ctx Context, a, b int) bool {
 	if Is3pDdz(ctx) {
 		return TeamOf(ctx, a) == TeamOf(ctx, b)
 	}
+	if Is3v3(ctx) {
+		return TeamOf(ctx, a) == TeamOf(ctx, b)
+	}
+	if IsIdentity(ctx) {
+		return TeamOf(ctx, a) == TeamOf(ctx, b)
+	}
 	return !IsEnemy(ctx, a, b)
 }
 
 func TeammateOf(ctx Context, seat int) int {
+	if Is3v3(ctx) {
+		for _, ally := range AlliesOf(ctx, seat) {
+			return ally
+		}
+		return seat
+	}
 	if Is3pDdz(ctx) {
 		ls, ok := landlordSeat(ctx)
 		if !ok {
@@ -120,14 +143,34 @@ func DefaultEnemy(ctx Context, seat int) int {
 			return mark
 		}
 	}
+	if Is3v3(ctx) {
+		cmd := CommanderSeat3v3(1 - TeamOf3v3(seat))
+		if ctx.AliveHP(cmd) > 0 {
+			return cmd
+		}
+	}
+	if IsIdentity(ctx) {
+		if ic, ok := ctx.(IdentityContext); ok {
+			return DefaultEnemyIdentity(ic, seat)
+		}
+	}
 	n := ctx.PlayerCount()
 	if n <= 0 {
 		return 0
 	}
-	if Is2v2(ctx) || Is3pDdz(ctx) {
+	if Is2v2(ctx) || Is3pDdz(ctx) || Is3v3(ctx) {
 		for i := 1; i < n; i++ {
 			next := (seat + i) % n
 			if IsEnemy(ctx, seat, next) && ctx.AliveHP(next) > 0 {
+				return next
+			}
+		}
+		return (seat + 1) % n
+	}
+	if IsIdentity(ctx) {
+		for i := 1; i < n; i++ {
+			next := (seat + i) % n
+			if ctx.AliveHP(next) > 0 {
 				return next
 			}
 		}
@@ -193,6 +236,9 @@ type TeamEvent struct {
 }
 
 func CheckTeamElimination(g TeamElimination, events *[]TeamEvent) bool {
+	if Is3v3(g) {
+		return false
+	}
 	if !Is2v2(g) && !Is3pDdz(g) {
 		return false
 	}

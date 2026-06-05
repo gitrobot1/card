@@ -18,7 +18,7 @@ func simEnabled(t *testing.T) {
 }
 
 func simRandomRounds() int {
-	const defaultRounds = 40
+	const defaultRounds = 80
 	if s := os.Getenv("CARD_SIM_ROUNDS"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n > 0 {
 			return n

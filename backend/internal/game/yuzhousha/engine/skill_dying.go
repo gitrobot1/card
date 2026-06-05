@@ -241,6 +241,42 @@ func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 	if g.checkChainDeath(victim, events) {
 		return nil
 	}
+	if g.is3v3() {
+		if killer >= 0 && killer < len(g.Players) && g.AliveHP(killer) > 0 {
+			g.drawCards(killer, 3, events)
+			*events = append(*events, GameEvent{
+				Type:        "kill_draw",
+				PlayerIndex: killer,
+				TargetIndex: victim,
+				Amount:      3,
+				Message:     fmt.Sprintf("%s 杀死 %s，摸 3 张牌", g.Players[killer].Name, g.Players[victim].Name),
+			})
+		}
+		if g.checkCommanderDeath(victim, events) {
+			return nil
+		}
+		g.Phase = PhasePlaying
+		if g.AliveHP(g.CurrentTurn) <= 0 {
+			g.CurrentTurn = g.nextTurnSeat(g.CurrentTurn)
+			g.beginTurn(events)
+		}
+		g.Message = fmt.Sprintf("%s 阵亡，对局继续", g.Players[victim].Name)
+		g.resetTimer()
+		return nil
+	}
+	if g.isIdentity() {
+		if g.checkIdentityDeath(victim, killer, events) {
+			return nil
+		}
+		g.Phase = PhasePlaying
+		if g.AliveHP(g.CurrentTurn) <= 0 {
+			g.CurrentTurn = g.nextTurnSeat(g.CurrentTurn)
+			g.beginTurn(events)
+		}
+		g.Message = fmt.Sprintf("%s 阵亡，对局继续", g.Players[victim].Name)
+		g.resetTimer()
+		return nil
+	}
 	if g.is2v2() {
 		g.Phase = PhasePlaying
 		if g.AliveHP(g.CurrentTurn) <= 0 {

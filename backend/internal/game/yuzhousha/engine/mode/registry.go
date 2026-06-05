@@ -38,7 +38,13 @@ const (
 	LayoutSolo1v1    = "solo_1v1"
 	LayoutCross2v2   = "cross_2v2"
 	LayoutTriangle3p = "triangle_3p"
+	LayoutHex3v3     = "hex_3v3"
+	LayoutPentagon5  = "pentagon_5"
+	LayoutOctagon8   = "octagon_8"
 )
+
+// DefaultHeroPool 各模式默认可选武将扩展包。
+var DefaultHeroPool = HeroPoolSpec{Packs: []string{"standard", "sp", "shen"}}
 
 var registry = map[string]Meta{}
 
@@ -70,6 +76,12 @@ func NormalizeID(id string) string {
 		return Solo3pChain
 	case Solo3pDdz, "斗地主":
 		return Solo3pDdz
+	case Solo3v3, "3V3", "3v3竞技", LayoutHex3v3:
+		return Solo3v3
+	case SoloIdentity5, "identity", "身份局", LayoutPentagon5:
+		return SoloIdentity5
+	case SoloIdentity8, "8人身份局", LayoutOctagon8:
+		return SoloIdentity8
 	default:
 		if _, ok := registry[id]; ok {
 			return id
@@ -105,7 +117,7 @@ func init() {
 		},
 		PlayerCount: 2,
 		HumanSeats:  []int{0},
-		HeroPool:    HeroPoolSpec{Packs: []string{"standard"}},
+		HeroPool:    DefaultHeroPool,
 	})
 	Register(Meta{
 		ID:          Solo2v2,
@@ -128,7 +140,7 @@ func init() {
 			{Seat: 1, Area: "left", Placement: "left", IsTeammate: false},
 			{Seat: 3, Area: "right", Placement: "right", IsTeammate: false},
 		},
-		HeroPool: HeroPoolSpec{Packs: []string{"standard"}},
+		HeroPool: DefaultHeroPool,
 	})
 	Register(Meta{
 		ID:          Solo3pChain,
@@ -150,7 +162,7 @@ func init() {
 			{Seat: 1, Area: "left", Placement: "left", IsTeammate: true, SeatRole: "protect"},
 			{Seat: 2, Area: "right", Placement: "right", SeatRole: "mark"},
 		},
-		HeroPool: HeroPoolSpec{Packs: []string{"standard"}},
+		HeroPool: DefaultHeroPool,
 	})
 	Register(Meta{
 		ID:          Solo3pDdz,
@@ -174,6 +186,87 @@ func init() {
 			{Seat: 1, Area: "left", Placement: "left", IsTeammate: false, SeatRole: "farmer"},
 			{Seat: 2, Area: "right", Placement: "right", IsTeammate: false, SeatRole: "farmer"},
 		},
-		HeroPool: HeroPoolSpec{Packs: []string{"standard"}},
+		HeroPool: DefaultHeroPool,
+	})
+	Register(Meta{
+		ID:          Solo3v3,
+		Name:        "3v3 竞技",
+		Tag:         "3v3 团队",
+		Description: "6 人人机 · 参考三国杀 3v3 · 消灭敌方主帅获胜",
+		Hint:        "你担任暖色主帅 · 两名 AI 前锋 · 对战冷色三人",
+		Subtitle:    "3v3 竞技 · 1 真人 + 5 电脑",
+		LayoutKey:   LayoutHex3v3,
+		Tags:        []string{"solo", "3v3", "team"},
+		Rules: []string{
+			"暖色（你+两前锋）vs 冷色（主帅+两前锋）",
+			"击败敌方主帅即获胜；前锋阵亡对局继续",
+			"杀死任意角色可摸 3 张牌",
+			"本模式不使用【闪电】与主公技",
+		},
+		PlayerCount: 6,
+		HumanSeats:  []int{0},
+		SeatMap: []SeatSlot{
+			{Seat: 1, Area: "left-top", Placement: "left", IsTeammate: false, SeatRole: "forward"},
+			{Seat: 2, Area: "top", Placement: "top", IsTeammate: false, SeatRole: "commander"},
+			{Seat: 3, Area: "right-top", Placement: "right", IsTeammate: false, SeatRole: "forward"},
+			{Seat: 4, Area: "left", Placement: "left", IsTeammate: true, SeatRole: "forward"},
+			{Seat: 5, Area: "right", Placement: "right", IsTeammate: true, SeatRole: "forward"},
+		},
+		HeroPool: DefaultHeroPool,
+	})
+	Register(Meta{
+		ID:          SoloIdentity5,
+		Name:        "身份局",
+		Tag:         "5 人身份",
+		Description: "5 人人机 · 标准五人身份场",
+		Hint:        "你担任主公（公开）· 消灭反贼与内奸获胜 · 与内奸单挑时主公阵亡则内奸胜 · 内奸独自存活亦内奸胜",
+		Subtitle:    "5 人身份 · 1 真人 + 4 电脑",
+		LayoutKey:   LayoutPentagon5,
+		Tags:        []string{"solo", "identity", "5p"},
+		Rules: []string{
+			"1 主公（+1 体力）+ 1 忠臣 + 1 内奸 + 2 反贼",
+			"主公身份公开，其余身份隐藏至阵亡",
+			"可攻击除自己外任意角色",
+			"主公阵亡 → 反贼胜（与内奸单挑时主公阵亡 → 内奸胜）；反贼与内奸全灭 → 主公阵营胜；仅剩内奸 → 内奸胜",
+			"本模式不使用【闪电】",
+		},
+		PlayerCount: 5,
+		HumanSeats:  []int{0},
+		SeatMap: []SeatSlot{
+			{Seat: 1, Area: "left", Placement: "left"},
+			{Seat: 2, Area: "top", Placement: "top"},
+			{Seat: 3, Area: "right-top", Placement: "right"},
+			{Seat: 4, Area: "bottom", Placement: "right"},
+		},
+		HeroPool: DefaultHeroPool,
+	})
+	Register(Meta{
+		ID:          SoloIdentity8,
+		Name:        "八人身份局",
+		Tag:         "8 人身份",
+		Description: "8 人人机 · 标准八人身份场",
+		Hint:        "你担任主公（公开）· 消灭反贼与内奸获胜 · 与内奸单挑时主公阵亡则内奸胜 · 内奸独自存活亦内奸胜",
+		Subtitle:    "8 人身份 · 1 真人 + 7 电脑",
+		LayoutKey:   LayoutOctagon8,
+		Tags:        []string{"solo", "identity", "8p"},
+		Rules: []string{
+			"1 主公（+1 体力）+ 2 忠臣 + 1 内奸 + 4 反贼",
+			"主公身份公开，其余身份隐藏至阵亡",
+			"可攻击除自己外任意角色",
+			"主公阵亡 → 反贼胜（与内奸单挑时主公阵亡 → 内奸胜）；反贼与内奸全灭 → 主公阵营胜；仅剩内奸 → 内奸胜",
+			"本模式不使用【闪电】",
+		},
+		PlayerCount: 8,
+		HumanSeats:  []int{0},
+		SeatMap: []SeatSlot{
+			{Seat: 1, Area: "left-top", Placement: "left"},
+			{Seat: 2, Area: "top", Placement: "top"},
+			{Seat: 3, Area: "right-top", Placement: "right"},
+			{Seat: 4, Area: "left", Placement: "left"},
+			{Seat: 5, Area: "right", Placement: "right"},
+			{Seat: 6, Area: "left-bottom", Placement: "left"},
+			{Seat: 7, Area: "right-bottom", Placement: "right"},
+		},
+		HeroPool: DefaultHeroPool,
 	})
 }

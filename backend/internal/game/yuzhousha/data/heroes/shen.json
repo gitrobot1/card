@@ -1,0 +1,13 @@
+{
+  "pack": "shen",
+  "heroes": [
+    {
+      "id": "shen_zhao_yun",
+      "name": "神赵云",
+      "max_hp": 2,
+      "kingdom": "shen",
+      "skill_ids": ["juejing", "longhun"],
+      "accent_color": "#d4af37"
+    }
+  ]
+}

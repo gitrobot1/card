@@ -21,7 +21,7 @@ func (g *Game) SkipTieqi(seat int, events *[]GameEvent) error {
 	g.Pending.TieqiPending = false
 	g.Message = fmt.Sprintf("%s 未发动【铁骑】", g.Players[seat].Name)
 	g.resetTimer()
-	return nil
+	return g.advanceShaBeforeTargetResponse(events)
 }
 
 func (r *gameSkillRuntime) DrawCards(seat, count int) error {

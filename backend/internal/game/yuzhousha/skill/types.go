@@ -53,6 +53,7 @@ const (
 // Runtime 技能逻辑访问对局的抽象接口；由 engine.Game 适配实现。
 // 新技能优先使用 EnemiesOf/AlliesOf/DrawSkillCards 与 Decl hook 字段。
 type Runtime interface {
+	ModeID() string
 	HasSkill(seat int, skillID string) bool
 	Phase() string
 	TurnStep() string
@@ -139,6 +140,10 @@ type Runtime interface {
 	HasDiamondHandCard(seat int) bool
 	ApplyLiuli(seat int, cardID string, redirect int) error
 	PassLiuli(seat int) error
+	PassPojun(seat int) error
+	PojunPlace(seat int, zone, cardID string) error
+	AutoPojunPlacing(seat int) error
+	PendingPojunForSource(seat int) bool
 	ActivateKurou(seat int) error
 	AwakenHunzi(seat int) error
 	ActivateShuangxiongDraw(seat int) error
@@ -184,6 +189,7 @@ type Decl struct {
 	ExtraResponsesNeeded func(r Runtime, source int, cardKind string) int
 	SkipsDiscardPhase  func(r Runtime, seat int) bool
 	OnCardResolved     func(r Runtime, ctx CardResolvedCtx) error
+	HandRetainLimit    func(r Runtime, seat int) int // 0=默认按体力；更大值提高留牌上限
 	AIPriority         func(r Runtime, seat int) int
 	AIActivate   func(r Runtime, seat int) error
 }
@@ -359,6 +365,13 @@ func (h Handler) OnCardResolved(r Runtime, ctx CardResolvedCtx) error {
 		return nil
 	}
 	return h.Decl.OnCardResolved(r, ctx)
+}
+
+func (h Handler) HandRetainLimit(r Runtime, seat int) int {
+	if h.Decl.HandRetainLimit == nil {
+		return 0
+	}
+	return h.Decl.HandRetainLimit(r, seat)
 }
 
 func (h Handler) AIPriority(r Runtime, seat int) int {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	engine "github.com/time/card/backend/internal/game/yuzhousha/engine"
+	"github.com/time/card/backend/internal/game/yuzhousha/engine/mode"
 )
 
 func TestSolo1v1TurnFlow(t *testing.T) {
@@ -844,5 +845,66 @@ func TestDeckCanExceed52Cards(t *testing.T) {
 	deck := engine.NewBasicDeck()
 	if len(deck) <= 52 {
 		t.Fatalf("expected deck larger than 52 cards, got %d", len(deck))
+	}
+}
+
+func TestNewDeckForMode_3v3NoShanDian(t *testing.T) {
+	deck := engine.NewDeckForMode(mode.Solo3v3)
+	if len(deck) != 63 {
+		t.Fatalf("3v3 deck size=%d want 63", len(deck))
+	}
+	for _, c := range deck {
+		if c.Kind == engine.CardShanDian {
+			t.Fatalf("3v3 deck contains shandian: %s", c.ID)
+		}
+	}
+}
+
+func TestNewDeckForMode_Identity8LargeDeck(t *testing.T) {
+	deck := engine.NewDeckForMode(mode.SoloIdentity8)
+	if len(deck) != 90 {
+		t.Fatalf("identity_8 deck size=%d want 90", len(deck))
+	}
+	for _, c := range deck {
+		if c.Kind == engine.CardShanDian {
+			t.Fatalf("identity_8 deck contains shandian: %s", c.ID)
+		}
+	}
+}
+
+func TestNewDeckForMode_DdzExtraSha(t *testing.T) {
+	deck := engine.NewDeckForMode(mode.Solo3pDdz)
+	if len(deck) != 67 {
+		t.Fatalf("ddz deck size=%d want 67", len(deck))
+	}
+	sha := 0
+	for _, c := range deck {
+		if c.Kind == engine.CardSha {
+			sha++
+		}
+	}
+	if sha != 13 {
+		t.Fatalf("ddz sha=%d want 13", sha)
+	}
+}
+
+func TestNewDeckForMode_Identity5Tuned(t *testing.T) {
+	deck := engine.NewDeckForMode(mode.SoloIdentity5)
+	if len(deck) != 67 {
+		t.Fatalf("identity_5 deck size=%d want 67", len(deck))
+	}
+	sha, tao, shandian := 0, 0, 0
+	for _, c := range deck {
+		switch c.Kind {
+		case engine.CardSha:
+			sha++
+		case engine.CardTao:
+			tao++
+		case engine.CardShanDian:
+			shandian++
+		}
+	}
+	if sha != 12 || tao != 5 || shandian != 1 {
+		t.Fatalf("identity_5 sha=%d tao=%d shandian=%d want 12/5/1", sha, tao, shandian)
 	}
 }

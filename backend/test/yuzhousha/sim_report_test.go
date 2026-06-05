@@ -25,7 +25,7 @@ const simLogDir = "test/yuzhousha/sim_logs"
 
 type simContext struct {
 	Label  string
-	Mode   string // "1v1" | "2v2" | "3p_chain" | "3p_ddz"
+	Mode   string // "1v1" | "2v2" | "3p_chain" | "3p_ddz" | "3v3" | "identity_5" | "identity_8"
 	Heroes []string
 	Hero0  string
 	Hero1  string
@@ -41,6 +41,18 @@ func (ctx simContext) is2v2() bool {
 
 func (ctx simContext) is3p() bool {
 	return ctx.Mode == "3p_chain" || ctx.Mode == "3p_ddz" || len(ctx.Heroes) == 3
+}
+
+func (ctx simContext) is3v3() bool {
+	return ctx.Mode == "3v3" || len(ctx.Heroes) == 6
+}
+
+func (ctx simContext) isIdentity5() bool {
+	return ctx.Mode == "identity_5"
+}
+
+func (ctx simContext) isIdentity8() bool {
+	return ctx.Mode == "identity_8"
 }
 
 type simRun struct {
@@ -59,6 +71,19 @@ func (ctx simContext) matchup() string {
 	}
 	if ctx.is3p() && len(ctx.Heroes) == 3 {
 		return fmt.Sprintf("%s vs %s vs %s", ctx.Heroes[0], ctx.Heroes[1], ctx.Heroes[2])
+	}
+	if ctx.is3v3() && len(ctx.Heroes) == 6 {
+		return fmt.Sprintf("%s vs %s vs %s vs %s vs %s vs %s",
+			ctx.Heroes[0], ctx.Heroes[1], ctx.Heroes[2], ctx.Heroes[3], ctx.Heroes[4], ctx.Heroes[5])
+	}
+	if ctx.isIdentity8() && len(ctx.Heroes) == 8 {
+		return fmt.Sprintf("%s vs %s vs %s vs %s vs %s vs %s vs %s vs %s",
+			ctx.Heroes[0], ctx.Heroes[1], ctx.Heroes[2], ctx.Heroes[3],
+			ctx.Heroes[4], ctx.Heroes[5], ctx.Heroes[6], ctx.Heroes[7])
+	}
+	if ctx.isIdentity5() && len(ctx.Heroes) == 5 {
+		return fmt.Sprintf("%s vs %s vs %s vs %s vs %s",
+			ctx.Heroes[0], ctx.Heroes[1], ctx.Heroes[2], ctx.Heroes[3], ctx.Heroes[4])
 	}
 	if ctx.Seed > 0 {
 		return fmt.Sprintf("seed %d (%s vs %s)", ctx.Seed, ctx.Hero0, ctx.Hero1)
@@ -188,6 +213,12 @@ func buildSimReport(g *engine.Game, ctx simContext, run simRun) string {
 	fmt.Fprintf(&b, "对局: %s\n", ctx.matchup())
 	if ctx.is2v2() {
 		fmt.Fprintf(&b, "模式: 2v2\n")
+	} else if ctx.isIdentity8() {
+		fmt.Fprintf(&b, "模式: identity_8\n")
+	} else if ctx.isIdentity5() {
+		fmt.Fprintf(&b, "模式: identity_5\n")
+	} else if ctx.is3v3() {
+		fmt.Fprintf(&b, "模式: 3v3\n")
 	} else if ctx.is3p() {
 		fmt.Fprintf(&b, "模式: %s\n", ctx.Mode)
 	}
@@ -204,8 +235,8 @@ func buildSimReport(g *engine.Game, ctx simContext, run simRun) string {
 	fmt.Fprintf(&b, "建议查: %s\n", hint)
 	fmt.Fprintf(&b, "\n--- 局面 ---\n")
 	fmt.Fprintf(&b, "phase=%s step=%s turn=%d message=%q\n", g.Phase, g.TurnStep, g.CurrentTurn, g.Message)
-	fmt.Fprintf(&b, "牌堆=%d 弃牌=%d 牌总数=%d (期望 %d", len(g.DrawPile), len(g.DiscardPile), cards, expectedDeckSize)
-	if cards != expectedDeckSize {
+	fmt.Fprintf(&b, "牌堆=%d 弃牌=%d 牌总数=%d (期望 %d", len(g.DrawPile), len(g.DiscardPile), cards, expectedDeckSizeFor(g))
+	if cards != expectedDeckSizeFor(g) {
 		b.WriteString(" ⚠ 牌数不守恒")
 	}
 	b.WriteString(")\n")
@@ -218,6 +249,18 @@ func buildSimReport(g *engine.Game, ctx simContext, run simRun) string {
 	fmt.Fprintf(&b, "%s", formatEvents(run.lastEvents))
 	fmt.Fprintf(&b, "\n--- 复现 ---\n")
 	switch {
+	case ctx.Mode == "identity_8" && ctx.Seed > 0:
+		fmt.Fprintf(&b, "  CARD_SIM=1 CARD_SIM_ROUNDS=%d ./scripts/test.sh simidentity8 -run TestSim_Identity8_RandomOctasSeeded/%d -v\n", ctx.Seed, ctx.Seed)
+	case ctx.Mode == "identity_8" && ctx.Hero0 != "":
+		fmt.Fprintf(&b, "  CARD_SIM=1 ./scripts/test.sh simidentity8 -run TestSim_Identity8_AllHeroesAsSeat0/%s -v\n", sanitizeLogName(ctx.Hero0))
+	case ctx.Mode == "identity_5" && ctx.Seed > 0:
+		fmt.Fprintf(&b, "  CARD_SIM=1 CARD_SIM_ROUNDS=%d ./scripts/test.sh simidentity -run TestSim_Identity5_RandomPentasSeeded/%d -v\n", ctx.Seed, ctx.Seed)
+	case ctx.Mode == "identity_5" && ctx.Hero0 != "":
+		fmt.Fprintf(&b, "  CARD_SIM=1 ./scripts/test.sh simidentity -run TestSim_Identity5_AllHeroesAsSeat0/%s -v\n", sanitizeLogName(ctx.Hero0))
+	case ctx.Mode == "3v3" && ctx.Seed > 0:
+		fmt.Fprintf(&b, "  CARD_SIM=1 CARD_SIM_ROUNDS=%d ./scripts/test.sh sim3v3 -run TestSim_3v3_RandomHexesSeeded/%d -v\n", ctx.Seed, ctx.Seed)
+	case ctx.Mode == "3v3" && ctx.Hero0 != "":
+		fmt.Fprintf(&b, "  CARD_SIM=1 ./scripts/test.sh sim3v3 -run TestSim_3v3_AllHeroesAsSeat0/%s -v\n", sanitizeLogName(ctx.Hero0))
 	case ctx.Mode == "3p_chain" && ctx.Seed > 0:
 		fmt.Fprintf(&b, "  CARD_SIM=1 CARD_SIM_ROUNDS=%d ./scripts/test.sh sim3p_chain -run TestSim_3pChain_RandomTriosSeeded/%d -v\n", ctx.Seed, ctx.Seed)
 	case ctx.Mode == "3p_chain" && ctx.Hero0 != "":
@@ -310,7 +353,7 @@ func assertSimFinished(t *testing.T, g *engine.Game, ctx simContext, run simRun)
 		reportSimFailure(t, g, ctx, run)
 		t.FailNow()
 	}
-	if cards := countCardsInPlay(g); cards != expectedDeckSize {
+	if cards := countCardsInPlay(g); cards != expectedDeckSizeFor(g) {
 		ctx.Reason = "card_loss"
 		if os.Getenv("CARD_SIM_STRICT") == "1" {
 			reportSimFailure(t, g, ctx, run)

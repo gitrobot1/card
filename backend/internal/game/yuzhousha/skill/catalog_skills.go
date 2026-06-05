@@ -252,5 +252,55 @@ func catalogSkills() []Decl {
 				return r.DrawSkillCards(ctx.Seat, IDJiang, 1, "")
 			},
 		},
+		{
+			Meta: Meta{
+				ID: IDChongzhen, Name: "冲阵", Kind: KindPassive,
+				Desc: "当你成为【杀】或普通锦囊牌的目标后，你可以弃置与该牌花色相同的手牌并摸等量的牌。",
+			},
+		},
+		{
+			Meta: Meta{
+				ID: IDJuejing, Name: "绝境", Kind: KindPassive,
+				Desc: "锁定技，体力不大于 1 时，你手牌数无上限；摸牌阶段，你额外摸两张牌。",
+			},
+			DrawCountBonus: func(r Runtime, seat int) int {
+				if !r.HasSkill(seat, IDJuejing) {
+					return 0
+				}
+				hp, _ := r.PlayerHP(seat)
+				if hp <= 1 {
+					return 2
+				}
+				return 0
+			},
+			HandRetainLimit: func(r Runtime, seat int) int {
+				if !r.HasSkill(seat, IDJuejing) {
+					return 0
+				}
+				hp, _ := r.PlayerHP(seat)
+				if hp <= 1 {
+					return 1 << 20
+				}
+				return 0
+			},
+		},
+		{
+			Meta: Meta{
+				ID: IDLonghun, Name: "龙魂", Kind: KindPassive,
+				Desc: "你可以将 X 张花色相同的牌当【杀】或【闪】使用或打出（X 为你的当前体力值）。",
+			},
+			CardPlaysAs: func(r Runtime, seat int, cardKind, asKind, suit string) bool {
+				if !r.HasSkill(seat, IDLonghun) {
+					return false
+				}
+				hp, _ := r.PlayerHP(seat)
+				if hp == 1 {
+					return asKind == "sha" || asKind == "shan"
+				}
+				_ = cardKind
+				_ = suit
+				return false
+			},
+		},
 	}
 }

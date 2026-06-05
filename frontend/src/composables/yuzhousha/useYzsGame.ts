@@ -29,6 +29,7 @@ import {
   weaponMetaForKind,
   weaponRangeForKind,
 } from '../../constants/yzsWeapons'
+import { skillBlockedInMode } from '../../constants/yzsModes'
 import {
   discardYuzhoushaCards,
   endYuzhoushaPlay,
@@ -133,6 +134,8 @@ const isMyResponse = computed(
   () =>
     isResponse.value &&
     (state.value?.pending?.target_index === mySeat.value ||
+      (state.value?.pending?.response_mode === 'skill_pojun' &&
+        state.value?.pending?.source_index === mySeat.value) ||
       (state.value?.pending?.response_mode === 'dying_rescue' &&
         state.value?.pending?.source_index === mySeat.value) ||
       (state.value?.pending?.response_mode === 'wugu_pick' &&
@@ -370,6 +373,12 @@ const isTuxiTake = computed(
 const isQixiTake = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_qixi',
 )
+const isPojun = computed(
+  () => isResponse.value && state.value?.pending?.response_mode === 'skill_pojun',
+)
+const isPojunDiscard = computed(
+  () => isResponse.value && state.value?.pending?.response_mode === 'skill_pojun_discard',
+)
 const isYinghunChoice = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_yinghun',
 )
@@ -411,6 +420,9 @@ const tuxiSourceSeat = computed(() =>
 const qixiSourceSeat = computed(() =>
   isQixiTake.value ? (state.value?.pending?.source_index ?? opponentSeat.value) : opponentSeat.value,
 )
+const pojunVictimSeat = computed(() =>
+  isPojun.value ? (state.value?.pending?.target_index ?? opponentSeat.value) : opponentSeat.value,
+)
 
 const qilinHorseOptions = computed(() => {
   if (!isQilinBow.value) return []
@@ -432,12 +444,15 @@ const selfTargetKinds = new Set([
   'nanman',
   'wanjian',
   'jiu',
+  'tiesuo',
   'weapon_1',
   'weapon_2',
   'weapon_3',
   'weapon_4',
   'weapon_5',
+  'weapon_6',
   'armor',
+  'armor_vine',
   'plus_horse',
   'minus_horse',
 ])
@@ -464,6 +479,7 @@ const canSubmitBagua = computed(
     !isQilinBow.value &&
     responseRequiredKind.value === 'shan' &&
     !!myPlayer.value?.armor &&
+    myPlayer.value.armor.kind === 'armor' &&
     !state.value?.pending?.bagua_used &&
     !state.value?.pending?.ignore_armor &&
     !loading.value &&
@@ -475,7 +491,7 @@ function cardLabel(kind: string | undefined) {
   return YZS_CARD_LABELS[kind] ?? kind
 }
 
-const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang'])
+const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang', 'huogong', 'tiesuo'])
 
 function needsOpponentTarget(card: YzsCard | null | undefined) {
   if (!card) return false
@@ -527,6 +543,8 @@ const targeting = useYzsTargeting({
   isFankui,
   isTuxiTake,
   isQixiTake,
+  isPojun,
+  isPojunDiscard,
   selectedCard,
   canPlaySha,
   cardPlaysAsSha,
@@ -537,6 +555,7 @@ const targeting = useYzsTargeting({
   fankuiSourceSeat,
   tuxiSourceSeat,
   qixiSourceSeat,
+  pojunVictimSeat,
 })
 
 const {
@@ -551,6 +570,7 @@ const {
   fankuiTargetOptions,
   tuxiTargetOptions,
   qixiTargetOptions,
+  pojunTargetOptions,
   selectedCardNeedsTargetCard,
   canTargetSeat,
   canTargetOpponentWith,
@@ -560,6 +580,7 @@ const {
   onTargetOpponent,
   pickFankuiTarget,
   pickTuxiTarget,
+  pickPojunTarget,
   pickOpponentCardTarget,
   syncWeaponSkillTargeting,
 } = targeting
@@ -589,6 +610,7 @@ function makePendingContext(): PendingContext | null {
     fankuiTargetOptions,
     tuxiTargetOptions,
     qixiTargetOptions,
+    pojunTargetOptions,
     myCharacterSkills,
     peekDeckSkillId,
     yijiGiveRemaining,
@@ -745,6 +767,12 @@ const canSubmitTuxi = computed(() => {
 })
 
 const canSubmitQixi = computed(() => isQixiTake.value && pendingSkillSubmit('qixi'))
+const canSubmitPojun = computed(() => {
+  if (!isPojun.value && !isPojunDiscard.value) return false
+  const ctx = makePendingContext()
+  if (!ctx) return false
+  return pendingCanSubmitSkill(ctx, 'pojun') ?? false
+})
 const canSubmitLiuli = computed(() => isLiuliOffer.value && pendingSkillSubmit('liuli'))
 const canSubmitYinghunDiscard = computed(
   () => isYinghunDiscard.value && pendingSkillSubmit('yinghun'),
@@ -868,6 +896,7 @@ function showSeatSkillPanels(seat: number) {
     (isFankui.value && fankuiSourceSeat.value === seat) ||
     (isTuxiTake.value && tuxiSourceSeat.value === seat) ||
     (isQixiTake.value && qixiSourceSeat.value === seat) ||
+    (isPojun.value && pojunVictimSeat.value === seat) ||
     takeableHere
   )
 }
@@ -1320,6 +1349,11 @@ async function submitSkill(skillId: string) {
     }
     return
   }
+  if (skillId === 'pojun') {
+    const ctx = makePendingContext()
+    if (ctx && (await pendingSubmitSkill(ctx, 'pojun'))) return
+    return
+  }
   if (skillId === 'guicai') {
     const ctx = makePendingContext()
     if (ctx && (await pendingSubmitSkill(ctx, 'guicai'))) return
@@ -1454,7 +1488,7 @@ async function submitGanglieDiscard() {
 }
 
 function isSkillActivatable(skill: YzsSkillMeta) {
-  if (skill.inactive_in_1v1) return false
+  if (skillBlockedInMode(skill, state.value?.mode)) return false
   if (skill.id === 'longdan' || skill.id === 'paoxiao' || skill.id === 'kongcheng') return false
   if (skill.id === 'wusheng' && wushengMode.value && (isMyPlay.value || isMyResponse.value)) return false
   const ctx = makePendingContext()
@@ -1467,7 +1501,7 @@ function isSkillActivatable(skill: YzsSkillMeta) {
 }
 
 function onCharacterSkillClick(skill: YzsSkillMeta) {
-  if (skill.inactive_in_1v1) return
+  if (skillBlockedInMode(skill, state.value?.mode)) return
   if (skill.id === 'rende') {
     activateSkill('rende')
     return
@@ -1514,6 +1548,10 @@ function onCharacterSkillClick(skill: YzsSkillMeta) {
   }
   if (skill.id === 'tuxi' && isTuxiTake.value) {
     void submitSkill('tuxi')
+    return
+  }
+  if (skill.id === 'pojun' && (isPojun.value || isPojunDiscard.value)) {
+    void submitSkill('pojun')
     return
   }
   if (skill.id === 'qixi' && isQixiTake.value) {
@@ -1898,6 +1936,7 @@ onMounted(() => {
     canSubmitLiuli,
     canSubmitPeekDeck,
     canSubmitPlay,
+    canSubmitPojun,
     canSubmitQixi,
     canSubmitTianxiang,
     canSubmitTuxi,
@@ -1984,6 +2023,8 @@ onMounted(() => {
     isMyResponse,
     isMyTurn,
     isPeekDeck,
+    isPojun,
+    isPojunDiscard,
     isQilinBow,
     isQixiTake,
     isRedCard,
@@ -2032,8 +2073,11 @@ onMounted(() => {
     phaseTimerActive,
     pickFankuiTarget,
     pickOpponentCardTarget,
+    pickPojunTarget,
     pickTuxiTarget,
     playAreaRef,
+    pojunTargetOptions,
+    pojunVictimSeat,
     qilinHorseOptions,
     qixiMode,
     qixiSelectedId,

@@ -16,6 +16,8 @@ type DamageResume struct {
 	OfferQilin bool
 	// SkipTianxiang 为 true 时不再向同一受害者提供【天香】窗口（已跳过或已处理）。
 	SkipTianxiang bool
+	// IgnoreArmor 青釭剑等无视防具（藤甲加伤与八卦均不生效）。
+	IgnoreArmor bool
 }
 
 // DamageAftermath 一次伤害事件触发的可选技能链（奸雄 → 刚烈×N → 反馈×N）。

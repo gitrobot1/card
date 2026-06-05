@@ -25,6 +25,24 @@ func (g *Game) finishJueqingDeath(source, target int, events *[]GameEvent) bool 
 	if g.checkChainDeath(target, events) {
 		return true
 	}
+	if g.is3v3() {
+		if g.checkCommanderDeath(target, events) {
+			return true
+		}
+		g.Phase = PhasePlaying
+		g.Message = fmt.Sprintf("%s 阵亡，对局继续", victim)
+		g.resetTimer()
+		return true
+	}
+	if g.isIdentity() {
+		if g.checkIdentityDeath(target, source, events) {
+			return true
+		}
+		g.Phase = PhasePlaying
+		g.Message = fmt.Sprintf("%s 阵亡，对局继续", victim)
+		g.resetTimer()
+		return true
+	}
 	if g.is2v2() {
 		g.Phase = PhasePlaying
 		g.Message = fmt.Sprintf("%s 阵亡，对局继续", victim)

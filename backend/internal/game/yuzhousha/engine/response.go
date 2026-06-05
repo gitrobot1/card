@@ -151,7 +151,7 @@ func (g *Game) TryBaguaJudge(seat int, events *[]GameEvent) error {
 	if requiredKind != CardShan {
 		return ErrInvalidCard
 	}
-	if g.Players[seat].Armor == nil {
+	if g.Players[seat].Armor == nil || !g.hasBaguaArmor(seat) {
 		return ErrInvalidCard
 	}
 	if pending.IgnoreArmor {
@@ -218,6 +218,9 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 	if g.Pending.TieqiPending && seat == g.Pending.SourceIndex {
 		return g.SkipTieqi(seat, events)
 	}
+	if g.Pending.ResponseMode == ResponseModeSkillPojun && seat == g.Pending.SourceIndex {
+		return g.PassPojun(seat, events)
+	}
 	if g.Pending.ResponseMode == ResponseModeSkillGuicai && seat == g.Pending.TargetIndex {
 		return g.PassGuicai(seat, events)
 	}
@@ -268,6 +271,9 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 	}
 	if g.Pending.ResponseMode == ResponseModeSkillLuanwu {
 		return g.passLuanwu(seat, events)
+	}
+	if g.Pending.ResponseMode == ResponseModeHuoGong && seat == g.Pending.TargetIndex {
+		return g.resolveHuoGongFail(seat, events)
 	}
 	if g.Pending.ResponseMode == ResponseModeDying {
 		return g.passDying(seat, events)
@@ -354,6 +360,7 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 		Card:        pending.Card,
 		ReturnIndex: pending.ReturnIndex,
 		OfferQilin:  pending.Card.Kind == CardSha,
+		IgnoreArmor: pending.IgnoreArmor,
 	}
 	if pending.LuanwuSha {
 		resume.Mode = ""

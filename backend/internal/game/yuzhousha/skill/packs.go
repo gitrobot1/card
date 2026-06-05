@@ -58,7 +58,16 @@ func RegisterPackJSON(data []byte) error {
 
 // LoadEmbeddedPacks registers embedded pack manifests.
 func LoadEmbeddedPacks() error {
-	return RegisterPackJSON(yzsdata.StandardPackManifestJSON)
+	for _, data := range [][]byte{
+		yzsdata.StandardPackManifestJSON,
+		yzsdata.SPPackManifestJSON,
+		yzsdata.ShenPackManifestJSON,
+	} {
+		if err := RegisterPackJSON(data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // LoadEmbeddedSkins registers embedded skins then ensures defaults for all heroes.

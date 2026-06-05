@@ -102,9 +102,21 @@ func rendeAIActivate(r skill.Runtime, seat int) error {
 }
 
 func jijiangCanActivate(r skill.Runtime, seat int) bool {
-	// 宇宙杀为 1v1 模式，主公技不生效（与 skill.Meta.InactiveIn1v1 一致）。
-	_ = r
-	_ = seat
+	if !lordSkillsActive(r.ModeID()) {
+		return false
+	}
+	if len(r.ShuAllies(seat)) == 0 {
+		return false
+	}
+	if r.SkillCounter(seat, counterJijiangUseFailed) > 0 {
+		return false
+	}
+	if r.Phase() == PhasePlaying && r.TurnStep() == StepPlay && r.CurrentTurn() == seat && r.CanUseSha(seat) {
+		return true
+	}
+	if r.Phase() == PhaseResponse && r.PendingRequiredKind() == CardSha && r.PendingTargetSeat() == seat {
+		return true
+	}
 	return false
 }
 
@@ -122,9 +134,16 @@ func jijiangActivate(r skill.Runtime, seat int, _ skill.ActivateReq) error {
 }
 
 func jijiangAIPriority(r skill.Runtime, seat int) int {
-	_ = r
-	_ = seat
-	return 0
+	if !jijiangCanActivate(r, seat) {
+		return 0
+	}
+	if r.HandPlaysAs(seat, CardSha) {
+		return 0
+	}
+	if r.Phase() == PhaseResponse {
+		return 85
+	}
+	return 75
 }
 
 func jijiangAIActivate(r skill.Runtime, seat int) error {

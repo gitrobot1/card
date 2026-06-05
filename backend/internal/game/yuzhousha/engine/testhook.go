@@ -4,6 +4,7 @@ package engine
 
 import (
 	"fmt"
+	"math/rand"
 
 	"github.com/time/card/backend/internal/game/yuzhousha/skill"
 )
@@ -148,4 +149,57 @@ func (g *Game) DrawCountForTest(seat int) int {
 
 func (g *Game) CanUseShaForTest(seat int) bool {
 	return g.canUseSha(seat)
+}
+
+func (g *Game) ValidPlayTargetsForTest(source int, cardKind string) []int {
+	return g.validPlayTargets(source, cardKind)
+}
+
+func (g *Game) FinishPeekDeckForSim(seat int, events *[]GameEvent) error {
+	return g.finishPeekDeckAsAI(seat, events)
+}
+
+// SetDeckSeedForTest 用固定种子重新洗牌并回到主公回合起点（sim 可复现）。
+func (g *Game) AutoDiscardForSim(seat int, events *[]GameEvent) {
+	g.autoDiscard(seat, events)
+}
+
+func (g *Game) EndTurnForSim(events *[]GameEvent) error {
+	return g.endTurn(events)
+}
+
+func (g *Game) AutoPickWuguForSim(events *[]GameEvent) error {
+	if g.Pending == nil || g.Pending.ResponseMode != ResponseModeWuguPick {
+		return ErrWrongPhase
+	}
+	return g.autoPickWuguCard(g.Pending.WuguPickSeat, events)
+}
+
+func (g *Game) SetDeckSeedForTest(seed int64) {
+	g.testRand = rand.New(rand.NewSource(seed))
+	for i := range g.Players {
+		g.Players[i].Hand = nil
+		g.Players[i].JudgeArea = nil
+	}
+	g.setupDeck()
+	g.Phase = PhasePlaying
+	g.CurrentTurn = g.LordSeat
+	g.TurnStep = ""
+	g.Pending = nil
+	g.WinnerIndex = nil
+	g.WinnerTeam = nil
+	g.beginTurn(nil)
+}
+
+func (g *Game) ResolveDyingDeathForTest(victim, killer int, events *[]GameEvent) error {
+	if victim < 0 || victim >= len(g.Players) {
+		return fmt.Errorf("invalid victim seat %d", victim)
+	}
+	g.Players[victim].HP = 0
+	g.dyingContext = &DyingContext{Victim: victim, Killer: killer}
+	return g.resolveDyingDeath(events)
+}
+
+func (g *Game) FinishJueqingDeathForTest(source, target int, events *[]GameEvent) bool {
+	return g.finishJueqingDeath(source, target, events)
 }

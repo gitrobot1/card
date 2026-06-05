@@ -29,7 +29,7 @@ func (g *Game) refillDrawPile() {
 		return
 	}
 	rest := append([]Card(nil), g.DiscardPile[:len(g.DiscardPile)-1]...)
-	g.DrawPile = shuffleDeck(rest)
+	g.DrawPile = g.shuffleCards(rest)
 	g.DiscardPile = g.DiscardPile[len(g.DiscardPile)-1:]
 }
 
@@ -76,7 +76,8 @@ func (g *Game) DiscardCards(seat int, cardIDs []string, events *[]GameEvent) err
 		return ErrWrongPhase
 	}
 	p := &g.Players[seat]
-	need := len(p.Hand) - p.HP
+	cap := g.handRetainLimit(seat)
+	need := len(p.Hand) - cap
 	if need <= 0 {
 		return ErrWrongPhase
 	}
@@ -127,12 +128,13 @@ func (g *Game) DiscardCards(seat int, cardIDs []string, events *[]GameEvent) err
 
 func (g *Game) autoDiscard(seat int, events *[]GameEvent) {
 	p := &g.Players[seat]
-	need := len(p.Hand) - p.HP
+	cap := g.handRetainLimit(seat)
+	need := len(p.Hand) - cap
 	if need <= 0 {
 		return
 	}
 	discarded := make([]Card, 0, need)
-	for len(p.Hand) > p.HP {
+	for len(p.Hand) > cap {
 		c := p.Hand[len(p.Hand)-1]
 		p.Hand = p.Hand[:len(p.Hand)-1]
 		g.DiscardPile = append(g.DiscardPile, c)
@@ -157,6 +159,9 @@ func (g *Game) autoDiscard(seat int, events *[]GameEvent) {
 
 func (g *Game) endTurn(events *[]GameEvent) error {
 	seat := g.CurrentTurn
+	if g.startPojunCampDiscardIfNeeded(seat, events) {
+		return nil
+	}
 	g.runTurnEndHooks(seat, events)
 	g.Players[seat].Drunk = false
 	*events = append(*events, GameEvent{

@@ -129,6 +129,62 @@ const qixiHandler: PendingHandler = {
   },
 }
 
+const pojunHandler: PendingHandler = {
+  modes: ['skill_pojun'],
+  match: (state) => responseMode(state, 'skill_pojun'),
+  skillOnly: true,
+  onEnter(ctx) {
+    pickFirstTarget(ctx, ctx.pojunTargetOptions.value)
+  },
+  canSubmitSkill(ctx, skillId) {
+    if (skillId !== 'pojun' || isBusy(ctx)) return false
+    if (ctx.selectedTargetZone.value) return true
+    return ctx.pojunTargetOptions.value.length > 0
+  },
+  async submitSkill(ctx, skillId) {
+    if (skillId !== 'pojun') return
+    const zone = ctx.selectedTargetZone.value || 'hand'
+    await ctx.act(() =>
+      useYuzhoushaSkill(ctx.state.id, 'pojun', {
+        targetZone: zone,
+        targetCardId: ctx.selectedTargetCardId.value,
+      }),
+    )
+    ctx.selectedTargetZone.value = ''
+    ctx.selectedTargetCardId.value = ''
+  },
+  hint(ctx) {
+    const left = Math.max(
+      0,
+      (ctx.state.pending?.pojun_max ?? 0) - (ctx.state.pending?.pojun_placed ?? 0),
+    )
+    return ctx.centerMessage.value || `【破军】：选择目标至多 ${left} 张牌置于「营」，或「取消」结束`
+  },
+}
+
+const pojunDiscardHandler: PendingHandler = {
+  modes: ['skill_pojun_discard'],
+  match: (state) => responseMode(state, 'skill_pojun_discard'),
+  skillOnly: true,
+  canSubmitSkill(ctx, skillId) {
+    if (skillId !== 'pojun' || isBusy(ctx)) return false
+    return !!ctx.selectedTargetCardId.value
+  },
+  async submitSkill(ctx, skillId) {
+    if (skillId !== 'pojun' || !ctx.selectedTargetCardId.value) return
+    await ctx.act(() =>
+      useYuzhoushaSkill(ctx.state.id, 'pojun', {
+        cardIds: [ctx.selectedTargetCardId.value],
+      }),
+    )
+    ctx.selectedTargetCardId.value = ''
+  },
+  hint(ctx) {
+    const need = ctx.state.pending?.pojun_remaining ?? 1
+    return ctx.centerMessage.value || `【破军】：弃置「营」中 ${need} 张牌`
+  },
+}
+
 const guicaiHandler: PendingHandler = {
   modes: ['skill_guicai'],
   match: (state) => responseMode(state, 'skill_guicai'),
@@ -622,6 +678,8 @@ export const pendingHandlers: PendingHandler[] = [
   fankuiHandler,
   tuxiHandler,
   qixiHandler,
+  pojunHandler,
+  pojunDiscardHandler,
   guicaiHandler,
   guidaoHandler,
   leijiHandler,

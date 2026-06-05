@@ -33,6 +33,26 @@ func TestSmoke_3pDdz_Bootstrap(t *testing.T) {
 	assertGameInvariants(t, g)
 }
 
+func TestSmoke_3pDdz_ExtraShaDeck(t *testing.T) {
+	g, err := engine.NewSolo3pDdz("smoke-ddz-deck", "甲", engine.CharLiuBei)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := mode.DeckProfileFor(mode.Solo3pDdz)
+	if got := countCardsInPlay(g); got != want.TotalCards() {
+		t.Fatalf("ddz card total=%d want %d", got, want.TotalCards())
+	}
+	sha := 0
+	for _, c := range allCardsInGame(g) {
+		if c.Kind == engine.CardSha {
+			sha++
+		}
+	}
+	if sha != want.CountKind(mode.DeckKindSha) {
+		t.Fatalf("ddz sha in play=%d want %d", sha, want.CountKind(mode.DeckKindSha))
+	}
+}
+
 func TestSmoke_3pDdz_LandlordPerks(t *testing.T) {
 	g, err := engine.NewSolo3pDdz("smoke-ddz-perks", "甲", engine.CharLiuBei)
 	if err != nil {

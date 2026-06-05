@@ -234,11 +234,72 @@ func (g *Game) autoFinishPeekDeck(seat int, events *[]GameEvent) error {
 	if g.Pending == nil || g.Pending.ResponseMode != ResponseModePeekDeck {
 		return ErrWrongPhase
 	}
-	ids := make([]string, 0, len(g.Pending.RevealedCards))
-	for _, c := range g.Pending.RevealedCards {
-		ids = append(ids, c.ID)
+	revealed := g.Pending.RevealedCards
+	salt := seat*31 + g.CurrentTurn*17 + len(revealed)
+	top, bottom := randomPeekPartition(revealed, salt)
+	if err := validatePeekDeckPartition(revealed, top, bottom); err == nil {
+		return g.FinishPeekDeck(seat, PeekDeckRequest{TopCardIDs: top, BottomCardIDs: bottom}, events)
 	}
-	return g.FinishPeekDeck(seat, PeekDeckRequest{TopCardIDs: ids}, events)
+	topCards, bottomCards := splitPeekCardsByIndex(revealed, salt)
+	return g.applyPeekDeckSplit(seat, topCards, bottomCards, events)
+}
+
+func splitPeekCardsByIndex(revealed []Card, salt int) (top, bottom []Card) {
+	if len(revealed) == 0 {
+		return nil, nil
+	}
+	for i, c := range revealed {
+		if (i+salt)%2 == 0 {
+			top = append(top, c)
+		} else {
+			bottom = append(bottom, c)
+		}
+	}
+	if len(top) == 0 && len(bottom) > 0 {
+		top = append(top, bottom[0])
+		bottom = bottom[1:]
+	}
+	if len(bottom) == 0 && len(top) > 1 {
+		bottom = append(bottom, top[len(top)-1])
+		top = top[:len(top)-1]
+	}
+	return top, bottom
+}
+
+func (g *Game) applyPeekDeckSplit(seat int, topCards, bottomCards []Card, events *[]GameEvent) error {
+	if g.IsFinished() {
+		return ErrGameOver
+	}
+	if g.Phase != PhaseResponse || g.Pending == nil || g.Pending.ResponseMode != ResponseModePeekDeck {
+		return ErrWrongPhase
+	}
+	if g.Pending.TargetIndex != seat {
+		return ErrNotYourTurn
+	}
+	g.DrawPile = append(topCards, g.DrawPile...)
+	g.DrawPile = append(g.DrawPile, bottomCards...)
+	g.syncCounts()
+
+	skillID := g.Pending.SkillID
+	skillName := skillID
+	if h, ok := skill.Lookup(skillID); ok && h.Meta().Name != "" {
+		skillName = h.Meta().Name
+	}
+
+	g.Pending = nil
+	g.Phase = PhasePlaying
+	g.TurnStep = StepPrepare
+
+	msg := fmt.Sprintf("%s 完成【%s】", g.Players[seat].Name, skillName)
+	g.Message = msg
+	*events = append(*events, GameEvent{
+		Type:        "peek_deck_finish",
+		PlayerIndex: seat,
+		Amount:      len(topCards),
+		SkillID:     skillID,
+		Message:     msg,
+	})
+	return g.continueAfterPrepare(seat, events)
 }
 
 func (g *Game) aiPartitionPeekDeck(seat int, revealed []Card) (topIDs, bottomIDs []string) {
@@ -261,11 +322,51 @@ func (g *Game) aiPartitionPeekDeck(seat int, revealed []Card) (topIDs, bottomIDs
 	return cfg.AIPartition(g.skillRuntime(nil), seat, views)
 }
 
+func (g *Game) finishPeekDeckAsAI(seat int, events *[]GameEvent) error {
+	if g.Pending == nil || g.Pending.ResponseMode != ResponseModePeekDeck {
+		return ErrWrongPhase
+	}
+	revealed := g.Pending.RevealedCards
+	top, bottom := g.aiPartitionPeekDeck(seat, revealed)
+	salt := seat*31 + g.CurrentTurn*17 + len(revealed)
+	if len(top)+len(bottom) != len(revealed) {
+		top, bottom = randomPeekPartition(revealed, salt)
+	}
+	if err := validatePeekDeckPartition(revealed, top, bottom); err == nil {
+		return g.FinishPeekDeck(seat, PeekDeckRequest{TopCardIDs: top, BottomCardIDs: bottom}, events)
+	}
+	topCards, bottomCards := splitPeekCardsByIndex(revealed, salt)
+	return g.applyPeekDeckSplit(seat, topCards, bottomCards, events)
+}
+
 func defaultAIPeekAllTop(revealed []Card) (topIDs, bottomIDs []string) {
 	for _, c := range revealed {
 		topIDs = append(topIDs, c.ID)
 	}
 	return topIDs, nil
+}
+
+// randomPeekPartition 将亮出牌伪随机分配至顶/底（sim 与人类强交互兜底，保证合法分区）。
+func randomPeekPartition(revealed []Card, salt int) (topIDs, bottomIDs []string) {
+	if len(revealed) == 0 {
+		return nil, nil
+	}
+	for i, c := range revealed {
+		if (i+salt)%2 == 0 {
+			topIDs = append(topIDs, c.ID)
+		} else {
+			bottomIDs = append(bottomIDs, c.ID)
+		}
+	}
+	if len(topIDs) == 0 {
+		topIDs = append(topIDs, bottomIDs[0])
+		bottomIDs = bottomIDs[1:]
+	}
+	if len(bottomIDs) == 0 && len(topIDs) > 1 {
+		bottomIDs = append(bottomIDs, topIDs[len(topIDs)-1])
+		topIDs = topIDs[:len(topIDs)-1]
+	}
+	return topIDs, bottomIDs
 }
 
 func (g *Game) runAIPreparePhase(seat int, events *[]GameEvent) {
@@ -277,8 +378,7 @@ func (g *Game) runAIPreparePhase(seat int, events *[]GameEvent) {
 			break
 		}
 		if g.Phase == PhaseResponse && g.Pending != nil && g.Pending.ResponseMode == ResponseModePeekDeck {
-			top, bottom := g.aiPartitionPeekDeck(seat, g.Pending.RevealedCards)
-			_ = g.FinishPeekDeck(seat, PeekDeckRequest{TopCardIDs: top, BottomCardIDs: bottom}, events)
+			_ = g.finishPeekDeckAsAI(seat, events)
 		}
 		if g.Phase != PhasePlaying || g.TurnStep != StepPrepare || g.CurrentTurn != seat {
 			return

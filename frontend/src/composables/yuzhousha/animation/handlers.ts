@@ -575,6 +575,16 @@ const turnEndHandler: EventReplayHandler = {
   },
 }
 
+const identityRevealedHandler: EventReplayHandler = {
+  types: ['identity_revealed'],
+  match: (e) => e.type === 'identity_revealed',
+  async replay(ctx) {
+    const { event, centerMessage, sleep } = ctx
+    if (event.message) centerMessage.value = event.message
+    await sleep(700)
+  },
+}
+
 const gameOverHandler: EventReplayHandler = {
   types: ['game_over'],
   match: (e) => e.type === 'game_over',
@@ -619,5 +629,6 @@ export const eventReplayerHandlers: EventReplayHandler[] = [
   baguaJudgeHandler,
   hitHandler,
   turnEndHandler,
+  identityRevealedHandler,
   gameOverHandler,
 ]

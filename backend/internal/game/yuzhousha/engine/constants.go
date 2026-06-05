@@ -35,6 +35,8 @@ const (
 	CardTaoYuan = "taoyuan"
 	CardWuZhong = "wuzhong"
 	CardWuxiek    = "wuxiek"
+	CardHuoGong   = "huogong"
+	CardTieSuo    = "tiesuo"
 
 	ResponseModeCard       = "card"
 	ResponseModeWuxiekTrick = "wuxiek_trick"
@@ -51,7 +53,9 @@ const (
 	CardWeapon3    = "weapon_3"
 	CardWeapon4    = "weapon_4"
 	CardWeapon5    = "weapon_5"
+	CardWeapon6    = "weapon_6"
 	CardArmor      = "armor"
+	CardArmorVine  = "armor_vine"
 	CardPlusHorse  = "plus_horse"
 	CardMinusHorse = "minus_horse"
 

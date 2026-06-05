@@ -49,6 +49,7 @@ lerna-debug.log*
 coverage/
 *.out
 .gocache/
+.gomodcache/
 backend/test/.gocache/
 backend/test/yuzhousha/sim_logs/*.log
 !backend/test/yuzhousha/sim_logs/README.md

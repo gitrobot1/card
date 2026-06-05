@@ -18,3 +18,23 @@ var StandardSkinsJSON []byte
 //
 //go:embed packs/standard.json
 var StandardPackManifestJSON []byte
+
+// SPHeroesJSON is the SP hero pack (see heroes/sp.json).
+//
+//go:embed heroes/sp.json
+var SPHeroesJSON []byte
+
+// ShenHeroesJSON is the shen hero pack (see heroes/shen.json).
+//
+//go:embed heroes/shen.json
+var ShenHeroesJSON []byte
+
+// SPPackManifestJSON describes the SP content pack.
+//
+//go:embed packs/sp.json
+var SPPackManifestJSON []byte
+
+// ShenPackManifestJSON describes the shen content pack.
+//
+//go:embed packs/shen.json
+var ShenPackManifestJSON []byte

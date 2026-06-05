@@ -41,7 +41,11 @@ func cardMatrixCatalog() []cardMatrixEntry {
 		{kind: engine.CardWeapon3, category: "equip", playable: true},
 		{kind: engine.CardWeapon4, category: "equip", playable: true},
 		{kind: engine.CardWeapon5, category: "equip", playable: true},
+		{kind: engine.CardWeapon6, category: "equip", playable: true},
 		{kind: engine.CardArmor, category: "equip", playable: true},
+		{kind: engine.CardArmorVine, category: "equip", playable: true},
+		{kind: engine.CardHuoGong, category: "trick", playable: true, oppHandCount: 2},
+		{kind: engine.CardTieSuo, category: "trick", playable: true},
 		{kind: engine.CardPlusHorse, category: "equip", playable: true},
 		{kind: engine.CardMinusHorse, category: "equip", playable: true},
 	}
@@ -101,7 +105,8 @@ func resetMatrixBoard(g *engine.Game, testCard engine.Card, rest []engine.Card, 
 func playTargetForKind(kind string) int {
 	switch kind {
 	case engine.CardSha, engine.CardGuoHe, engine.CardTanNang,
-		engine.CardJueDou, engine.CardLeBu, engine.CardBingLiang:
+		engine.CardJueDou, engine.CardLeBu, engine.CardBingLiang,
+		engine.CardHuoGong:
 		return 1
 	default:
 		return 0

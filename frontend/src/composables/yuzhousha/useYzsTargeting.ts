@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 import type { YzsCard, YzsSeatSlot } from '../../types/yuzhousha'
+import { isIdentityMode } from '../../constants/yzsModes'
 import {
   equipSlotOf,
   equippedCards,
@@ -7,7 +8,7 @@ import {
 } from './playerCardHelpers'
 import type { YzsTargetingDeps } from './types'
 
-const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang'])
+const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang', 'huogong', 'tiesuo'])
 const targetCardKinds = new Set(['guohe', 'tannang'])
 
 function crossSeatsFromMap(seatMap: YzsSeatSlot[] | undefined) {
@@ -15,15 +16,24 @@ function crossSeatsFromMap(seatMap: YzsSeatSlot[] | undefined) {
   return seatMap.map((s) => ({
     seat: s.seat,
     area: s.area,
-    placement: s.placement as 'top' | 'left' | 'right',
+    placement: (s.placement === 'top' ? 'top' : s.placement === 'left' ? 'left' : 'right') as
+      | 'top'
+      | 'left'
+      | 'right',
     isTeammate: s.is_teammate,
     seatRole: (s.seat_role === 'protect' ||
     s.seat_role === 'mark' ||
     s.seat_role === 'farmer' ||
-    s.seat_role === 'landlord'
+    s.seat_role === 'landlord' ||
+    s.seat_role === 'commander' ||
+    s.seat_role === 'forward'
       ? s.seat_role
-      : undefined) as 'protect' | 'mark' | 'farmer' | 'landlord' | undefined,
+      : undefined) as 'protect' | 'mark' | 'farmer' | 'landlord' | 'commander' | 'forward' | undefined,
   }))
+}
+
+function aliveSeatsExcept(players: { index: number; hp: number }[], mySeat: number) {
+  return players.filter((p) => p.index !== mySeat && p.hp > 0).map((p) => p.index)
 }
 
 function chainMarkSeat(mySeat: number, playerCount: number) {
@@ -50,6 +60,8 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     isFankui,
     isTuxiTake,
     isQixiTake,
+    isPojun,
+    isPojunDiscard,
     selectedCard,
     canPlaySha,
     cardPlaysAsSha,
@@ -60,6 +72,7 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     fankuiSourceSeat,
     tuxiSourceSeat,
     qixiSourceSeat,
+    pojunVictimSeat,
   } = deps
 
   const hasTeamMode = computed(
@@ -69,6 +82,9 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
   const enemySeats = computed(() => {
     const players = state.value?.players
     if (!players?.length) return [opponentSeat.value]
+    if (isIdentityMode(state.value?.mode)) {
+      return aliveSeatsExcept(players, mySeat.value)
+    }
     if (state.value?.mode === '3p_chain' && players.length === 3) {
       return [chainMarkSeat(mySeat.value, 3)]
     }
@@ -139,6 +155,9 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     if (!isQixiTake.value) return []
     return takeableOptionsForPlayer(qixiSourceSeat.value).filter((o) => o.zone === 'hand')
   })
+  const pojunTargetOptions = computed(() =>
+    isPojun.value ? takeableOptionsForPlayer(pojunVictimSeat.value) : [],
+  )
 
   function selectedCardNeedsTargetCard(card = selectedCard.value) {
     return !!card && targetCardKinds.has(card.kind)
@@ -173,7 +192,7 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
   function seatPanelClass(
     seat: number,
     isTeammate: boolean,
-    seatRole?: 'protect' | 'mark' | 'farmer' | 'landlord',
+    seatRole?: 'protect' | 'mark' | 'farmer' | 'landlord' | 'commander' | 'forward',
   ) {
     const isProtect = isTeammate || seatRole === 'protect'
     return {
@@ -184,6 +203,7 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
       'yzs__seat--block': blockFlashSeat.value === seat,
       'yzs__seat--teammate': isProtect,
       'yzs__seat--mark': seatRole === 'mark' || seatRole === 'farmer',
+      'yzs__seat--commander': seatRole === 'commander',
     }
   }
 
@@ -215,6 +235,16 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     selectedTargetCardId.value = cardId
   }
 
+  function pickPojunTarget(zone: string, cardId = '') {
+    if (!isPojun.value && !isPojunDiscard.value) return
+    if (isPojunDiscard.value) {
+      selectedTargetCardId.value = cardId
+      return
+    }
+    selectedTargetZone.value = zone
+    selectedTargetCardId.value = cardId
+  }
+
   function pickOpponentCardTarget(zone: string, cardId = '') {
     if (!isMyPlay.value || !selectedCardNeedsTargetCard() || !canTargetOpponentWith(selectedCard.value)) return
     shaTarget.value = enemySeats.value[0] ?? opponentSeat.value
@@ -241,6 +271,7 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     fankuiTargetOptions,
     tuxiTargetOptions,
     qixiTargetOptions,
+    pojunTargetOptions,
     selectedCardNeedsTargetCard,
     canTargetSeat,
     canTargetOpponentWith,
@@ -250,6 +281,7 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     onTargetOpponent,
     pickFankuiTarget,
     pickTuxiTarget,
+    pickPojunTarget,
     pickOpponentCardTarget,
     syncWeaponSkillTargeting,
     opponentTargetKinds,

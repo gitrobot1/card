@@ -30,10 +30,17 @@ Games:
   2v2          宇宙杀 2v2 冒烟 + 模式单测（敌友/选目标/全武将开局）
   3p_chain     宇宙杀 杀上保下 冒烟 + 链式模式单测
   3p_ddz       宇宙杀 斗地主 冒烟 + 地主模式单测
+  3v3          宇宙杀 3v3 竞技 冒烟 + 模式单测
+  identity_5   宇宙杀 5 人身份局 冒烟 + 模式单测
+  identity_8   宇宙杀 8 人身份局 冒烟 + 模式单测
   sim3p_chain  宇宙杀 3 人链式 AI 自对弈（需 CARD_SIM=1）
   sim3p_ddz    宇宙杀 3 人斗地主 AI 自对弈（需 CARD_SIM=1）
+  sim3v3       宇宙杀 3v3 AI 自对弈（需 CARD_SIM=1）
+  simidentity   宇宙杀 5 人身份局 AI 自对弈（需 CARD_SIM=1）
+  simidentity8  宇宙杀 8 人身份局 AI 自对弈（需 CARD_SIM=1）
   sim2v2       宇宙杀 2v2 AI 自对弈（需 CARD_SIM=1，见下）
-  simrandom    四模式随机 AI 自对弈（1v1/2v2/3p_chain/3p_ddz，需 CARD_SIM=1）
+  simrandom    七模式随机 AI 自对弈（1v1/2v2/3p/3v3/identity_5/identity_8，需 CARD_SIM=1）
+  uifixture    导出终局 JSON 供前端 settlement 测试（需 CARD_SIM=1 CARD_UI_FIXTURE=1）
   uno          UNO
   doudizhu     斗地主
   douniu       斗牛
@@ -53,7 +60,7 @@ Examples:
   ./scripts/test.sh sim3p_chain -v
   ./scripts/test.sh sim3p_ddz -v
   ./scripts/test.sh sim2v2 -v
-  CARD_SIM_ROUNDS=100 ./scripts/test.sh simrandom -v   # 四模式各 100 种子
+  CARD_SIM_ROUNDS=100 ./scripts/test.sh simrandom -v   # 六模式各 100 种子
 EOF
 }
 
@@ -78,7 +85,7 @@ while [[ $# -gt 0 ]]; do
       RUN_PATTERN="${2:?missing pattern after -run}"
       shift 2
       ;;
-    all|yzs|yuzhousha|smoke|sim|simrandom|sim2v2|2v2|3p_chain|3p_ddz|sim3p_chain|sim3p_ddz|uno|doudizhu|douniu|zhajinhua)
+    all|yzs|yuzhousha|smoke|sim|simrandom|uifixture|sim2v2|2v2|3p_chain|3p_ddz|3v3|identity_5|identity_8|sim3p_chain|sim3p_ddz|sim3v3|simidentity|simidentity8|uno|doudizhu|douniu|zhajinhua)
       GAME="$1"
       shift
       ;;
@@ -131,6 +138,21 @@ case "$GAME" in
     RUN="-run"
     RUN_PATTERN="TestSmoke_3pDdz|TestTeamOf_3pDdz|TestIs3pDdz|TestLookup|TestNormalizeID"
     ;;
+  3v3)
+    PKG=(./internal/game/yuzhousha/engine/... ./test/yuzhousha/...)
+    RUN="-run"
+    RUN_PATTERN="TestSmoke_3v3|TestTeamOf_3v3|TestIsCommander3v3|TestLookup|TestNormalizeID_3v3"
+    ;;
+  identity_5)
+    PKG=(./internal/game/yuzhousha/engine/... ./test/yuzhousha/...)
+    RUN="-run"
+    RUN_PATTERN="TestSmoke_Identity5|TestScenario_Identity|TestTeamOf_Identity5|TestValidateIdentity5Roles|TestValidPlayTargets_Identity5|TestEvaluateIdentityWin|TestLookup_Identity5|TestNormalizeID_Identity5"
+    ;;
+  identity_8)
+    PKG=(./internal/game/yuzhousha/engine/... ./test/yuzhousha/...)
+    RUN="-run"
+    RUN_PATTERN="TestSmoke_Identity8|TestScenario_Identity8|TestTeamOf_Identity8|TestIsAlly_Identity8|TestValidateIdentity8Roles|TestValidPlayTargets_Identity8|TestEvaluateIdentityWin|TestLookup_Identity8|TestNormalizeID_Identity8|TestIsIdentityMode|TestLordSkillsActive|TestIdentity8_LordSkills|TestListHeroes_Identity8"
+    ;;
   sim3p_chain)
     PKG=(./test/yuzhousha/...)
     RUN="-run"
@@ -149,14 +171,48 @@ case "$GAME" in
     rm -f test/yuzhousha/sim_logs/failures-summary.log
     mkdir -p test/yuzhousha/sim_logs
     ;;
-  simrandom)
+  sim3v3)
     PKG=(./test/yuzhousha/...)
     RUN="-run"
-    RUN_PATTERN="TestSim_RandomHeroMixSeeded|TestSim_2v2_RandomQuadsSeeded|TestSim_3pChain_RandomTriosSeeded|TestSim_3pDdz_RandomTriosSeeded"
+    RUN_PATTERN="TestSim_3v3"
     CARD_SIM=1
     SIM_ENV=(env CARD_SIM=1)
     rm -f test/yuzhousha/sim_logs/failures-summary.log
     mkdir -p test/yuzhousha/sim_logs
+    ;;
+  simidentity)
+    PKG=(./test/yuzhousha/...)
+    RUN="-run"
+    RUN_PATTERN="TestSim_Identity5"
+    CARD_SIM=1
+    SIM_ENV=(env CARD_SIM=1)
+    rm -f test/yuzhousha/sim_logs/failures-summary.log
+    mkdir -p test/yuzhousha/sim_logs
+    ;;
+  simidentity8)
+    PKG=(./test/yuzhousha/...)
+    RUN="-run"
+    RUN_PATTERN="TestSim_Identity8"
+    CARD_SIM=1
+    SIM_ENV=(env CARD_SIM=1)
+    rm -f test/yuzhousha/sim_logs/failures-summary.log
+    mkdir -p test/yuzhousha/sim_logs
+    ;;
+  simrandom)
+    PKG=(./test/yuzhousha/...)
+    RUN="-run"
+    RUN_PATTERN="TestSim_RandomHeroMixSeeded|TestSim_2v2_RandomQuadsSeeded|TestSim_3pChain_RandomTriosSeeded|TestSim_3pDdz_RandomTriosSeeded|TestSim_3v3_RandomHexesSeeded|TestSim_Identity5_RandomPentasSeeded|TestSim_Identity8_RandomOctasSeeded"
+    CARD_SIM=1
+    SIM_ENV=(env CARD_SIM=1)
+    rm -f test/yuzhousha/sim_logs/failures-summary.log
+    mkdir -p test/yuzhousha/sim_logs
+    ;;
+  uifixture)
+    PKG=(./test/yuzhousha/...)
+    RUN="-run"
+    RUN_PATTERN="TestHarvestYzsSettlementFixtures"
+    CARD_SIM=1
+    SIM_ENV=(env CARD_SIM=1 CARD_UI_FIXTURE=1)
     ;;
   uno) PKG=(./test/uno/...) ;;
   doudizhu) PKG=(./test/doudizhu/...) ;;

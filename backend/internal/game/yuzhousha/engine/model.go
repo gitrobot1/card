@@ -58,6 +58,7 @@ type Player struct {
 	PlusHorse       *Card     `json:"plus_horse,omitempty"`
 	MinusHorse      *Card     `json:"minus_horse,omitempty"`
 	JudgeArea       []Card         `json:"judge_area,omitempty"`
+	CampCards       []Card         `json:"camp_cards,omitempty"`
 	SkillCounters   map[string]int `json:"skill_counters,omitempty"`
 }
 
@@ -105,6 +106,9 @@ type PendingCombat struct {
 	AoeQueue        []int `json:"aoe_queue,omitempty"`
 	TuxiRemaining   int `json:"tuxi_remaining,omitempty"`
 	YijiGiveRemaining int `json:"yiji_give_remaining,omitempty"`
+	PojunMax        int `json:"pojun_max,omitempty"`
+	PojunPlaced     int `json:"pojun_placed,omitempty"`
+	PojunRemaining  int `json:"pojun_remaining,omitempty"`
 	SavedPending   *PendingCombat `json:"-"`
 
 	// 语义字段（v0.1）：优先于 SourceIndex/TargetIndex 推导；由 FillPendingRoles 填充。
@@ -120,6 +124,8 @@ type PlayerPublic struct {
 	Name            string    `json:"name"`
 	IsAI            bool      `json:"is_ai"`
 	Team            int       `json:"team,omitempty"`
+	Identity        string    `json:"identity,omitempty"`
+	IdentityRevealed bool     `json:"identity_revealed,omitempty"`
 	Character       Character `json:"character"`
 	HP              int       `json:"hp"`
 	MaxHP           int       `json:"max_hp"`
@@ -134,6 +140,7 @@ type PlayerPublic struct {
 	PlusHorse       *Card     `json:"plus_horse,omitempty"`
 	MinusHorse      *Card     `json:"minus_horse,omitempty"`
 	JudgeArea       []Card         `json:"judge_area,omitempty"`
+	CampCards       []Card         `json:"camp_cards,omitempty"`
 	SkillCounters   map[string]int `json:"skill_counters,omitempty"`
 	Hand            []Card         `json:"hand,omitempty"`
 }

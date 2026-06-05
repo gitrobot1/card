@@ -120,6 +120,17 @@ func registerWuSkills() {
 
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
+			ID: skill.IDPojun, Name: "破军", Kind: skill.KindActive,
+			Desc: "当你使用【杀】指定一名角色为目标后，你可以将其至多X张牌置于其武将牌上（X为其体力值）。其于此回合结束阶段须弃置「营」中至少一张牌；若其为该【杀】唯一目标，则须弃置X张。",
+		},
+		CanActivate: pojunCanActivate,
+		Activate:    pojunActivate,
+		AIPriority:  pojunAIPriority,
+		AIActivate:  pojunAIActivate,
+	})
+
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
 			ID: skill.IDHunzi, Name: "魂姿", Kind: skill.KindAwakening,
 			Desc: "觉醒技，准备阶段，若你的体力值不大于 1，你减 1 点体力上限，并获得技能「英姿」和「英魂」。",
 		},
@@ -515,4 +526,32 @@ func hunziAIPriority(r skill.Runtime, seat int) int {
 
 func hunziAIActivate(r skill.Runtime, seat int) error {
 	return r.AwakenHunzi(seat)
+}
+
+func pojunCanActivate(r skill.Runtime, seat int) bool {
+	return r.Phase() == PhaseResponse && r.PendingResponseMode() == ResponseModeSkillPojun &&
+		r.PendingPojunForSource(seat) && r.HasSkill(seat, skill.IDPojun)
+}
+
+func pojunActivate(r skill.Runtime, seat int, req skill.ActivateReq) error {
+	if req.TargetZone == "" && len(req.CardIDs) == 0 {
+		return r.PassPojun(seat)
+	}
+	zone := req.TargetZone
+	cardID := req.TargetCardID
+	if len(req.CardIDs) > 0 {
+		cardID = req.CardIDs[0]
+	}
+	return r.PojunPlace(seat, zone, cardID)
+}
+
+func pojunAIPriority(r skill.Runtime, seat int) int {
+	if pojunCanActivate(r, seat) {
+		return 85
+	}
+	return 0
+}
+
+func pojunAIActivate(r skill.Runtime, seat int) error {
+	return r.AutoPojunPlacing(seat)
 }

@@ -11,6 +11,9 @@ const (
 	Mode2v2     = mode.Solo2v2
 	Mode3pChain = mode.Solo3pChain
 	Mode3pDdz   = mode.Solo3pDdz
+	Mode3v3       = mode.Solo3v3
+	ModeIdentity5 = mode.SoloIdentity5
+	ModeIdentity8 = mode.SoloIdentity8
 )
 
 func (g *Game) ModeID() string   { return g.Mode }
@@ -25,6 +28,8 @@ func (g *Game) AliveHP(seat int) int {
 func (g *Game) is2v2() bool              { return mode.Is2v2(g) }
 func (g *Game) is3pChain() bool          { return mode.Is3pChain(g) }
 func (g *Game) is3pDdz() bool            { return mode.Is3pDdz(g) }
+func (g *Game) is3v3() bool              { return mode.Is3v3(g) }
+func (g *Game) isIdentity() bool         { return mode.IsIdentity(g) }
 func (g *Game) teamOf(seat int) int      { return mode.TeamOf(g, seat) }
 func (g *Game) isEnemy(a, b int) bool    { return mode.IsEnemy(g, a, b) }
 func (g *Game) isAlly(a, b int) bool     { return mode.IsAlly(g, a, b) }
@@ -146,4 +151,70 @@ func (g *Game) checkChainDeath(victim int, events *[]GameEvent) bool {
 	default:
 		return false
 	}
+}
+
+func (g *Game) checkCommanderDeath(victim int, events *[]GameEvent) bool {
+	if !g.is3v3() || !mode.IsCommander3v3(victim) {
+		return false
+	}
+	finished, winnerTeam, msg := mode.EvaluateCommanderDeath(g, g.HumanPlayer, victim)
+	if !finished {
+		return false
+	}
+	g.finishTeamGame(winnerTeam, events)
+	if msg != "" {
+		g.Message = msg
+		if len(*events) > 0 {
+			(*events)[len(*events)-1].Message = msg
+		}
+	}
+	return true
+}
+
+func (g *Game) IdentityLordSeat() int { return g.LordSeat }
+
+func (g *Game) IdentityOf(seat int) string {
+	if seat < 0 || seat >= len(g.Identities) {
+		return ""
+	}
+	return g.Identities[seat]
+}
+
+func (g *Game) IdentityRevealed(seat int) bool {
+	if seat < 0 || seat >= len(g.RoleRevealed) {
+		return false
+	}
+	return g.RoleRevealed[seat]
+}
+
+func (g *Game) revealIdentity(victim int, events *[]GameEvent) {
+	if victim < 0 || victim >= len(g.RoleRevealed) || g.IdentityRevealed(victim) {
+		return
+	}
+	g.RoleRevealed[victim] = true
+	role := g.IdentityOf(victim)
+	*events = append(*events, GameEvent{
+		Type:        "identity_revealed",
+		PlayerIndex: victim,
+		Message:     fmt.Sprintf("%s 身份揭示：%s", g.Players[victim].Name, mode.RoleLabel(role)),
+	})
+}
+
+func (g *Game) checkIdentityDeath(victim, killer int, events *[]GameEvent) bool {
+	if !g.isIdentity() {
+		return false
+	}
+	g.revealIdentity(victim, events)
+	finished, winnerTeam, msg := mode.EvaluateIdentityWin(g, victim, killer)
+	if !finished {
+		return false
+	}
+	g.finishTeamGame(winnerTeam, events)
+	if msg != "" {
+		g.Message = msg
+		if len(*events) > 0 {
+			(*events)[len(*events)-1].Message = msg
+		}
+	}
+	return true
 }

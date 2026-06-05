@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# ui-sim 生成的结算快照（每次 harvest 重生成）
+test/fixtures/yzs/settlements/*.json

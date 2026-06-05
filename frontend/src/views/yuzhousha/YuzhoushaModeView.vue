@@ -37,7 +37,7 @@ function goOnline(mode: string) {
       <div class="hero__top">
         <div>
           <h1>宇宙杀 - 选择模式</h1>
-          <p class="hero__desc">1v1 / 2v2 / 三人链式 · 多种人机规则</p>
+          <p class="hero__desc">1v1 / 2v2 / 3v3 / 身份局 · 多种人机规则</p>
         </div>
         <button type="button" class="hero__logout" @click="router.push('/')">← 返回大厅</button>
       </div>
@@ -46,6 +46,14 @@ function goOnline(mode: string) {
     <p v-if="loading" class="ddz__loading">加载模式中…</p>
 
     <section v-else class="game-grid game-grid--modes">
+      <div class="game-card game-card--setup game-card--codex">
+        <span class="game-card__tag">图鉴</span>
+        <h2>武将 & 牌库</h2>
+        <p class="zjh-mode__hint">查看全部武将技能、基础牌、武器与锦囊效果说明</p>
+        <button type="button" class="ddz__btn ddz__btn--hint zjh-mode__start" @click="router.push('/games/yuzhousha/codex')">
+          打开图鉴
+        </button>
+      </div>
       <div class="game-card game-card--setup game-card--online">
         <span class="game-card__tag">联机</span>
         <h2>1v1 真人对战</h2>

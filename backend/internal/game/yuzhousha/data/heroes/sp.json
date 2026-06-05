@@ -1,0 +1,21 @@
+{
+  "pack": "sp",
+  "heroes": [
+    {
+      "id": "sp_zhao_yun",
+      "name": "SP赵云",
+      "max_hp": 4,
+      "kingdom": "qun",
+      "skill_ids": ["chongzhen"],
+      "accent_color": "#4a7c59"
+    },
+    {
+      "id": "jie_xu_sheng",
+      "name": "界徐盛",
+      "max_hp": 4,
+      "kingdom": "wu",
+      "skill_ids": ["pojun"],
+      "accent_color": "#1e4d7b"
+    }
+  ]
+}

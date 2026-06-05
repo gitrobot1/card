@@ -22,6 +22,8 @@ export interface YzsTargetingDeps {
   isFankui: ComputedRef<boolean>
   isTuxiTake: ComputedRef<boolean>
   isQixiTake: ComputedRef<boolean>
+  isPojun: ComputedRef<boolean>
+  isPojunDiscard: ComputedRef<boolean>
   selectedCard: ComputedRef<YzsCard | null>
   canPlaySha: ComputedRef<boolean>
   cardPlaysAsSha: (card: YzsCard | null | undefined) => boolean
@@ -32,4 +34,5 @@ export interface YzsTargetingDeps {
   fankuiSourceSeat: ComputedRef<number>
   tuxiSourceSeat: ComputedRef<number>
   qixiSourceSeat: ComputedRef<number>
+  pojunVictimSeat: ComputedRef<number>
 }

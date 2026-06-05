@@ -192,6 +192,7 @@ func (g *Game) passJijiang(ally int, events *[]GameEvent) error {
 	g.Pending = nil
 
 	if jijiangUse {
+		g.addSkillCounter(lord, counterJijiangUseFailed, 1)
 		g.Phase = PhasePlaying
 		g.TurnStep = StepPlay
 		g.CurrentTurn = lord

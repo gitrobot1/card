@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/time/card/backend/internal/game/yuzhousha/engine/mode"
@@ -42,7 +43,11 @@ type Game struct {
 	TurnDeadlineUnix int64
 	Mode             string
 	LandlordSeat     int
+	LordSeat         int
+	Identities       []string
+	RoleRevealed     []bool
 	WinnerTeam       *int
+	testRand         *rand.Rand // sim/tests: fixed shuffle source
 }
 
 type PublicState struct {
@@ -58,6 +63,7 @@ type PublicState struct {
 	WinnerTeam       *int           `json:"winner_team,omitempty"`
 	Mode             string         `json:"mode,omitempty"`
 	LandlordSeat     int            `json:"landlord_seat,omitempty"`
+	LordSeat         int            `json:"lord_seat,omitempty"`
 	LayoutKey        string         `json:"layout_key,omitempty"`
 	SeatMap          []mode.SeatSlot `json:"seat_map,omitempty"`
 	DrawCount        int            `json:"draw_count"`
@@ -82,10 +88,15 @@ func (g *Game) IsFinished() bool {
 }
 
 func (g *Game) setupDeck() {
-	deck := shuffleDeck(NewBasicDeck())
+	profile := mode.DeckProfileFor(g.Mode)
+	deck := g.shuffleCards(NewDeckForMode(g.Mode))
+	handSize := profile.InitialHandSize
+	if handSize <= 0 {
+		handSize = InitialHandSize
+	}
 	for i := range g.Players {
-		g.Players[i].Hand = append([]Card(nil), deck[:InitialHandSize]...)
-		deck = deck[InitialHandSize:]
+		g.Players[i].Hand = append([]Card(nil), deck[:handSize]...)
+		deck = deck[handSize:]
 	}
 	g.DrawPile = deck
 	g.DiscardPile = nil
@@ -152,6 +163,8 @@ func weaponRange(kind string) int {
 		return 4
 	case CardWeapon5:
 		return 5
+	case CardWeapon6:
+		return 2
 	default:
 		return 1
 	}
@@ -254,6 +267,7 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 			PlusHorse:       cloneCardPtr(p.PlusHorse),
 			MinusHorse:      cloneCardPtr(p.MinusHorse),
 			JudgeArea:       append([]Card(nil), p.JudgeArea...),
+			CampCards:       append([]Card(nil), p.CampCards...),
 		}
 		if len(p.SkillCounters) > 0 {
 			pub.SkillCounters = make(map[string]int, len(p.SkillCounters))
@@ -263,6 +277,13 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 		}
 		if i == seat || g.IsFinished() {
 			pub.Hand = append([]Card(nil), p.Hand...)
+		}
+		if g.isIdentity() && i < len(g.Identities) {
+			revealed := g.IdentityRevealed(i)
+			pub.IdentityRevealed = revealed
+			if i == seat || revealed || g.Identities[i] == mode.RoleLord {
+				pub.Identity = g.Identities[i]
+			}
 		}
 		players[i] = pub
 	}
@@ -298,6 +319,7 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 		HumanPlayer:      seat,
 		Mode:             g.Mode,
 		LandlordSeat:     g.LandlordSeat,
+		LordSeat:         g.LordSeat,
 		LayoutKey:        layoutKey,
 		SeatMap:          seatMap,
 		Players:          players,

@@ -3826,6 +3826,193 @@ body {
   max-width: min(220px, 30vw);
 }
 
+.yzs__arena--3v3 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 2fr) minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas:
+    'seat-left-top seat-top seat-right-top'
+    'seat-left center seat-right';
+  gap: 4px 8px;
+}
+
+.yzs__hex-seat--left-top {
+  grid-area: seat-left-top;
+  justify-self: end;
+  align-self: end;
+}
+
+.yzs__hex-seat--top {
+  grid-area: seat-top;
+  justify-self: center;
+  align-self: end;
+}
+
+.yzs__hex-seat--right-top {
+  grid-area: seat-right-top;
+  justify-self: start;
+  align-self: end;
+}
+
+.yzs__hex-seat--left {
+  grid-area: seat-left;
+  justify-self: end;
+  align-self: center;
+}
+
+.yzs__hex-seat--right {
+  grid-area: seat-right;
+  justify-self: start;
+  align-self: center;
+}
+
+.yzs__middle--3v3-center {
+  grid-area: center;
+}
+
+.yzs__hex-seat {
+  z-index: 3;
+  max-width: min(200px, 28vw);
+}
+
+.yzs__arena--identity5 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 2fr) minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    '. pent-top .'
+    'pent-left center pent-right-top'
+    '. pent-bottom .';
+  gap: 4px 8px;
+}
+
+.yzs__pent-seat--top {
+  grid-area: pent-top;
+  justify-self: center;
+  align-self: end;
+}
+
+.yzs__pent-seat--left {
+  grid-area: pent-left;
+  justify-self: end;
+  align-self: center;
+}
+
+.yzs__pent-seat--right-top {
+  grid-area: pent-right-top;
+  justify-self: start;
+  align-self: center;
+}
+
+.yzs__pent-seat--bottom {
+  grid-area: pent-bottom;
+  justify-self: center;
+  align-self: start;
+}
+
+.yzs__middle--identity5-center {
+  grid-area: center;
+  align-self: center;
+}
+
+.yzs__pent-seat {
+  z-index: 3;
+  max-width: min(200px, 28vw);
+}
+
+.yzs__arena--identity8 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(120px, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr auto auto;
+  grid-template-areas:
+    '. oct-left-top oct-top oct-right-top .'
+    'oct-left . center . oct-right'
+    '. . center . .'
+    'oct-left-bottom . center . oct-right-bottom';
+  gap: 2px 6px;
+}
+
+.yzs__oct-seat--top {
+  grid-area: oct-top;
+  justify-self: center;
+  align-self: end;
+}
+
+.yzs__oct-seat--left-top {
+  grid-area: oct-left-top;
+  justify-self: end;
+  align-self: end;
+}
+
+.yzs__oct-seat--right-top {
+  grid-area: oct-right-top;
+  justify-self: start;
+  align-self: end;
+}
+
+.yzs__oct-seat--left {
+  grid-area: oct-left;
+  justify-self: end;
+  align-self: center;
+}
+
+.yzs__oct-seat--right {
+  grid-area: oct-right;
+  justify-self: start;
+  align-self: center;
+}
+
+.yzs__oct-seat--left-bottom {
+  grid-area: oct-left-bottom;
+  justify-self: end;
+  align-self: start;
+}
+
+.yzs__oct-seat--right-bottom {
+  grid-area: oct-right-bottom;
+  justify-self: start;
+  align-self: start;
+}
+
+.yzs__middle--identity8-center {
+  grid-area: center;
+  align-self: center;
+}
+
+.yzs__oct-seat {
+  z-index: 3;
+  max-width: min(180px, 22vw);
+}
+
+.ddz__badge--identity-hidden {
+  background: #64748b;
+}
+
+.ddz__badge--lord {
+  background: #ca8a04;
+}
+
+.ddz__badge--loyalist {
+  background: #2563eb;
+}
+
+.ddz__badge--spy {
+  background: #7c3aed;
+}
+
+.ddz__badge--rebel {
+  background: #dc2626;
+}
+
+.yzs__seat--commander {
+  border-color: #ca8a04 !important;
+  box-shadow: 0 0 0 2px rgba(202, 138, 4, 0.25);
+}
+
+.ddz__badge--commander {
+  background: #ca8a04;
+}
+
 .yzs__seat--mark {
   border-color: #dc2626 !important;
   box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);

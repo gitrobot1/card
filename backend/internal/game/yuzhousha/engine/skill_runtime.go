@@ -9,6 +9,7 @@ import (
 const (
 	counterRendeGiven     = "rende_given_play"
 	counterRendeHealed    = "rende_healed_play"
+	counterJijiangUseFailed = "jijiang_use_failed"
 	counterWushengActive       = "wusheng_active"
 	counterLuoyiActive         = "luoyi_active"
 	counterDrawChoicePending   = "draw_choice_pending"
@@ -80,6 +81,7 @@ const (
 	SkillHuangtian   = skill.IDHuangtian
 	SkillJueqing     = skill.IDJueqing
 	SkillShangshi    = skill.IDShangshi
+	SkillPojun       = skill.IDPojun
 
 	CharLiuBei       = skill.CharLiuBei
 	CharGuanYu       = skill.CharGuanYu
@@ -113,6 +115,7 @@ const (
 	CharJiaXu           = skill.CharJiaXu
 	CharZhangJiao       = skill.CharZhangJiao
 	CharZhangChunhua    = skill.CharZhangChunhua
+	CharJieXuSheng      = skill.CharJieXuSheng
 	KingdomShu       = skill.KingdomShu
 	KingdomWei       = skill.KingdomWei
 	KingdomWu        = skill.KingdomWu
@@ -128,6 +131,7 @@ func (g *Game) skillRuntime(events *[]GameEvent) *gameSkillRuntime {
 	return &gameSkillRuntime{g: g, events: events}
 }
 
+func (r *gameSkillRuntime) ModeID() string                         { return r.g.ModeID() }
 func (r *gameSkillRuntime) HasSkill(seat int, skillID string) bool { return r.g.hasSkill(seat, skillID) }
 func (r *gameSkillRuntime) Phase() string                          { return r.g.Phase }
 func (r *gameSkillRuntime) TurnStep() string                       { return r.g.TurnStep }
@@ -263,6 +267,7 @@ func (g *Game) resetPlayPhaseSkillCounters(seat int) {
 	}
 	delete(p.SkillCounters, counterRendeGiven)
 	delete(p.SkillCounters, counterRendeHealed)
+	delete(p.SkillCounters, counterJijiangUseFailed)
 	delete(p.SkillCounters, counterWushengActive)
 	delete(p.SkillCounters, counterLuoyiActive)
 	delete(p.SkillCounters, counterDrawChoicePending)
@@ -420,6 +425,19 @@ func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) erro
 				return ErrWrongPhase
 			}
 			return g.TuxiTakeFrom(seat, req.TargetZone, req.TargetCardID, events)
+		case ResponseModeSkillPojun:
+			if req.SkillID != SkillPojun {
+				return ErrWrongPhase
+			}
+			return g.PojunPlace(seat, req.TargetZone, req.TargetCardID, events)
+		case ResponseModeSkillPojunDiscard:
+			if req.SkillID != SkillPojun {
+				return ErrWrongPhase
+			}
+			if len(req.CardIDs) == 0 {
+				return ErrInvalidCard
+			}
+			return g.PojunDiscardCamp(seat, req.CardIDs[0], events)
 		}
 	}
 	if g.Phase == PhaseResponse {

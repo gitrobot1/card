@@ -72,6 +72,8 @@ export interface YzsPlayer {
   name: string
   is_ai: boolean
   team?: number
+  identity?: 'lord' | 'loyalist' | 'spy' | 'rebel' | string
+  identity_revealed?: boolean
   character: YzsCharacter
   hp: number
   max_hp: number
@@ -86,6 +88,7 @@ export interface YzsPlayer {
   plus_horse?: YzsCard
   minus_horse?: YzsCard
   judge_area?: YzsCard[]
+  camp_cards?: YzsCard[]
   hand?: YzsCard[]
   skill_counters?: Record<string, number>
 }
@@ -132,6 +135,9 @@ export interface YzsPendingCombat {
   judge_card?: YzsCard
   ganglie_owner?: number
   yiji_give_remaining?: number
+  pojun_max?: number
+  pojun_placed?: number
+  pojun_remaining?: number
 }
 
 export interface YzsEvent {
@@ -165,10 +171,11 @@ export interface YuzhoushaState {
   message: string
   winner_index?: number
   winner_team?: number
-  mode?: '1v1' | '2v2' | '3p_chain' | '3p_ddz' | string
+  mode?: '1v1' | '2v2' | '3p_chain' | '3p_ddz' | '3v3' | 'identity_5' | 'identity_8' | string
   layout_key?: string
   seat_map?: YzsSeatSlot[]
   landlord_seat?: number
+  lord_seat?: number
   draw_count: number
   discard_count: number
   my_hand?: YzsCard[]
@@ -215,7 +222,11 @@ export const YZS_CARD_LABELS: Record<string, string> = {
   weapon_3: '青龙偃月刀',
   weapon_4: '方天画戟',
   weapon_5: '麒麟弓',
+  weapon_6: '古锭刀',
   armor: '八卦阵',
+  armor_vine: '藤甲',
+  huogong: '火攻',
+  tiesuo: '铁索连环',
   plus_horse: '+1马',
   minus_horse: '-1马',
 }

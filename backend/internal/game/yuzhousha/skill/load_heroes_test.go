@@ -1,7 +1,6 @@
 package skill
 
 import (
-	"sort"
 	"testing"
 
 	yzsdata "github.com/time/card/backend/internal/game/yuzhousha/data"
@@ -59,32 +58,55 @@ func TestParseHeroesJSONStandardPack(t *testing.T) {
 
 func TestLoadEmbeddedHeroesPickableSet(t *testing.T) {
 	loaded := PickableCharacters()
-	if len(loaded) != standardHeroCount {
-		t.Fatalf("pickable count: got %d want %d", len(loaded), standardHeroCount)
+	if len(loaded) != 34 {
+		t.Fatalf("pickable count: got %d want 34", len(loaded))
 	}
 
-	loadedIDs := make([]string, len(loaded))
-	for i, c := range loaded {
-		loadedIDs[i] = c.ID
+	loadedSet := make(map[string]struct{}, len(loaded))
+	for _, c := range loaded {
+		loadedSet[c.ID] = struct{}{}
 	}
-	sort.Strings(loadedIDs)
 
 	parsed, err := ParseHeroesJSON(yzsdata.StandardHeroesJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
-	jsonIDs := make([]string, len(parsed))
-	for i, h := range parsed {
-		jsonIDs[i] = h.def.ID
-	}
-	sort.Strings(jsonIDs)
-
-	if len(loadedIDs) != len(jsonIDs) {
-		t.Fatalf("id count mismatch: loaded=%d json=%d", len(loadedIDs), len(jsonIDs))
-	}
-	for i := range loadedIDs {
-		if loadedIDs[i] != jsonIDs[i] {
-			t.Fatalf("pickable ids mismatch at %d: loaded=%s json=%s", i, loadedIDs[i], jsonIDs[i])
+	for _, h := range parsed {
+		if _, ok := loadedSet[h.def.ID]; !ok {
+			t.Fatalf("standard hero %s missing from pickable set", h.def.ID)
 		}
+	}
+}
+
+func TestLoadEmbeddedAllHeroesPickableCount(t *testing.T) {
+	loaded := PickableCharacters()
+	if len(loaded) != 34 {
+		t.Fatalf("pickable count: got %d want 34", len(loaded))
+	}
+	ids := map[string]bool{}
+	for _, c := range loaded {
+		ids[c.ID] = true
+	}
+	for _, want := range []string{CharSpZhaoYun, CharShenZhaoYun} {
+		if !ids[want] {
+			t.Fatalf("missing hero %s in pickable set", want)
+		}
+	}
+}
+
+func TestParseHeroesJSONSPAndShen(t *testing.T) {
+	sp, err := ParseHeroesJSON(yzsdata.SPHeroesJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sp) != 1 || sp[0].def.ID != CharSpZhaoYun {
+		t.Fatalf("sp pack: %+v", sp)
+	}
+	shen, err := ParseHeroesJSON(yzsdata.ShenHeroesJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shen) != 1 || shen[0].def.ID != CharShenZhaoYun {
+		t.Fatalf("shen pack: %+v", shen)
 	}
 }

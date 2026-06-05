@@ -5,6 +5,7 @@ const (
 	KingdomWei = "wei"
 	KingdomWu  = "wu"
 	KingdomQun = "qun"
+	KingdomShen = "shen"
 
 	IDPaoxiao  = "paoxiao"
 	IDWusheng  = "wusheng"
@@ -56,6 +57,10 @@ const (
 	IDHuangtian   = "huangtian"
 	IDJueqing     = "jueqing"
 	IDShangshi    = "shangshi"
+	IDChongzhen   = "chongzhen"
+	IDJuejing     = "juejing"
+	IDLonghun     = "longhun"
+	IDPojun       = "pojun"
 
 	CharLiuBei     = "liu_bei"
 	CharGuanYu     = "guan_yu"
@@ -89,4 +94,7 @@ const (
 	CharJiaXu           = "jia_xu"
 	CharZhangJiao       = "zhang_jiao"
 	CharZhangChunhua    = "zhang_chunhua"
+	CharSpZhaoYun       = "sp_zhao_yun"
+	CharShenZhaoYun     = "shen_zhao_yun"
+	CharJieXuSheng      = "jie_xu_sheng"
 )

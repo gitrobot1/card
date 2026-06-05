@@ -36,12 +36,21 @@ export const YZS_WEAPON_META: Record<string, YzsWeaponMeta> = {
     range: 5,
     effect: '【杀】造成伤害时可弃置目标坐骑',
   },
+  weapon_6: {
+    name: '古锭刀',
+    range: 2,
+    effect: '锁定技，若目标没有手牌，【杀】伤害+1',
+  },
 }
 
 export const YZS_EQUIP_META: Record<string, YzsEquipMeta> = {
   armor: {
     name: '八卦阵',
     effect: '需出【闪】时可判定，红色视为出【闪】',
+  },
+  armor_vine: {
+    name: '藤甲',
+    effect: '南蛮/万箭/顺手/过河/决斗对你无效；【杀】与火焰伤害+1',
   },
   plus_horse: {
     name: '+1马',

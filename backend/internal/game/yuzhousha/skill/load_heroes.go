@@ -23,9 +23,18 @@ type heroFileEntry struct {
 	PortraitURL string   `json:"portrait_url,omitempty"`
 }
 
-// LoadEmbeddedHeroes registers heroes from embedded standard.json.
+// LoadEmbeddedHeroes registers heroes from embedded JSON packs.
 func LoadEmbeddedHeroes() error {
-	return RegisterHeroesJSON(yzsdata.StandardHeroesJSON)
+	for _, data := range [][]byte{
+		yzsdata.StandardHeroesJSON,
+		yzsdata.SPHeroesJSON,
+		yzsdata.ShenHeroesJSON,
+	} {
+		if err := RegisterHeroesJSON(data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RegisterHeroesJSON parses a hero pack file and registers each entry.

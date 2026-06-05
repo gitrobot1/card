@@ -7,11 +7,18 @@ import (
 	"testing"
 
 	engine "github.com/time/card/backend/internal/game/yuzhousha/engine"
+	"github.com/time/card/backend/internal/game/yuzhousha/engine/mode"
 )
 
-const defaultSimMaxSteps = 8000
+const (
+	defaultSimMaxSteps   = 8000
+	identitySimMaxSteps  = 20000
+	identity8SimMaxSteps = 30000
+)
 
-var expectedDeckSize = len(engine.NewBasicDeck())
+func expectedDeckSizeFor(g *engine.Game) int {
+	return mode.DeckProfileFor(g.Mode).TotalCards()
+}
 
 func simTraceEnabled() bool {
 	return os.Getenv("CARD_SIM_TRACE") == "1"
@@ -69,9 +76,10 @@ func assertGameInvariants(t *testing.T, g *engine.Game) {
 		}
 	}
 	total := countCardsInPlay(g)
-	if total != expectedDeckSize {
+	want := expectedDeckSizeFor(g)
+	if total != want {
 		t.Fatalf("card conservation: expected %d cards in play, got %d (phase=%s step=%s pending=%v)",
-			expectedDeckSize, total, g.Phase, g.TurnStep, g.Pending)
+			want, total, g.Phase, g.TurnStep, g.Pending)
 	}
 }
 
@@ -105,6 +113,17 @@ func forceProgress(g *engine.Game, events *[]engine.GameEvent) error {
 		return nil
 	}
 	if g.Phase == engine.PhaseResponse && g.Pending != nil {
+		switch g.Pending.ResponseMode {
+		case engine.ResponseModePeekDeck:
+			seat := g.Pending.TargetIndex
+			return g.FinishPeekDeckForSim(seat, events)
+		case engine.ResponseModeWuxiekTrick, engine.ResponseModeWuxiekLebu,
+			engine.ResponseModeWuxiekBingliang, engine.ResponseModeWuxiekShandian:
+			seat := g.Pending.TargetIndex
+			return g.PassResponse(seat, events)
+		case engine.ResponseModeWuguPick:
+			return g.AutoPickWuguForSim(events)
+		}
 		seat, ok := responseActor(g)
 		if !ok {
 			return fmt.Errorf("no response actor")
@@ -128,8 +147,11 @@ func forceProgress(g *engine.Game, events *[]engine.GameEvent) error {
 			return g.PassPrepare(seat, events)
 		case engine.StepDraw:
 			return g.PassDrawPhase(seat, events)
-		case engine.StepPlay, engine.StepDiscard:
+		case engine.StepPlay:
 			return g.EndPlay(seat, events)
+		case engine.StepDiscard:
+			g.AutoDiscardForSim(seat, events)
+			return g.EndTurnForSim(events)
 		}
 	}
 	return fmt.Errorf("cannot force progress: phase=%s step=%s", g.Phase, g.TurnStep)
