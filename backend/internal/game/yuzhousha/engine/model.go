@@ -106,6 +106,12 @@ type PendingCombat struct {
 	TuxiRemaining   int `json:"tuxi_remaining,omitempty"`
 	YijiGiveRemaining int `json:"yiji_give_remaining,omitempty"`
 	SavedPending   *PendingCombat `json:"-"`
+
+	// 语义字段（v0.1）：优先于 SourceIndex/TargetIndex 推导；由 FillPendingRoles 填充。
+	ActorSeat   int    `json:"actor_seat"`
+	SubjectSeat int    `json:"subject_seat,omitempty"`
+	OriginSeat  int    `json:"origin_seat,omitempty"`
+	WindowKind  string `json:"window_kind,omitempty"`
 }
 
 // PlayerPublic 对外公开的玩家信息。

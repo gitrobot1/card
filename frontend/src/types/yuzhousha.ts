@@ -93,6 +93,14 @@ export interface YzsPlayer {
 export interface YzsPendingCombat {
   source_index: number
   target_index: number
+  /** 当前应操作的座位；-1 表示无 */
+  actor_seat?: number
+  /** 被操作座位（拿牌/选目标区等） */
+  subject_seat?: number
+  /** 事件来源（resume/伤害链） */
+  origin_seat?: number
+  /** respond | take | discard | choice | peek | pick */
+  window_kind?: string
   card: YzsCard
   required_kind?: string
   response_mode?: string
