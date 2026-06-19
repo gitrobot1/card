@@ -37,8 +37,9 @@
 | P1-done          | `take-window-core`  | TakeWindow 引擎 + 迁移反馈/突袭/奇袭                | 原 scenario 全绿                         |
 | P2-done          | `take-window-pojun` | 破军迁入 TakeWindow（dest=camp）                | 破军 + 古锭刀/藤甲 scenario                  |
 | P3-done          | `discard-window`    | DiscardWindow + 破军回合末弃营                   | 同上                                    |
-| P4          | `frontend-template` | `makeTakeWindowHandler` + 删 useYzsGame 特例 | `npm run build`                       |
-| P5          | `cleanup`           | 删除旧 ResponseMode 重复逻辑                     | grep 无 `SourceIndex == seat` 技能特例     |
+| P4-done          | `frontend-template` | `makeTakeWindowHandler` + 删 useYzsGame 特例 | `npm run build`                       |
+| P5-done          | `frontend-cleanup`  | 删 `source_index`/`target_index` per-mode 特例         | `npm run build` + smoke PASS         |
+| P6-done          | `cleanup`           | 删除 PendingActorSeat fallback + 补 FillPendingRoles | `go build` + 测试通过              |
 
 
 ---

@@ -41,6 +41,21 @@ export const YZS_WEAPON_META: Record<string, YzsWeaponMeta> = {
     range: 2,
     effect: '锁定技，若目标没有手牌，【杀】伤害+1',
   },
+  weapon_7: {
+    name: '朱雀羽扇',
+    range: 4,
+    effect: '使用普通【杀】时，可将其转为【火杀】',
+  },
+  weapon_8: {
+    name: '雌雄双股剑',
+    range: 2,
+    effect: '使用【杀】指定异性角色后，其需弃一张手牌，否则你摸一张牌',
+  },
+  weapon_9: {
+    name: '贯石斧',
+    range: 3,
+    effect: '【杀】被【闪】抵消时，可弃置两张牌令此【杀】依然命中',
+  },
 }
 
 export const YZS_EQUIP_META: Record<string, YzsEquipMeta> = {
@@ -50,7 +65,7 @@ export const YZS_EQUIP_META: Record<string, YzsEquipMeta> = {
   },
   armor_vine: {
     name: '藤甲',
-    effect: '南蛮/万箭/顺手/过河/决斗对你无效；【杀】与火焰伤害+1',
+    effect: '锁定技，南蛮入侵、万箭齐发、普通杀对你无效；受到的火焰伤害+1',
   },
   plus_horse: {
     name: '+1马',
@@ -86,7 +101,7 @@ export function equipDisplayName(card: { kind: string; name: string }): string {
 
 export function equipDisplaySummary(card: { kind: string; name: string }): string {
   const w = weaponMetaForKind(card.kind)
-  if (w) return `${w.name} · 距离 ${w.range}`
+  if (w) return w.name
   const e = equipMetaForKind(card.kind)
   if (e) return e.name
   return card.name

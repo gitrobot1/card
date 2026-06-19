@@ -198,8 +198,8 @@ func (r *gameSkillRuntime) PendingDrawPhaseChoiceFor(seat int) bool {
 	return r.g.isDrawPhaseChoicePending(seat)
 }
 
-func (r *gameSkillRuntime) StartTuxi(seat, skipCount int) error {
-	return r.g.StartTuxi(seat, skipCount, r.events)
+func (r *gameSkillRuntime) StartTuxi(seat int) error {
+	return r.g.StartTuxi(seat, r.events)
 }
 
 func (r *gameSkillRuntime) TuxiTakeFrom(seat int, zone, cardID string) error {
@@ -263,21 +263,9 @@ func (r *gameSkillRuntime) PassTianxiang(seat int) error {
 	return r.g.PassTianxiang(seat, r.events)
 }
 
-func (r *gameSkillRuntime) HasBlackHandCard(seat int) bool {
-	return r.g.hasBlackHandCard(seat)
-}
 
-func (r *gameSkillRuntime) OpponentHasHandCard(seat int) bool {
-	return r.g.opponentHasHandCard(seat)
-}
 
-func (r *gameSkillRuntime) ActivateQixi(seat int, cardID string) error {
-	return r.g.ActivateQixi(seat, cardID, r.events)
-}
 
-func (r *gameSkillRuntime) QixiTakeFrom(seat int, cardID string) error {
-	return r.g.QixiTakeFrom(seat, cardID, r.events)
-}
 
 func (r *gameSkillRuntime) ActivateYinghun(seat, target int) error {
 	return r.g.ActivateYinghun(seat, target, r.events)
@@ -287,8 +275,8 @@ func (r *gameSkillRuntime) ResolveYinghunChoice(seat int, option string) error {
 	return r.g.ResolveYinghunChoice(seat, option, r.events)
 }
 
-func (r *gameSkillRuntime) YinghunDiscard(seat int, cardID string) error {
-	return r.g.YinghunDiscard(seat, cardID, r.events)
+func (r *gameSkillRuntime) YinghunDiscard(seat int, cardIDs []string) error {
+	return r.g.YinghunDiscard(seat, cardIDs, r.events)
 }
 
 func (r *gameSkillRuntime) ActivateGuose(seat, target int, cardID string) error {

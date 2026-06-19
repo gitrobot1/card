@@ -47,6 +47,9 @@ func (t gameTargetCtx) PlayerHP(seat int) (hp, maxHP int) {
 	p := t.g.Players[seat]
 	return p.HP, p.MaxHP
 }
+func (t gameTargetCtx) LimuActive(source int) bool {
+	return t.g.hasSkill(source, SkillLimu) && len(t.g.Players[source].JudgeArea) > 0
+}
 
 func (g *Game) validPlayTargets(source int, cardKind string) []int {
 	return mode.ValidPlayTargets(g.targetCtx(), source, cardKind)

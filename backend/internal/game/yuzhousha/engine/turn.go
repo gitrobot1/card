@@ -38,19 +38,16 @@ func (g *Game) beginTurn(events *[]GameEvent) {
 		events = &[]GameEvent{}
 	}
 	seat := g.CurrentTurn
+	
+	// 重置回合状态
 	g.Players[seat].ShaUsedThisTurn = false
 	g.Players[seat].ShaExtraUsedThisTurn = false
 	g.Players[seat].Drunk = false
-	g.setSkillCounter(seat, counterGuoseShaBlocked, 0)
 	g.setSkillCounter(seat, counterShaInPlayPhase, 0)
 	g.resetPlayPhaseSkillCounters(seat)
-	if g.enterPreparePhase(seat, events) {
-		if g.Players[seat].IsAI {
-			g.runAIPreparePhase(seat, events)
-		}
-		return
-	}
-	_ = g.continueAfterPrepare(seat, events)
+	
+	// 1. 回合开始阶段
+	g.beginStartPhase(seat, events)
 }
 func (g *Game) EndPlay(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
@@ -159,18 +156,10 @@ func (g *Game) autoDiscard(seat int, events *[]GameEvent) {
 
 func (g *Game) endTurn(events *[]GameEvent) error {
 	seat := g.CurrentTurn
-	if g.startPojunCampDiscardIfNeeded(seat, events) {
-		return nil
-	}
-	g.runTurnEndHooks(seat, events)
-	g.Players[seat].Drunk = false
-	*events = append(*events, GameEvent{
-		Type:        "turn_end",
-		PlayerIndex: g.CurrentTurn,
-		Message:     fmt.Sprintf("%s 结束回合", g.Players[g.CurrentTurn].Name),
-	})
-	g.CurrentTurn = g.nextTurnSeat(g.CurrentTurn)
-	g.beginTurn(events)
-	g.Message = fmt.Sprintf("轮到 %s", g.Players[g.CurrentTurn].Name)
-	return nil
+
+	// 破军：回合结束后，获得「营」中的牌
+	g.startPojunGainIfNeeded(seat, events)
+
+	// 进入回合结束阶段
+	return g.enterFinishPhase(seat, events)
 }

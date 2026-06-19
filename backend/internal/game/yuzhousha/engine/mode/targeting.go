@@ -21,6 +21,8 @@ type TargetContext interface {
 	TargetBlocked(target int, cardKind string) bool
 	PlayerHP(seat int) (hp, maxHP int)
 	HandCount(seat int) int
+	// LimuActive 返回 source 的立牧是否生效（判定区有牌且有立牧技能）
+	LimuActive(source int) bool
 }
 
 // ValidPlayTargets returns legal target seats for cardKind from source.
@@ -75,21 +77,41 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 	if ctx.TargetBlocked(target, cardKind) {
 		return false
 	}
+	// 立牧生效时，所有牌都需要检查攻击范围（但距离计算已被忽略）
+	limuActive := ctx.LimuActive(source)
 	switch cardKind {
 	case TargetSha:
 		return ctx.CanAttack(source, target)
 	case TargetGuohe, TargetTannang:
+		if limuActive {
+			// 立牧生效时，需要先满足攻击范围，再检查是否有可拿的牌
+			if !ctx.CanAttack(source, target) {
+				return false
+			}
+		}
 		return ctx.HasTakeableCard(target)
 	case TargetBingliang:
 		return ctx.CanBingliangTarget(source, target)
 	case TargetJuedou, TargetLebu:
+		// 注意：立牧只影响"杀"的攻击范围判断，不影响决斗和乐不思蜀
 		return true
 	case TargetHuogong:
+		if limuActive {
+			if !ctx.CanAttack(source, target) {
+				return false
+			}
+		}
 		return ctx.HandCount(target) > 0
 	case TargetTiesuo:
+		if limuActive {
+			return ctx.CanAttack(source, target)
+		}
 		return true
 	default:
 		if needsOpponentTarget(cardKind) {
+			if limuActive {
+				return ctx.CanAttack(source, target)
+			}
 			return true
 		}
 		return false

@@ -16,6 +16,7 @@ export interface PendingContext {
   isMyResponse: boolean
   canUsePeekDeckUI: boolean
   selectedId: Ref<string>
+  selectedDiscardIds: Ref<string[]>
   selectedTargetZone: Ref<string>
   selectedTargetCardId: Ref<string>
   selectedQilinZone: Ref<string>
@@ -30,6 +31,7 @@ export interface PendingContext {
   tuxiTargetOptions: ComputedRef<TakeTargetOption[]>
   qixiTargetOptions: ComputedRef<TakeTargetOption[]>
   pojunTargetOptions: ComputedRef<TakeTargetOption[]>
+  pojunCardIds?: Ref<string[]>  // 破军批量选牌：一次性提交的 cardId 列表
   myCharacterSkills: ComputedRef<YzsSkillMeta[]>
   peekDeckSkillId: ComputedRef<string>
   yijiGiveRemaining: ComputedRef<number>

@@ -47,9 +47,11 @@ type Game struct {
 	Identities       []string
 	RoleRevealed     []bool
 	WinnerTeam       *int
+	gameOverStats    *GameOverStats // 游戏结束统计（预留）
 	testRand         *rand.Rand // sim/tests: fixed shuffle source
 	takeWindow       *takeWindowState
 	discardWindow    *discardWindowState
+	wuguPicked       map[int]bool // 五谷丰登：已选过牌的玩家
 }
 
 type PublicState struct {
@@ -72,8 +74,9 @@ type PublicState struct {
 	DiscardCount     int            `json:"discard_count"`
 	MyHand           []Card         `json:"my_hand,omitempty"`
 	TurnDeadlineUnix int64          `json:"turn_deadline_unix"`
-	Events            []GameEvent    `json:"events"`
-	ActivatableSkills []SkillMeta    `json:"activatable_skills,omitempty"`
+	Events           []GameEvent    `json:"events"`
+	ActivatableSkills []SkillMeta   `json:"activatable_skills,omitempty"`
+	GameOverStats    *GameOverStats `json:"game_over_stats,omitempty"` // 游戏结束时填充
 }
 
 func (g *Game) HasAI() bool {
@@ -150,6 +153,12 @@ func (g *Game) distanceBetween(from, to int) int {
 }
 
 func (g *Game) canAttack(from, to int) bool {
+	// 立牧：判定区有牌时，将距离视为1（最小合法距离）
+	// 忽略座次距离、马匹修正、技能距离修正，只受武器攻击范围限制
+	if g.hasSkill(from, SkillLimu) && len(g.Players[from].JudgeArea) > 0 {
+		// 严格判断：距离固定为1，不受任何修正影响
+		return 1 <= g.attackRange(from)
+	}
 	return g.distanceBetween(from, to) <= g.attackRange(from)
 }
 
@@ -167,6 +176,12 @@ func weaponRange(kind string) int {
 		return 5
 	case CardWeapon6:
 		return 2
+	case CardWeapon7:
+		return 4
+	case CardWeapon8:
+		return 2
+	case CardWeapon9:
+		return 3
 	default:
 		return 1
 	}
@@ -179,6 +194,44 @@ func (g *Game) findCard(seat int, cardID string) (int, Card, bool) {
 		}
 	}
 	return -1, Card{}, false
+}
+
+// findCardInHandOrEquip 在手牌和装备区中查找牌
+func (g *Game) findCardInHandOrEquip(seat int, cardID string) (zone string, idx int, card Card, ok bool) {
+	// 先查找手牌
+	if idx, card, ok := g.findCard(seat, cardID); ok {
+		return string(ZoneHand), idx, card, true
+	}
+	// 再查找装备区
+	for _, equip := range []struct {
+		zone string
+		card *Card
+	}{
+		{string(EquipWeapon), g.Players[seat].Weapon},
+		{string(EquipArmor), g.Players[seat].Armor},
+		{string(EquipPlusHorse), g.Players[seat].PlusHorse},
+		{string(EquipMinusHorse), g.Players[seat].MinusHorse},
+	} {
+		if equip.card != nil && equip.card.ID == cardID {
+			return equip.zone, -1, *equip.card, true
+		}
+	}
+	return "", -1, Card{}, false
+}
+
+// findCardZone 查找牌所在的 zone（用于破军批量选牌）
+func (g *Game) findCardZone(seat int, cardID string) ZoneID {
+	zone, _, _, ok := g.findCardInHandOrEquip(seat, cardID)
+	if !ok {
+		// 查找判定区
+		for _, jc := range g.Players[seat].JudgeArea {
+			if jc.ID == cardID {
+				return ZoneJudge
+			}
+		}
+		return ZoneHand // fallback
+	}
+	return ZoneID(zone)
 }
 
 func (g *Game) removeHandCard(seat, idx int, events *[]GameEvent) Card {
@@ -200,6 +253,55 @@ func (g *Game) finishGame(winner int, events *[]GameEvent) {
 		PlayerIndex: winner,
 		Message:     g.Message,
 	})
+
+	// 初始化游戏结束统计（预留，目前只记录基础信息）
+	g.buildGameOverStats(winner, -1, "damage")
+}
+
+// buildGameOverStats 构建游戏结束统计信息（预留接口，暂未填充详细数据）。
+func (g *Game) buildGameOverStats(winnerIndex, winnerTeam int, reason string) {
+	// 目前只在 PublicViewForSeat 中构建，这里预留 future use
+}
+
+// buildGameOverStatsForView 构建用于前端展示的游戏结束统计。
+func (g *Game) buildGameOverStatsForView() *GameOverStats {
+	if g.WinnerIndex == nil {
+		return nil
+	}
+
+	// 如果已经构建过，直接返回
+	if g.gameOverStats != nil {
+		return g.gameOverStats
+	}
+
+	winner := *g.WinnerIndex
+	stats := &GameOverStats{
+		WinnerIndex: winner,
+		Reason:      "damage", // TODO: 从实际游戏过程记录失败原因
+		PlayerStats: make([]PlayerGameStats, len(g.Players)),
+	}
+	if g.WinnerTeam != nil {
+		stats.WinnerTeam = *g.WinnerTeam
+	}
+
+	for i := range g.Players {
+		stats.PlayerStats[i] = PlayerGameStats{
+			Seat:        i,
+			Name:         g.Players[i].Name,
+			CharacterID:  g.Players[i].Character.ID,
+			IsWinner:     i == winner,
+			// TODO: 填充详细统计数据
+			// - DamageDealt: 需要跟踪每次伤害的来源
+			// - DamageTaken: 需要跟踪每次伤害的目标
+			// - HealDone: 需要跟踪治疗来源
+			// - KillCount: 需要跟踪击杀关系
+			// - SurvivalRank: 需要记录阵亡顺序
+		}
+	}
+
+	// 存储起来，避免重复构建
+	g.gameOverStats = stats
+	return stats
 }
 
 func (g *Game) IsHumanPending() bool {
@@ -280,6 +382,12 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 		if i == seat || g.IsFinished() {
 			pub.Hand = append([]Card(nil), p.Hand...)
 		}
+		// 破军 TakeWindow 期间，将目标手牌暴露给 Actor 用于选牌
+		if g.Pending != nil && g.Pending.WindowKind == WindowKindTake &&
+			g.Pending.ResponseMode == ResponseModeSkillPojun &&
+			g.Pending.ActorSeat == seat && i == g.Pending.SubjectSeat {
+			pub.Hand = append([]Card(nil), p.Hand...)
+		}
 		if g.isIdentity() && i < len(g.Identities) {
 			revealed := g.IdentityRevealed(i)
 			pub.IdentityRevealed = revealed
@@ -313,6 +421,12 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 			seatMap = append([]mode.SeatSlot(nil), meta.SeatMap...)
 		}
 	}
+	// 构建游戏结束统计（仅在游戏结束时）
+	var gameOverStats *GameOverStats
+	if g.IsFinished() && g.WinnerIndex != nil {
+		gameOverStats = g.buildGameOverStatsForView()
+	}
+
 	return PublicState{
 		ID:               g.ID,
 		Phase:            g.Phase,
@@ -335,5 +449,6 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 		TurnDeadlineUnix: g.TurnDeadlineUnix,
 		Events:           events,
 		ActivatableSkills: g.ListActivatableSkills(seat),
+		GameOverStats:    gameOverStats,
 	}
 }

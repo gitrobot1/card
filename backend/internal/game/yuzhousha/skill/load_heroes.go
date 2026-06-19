@@ -17,6 +17,7 @@ type heroFileEntry struct {
 	Name        string   `json:"name"`
 	MaxHP       int      `json:"max_hp"`
 	Kingdom     string   `json:"kingdom"`
+	Gender      string   `json:"gender,omitempty"` // male | female
 	SkillIDs    []string `json:"skill_ids"`
 	Pickable    *bool    `json:"pickable,omitempty"`
 	AccentColor string   `json:"accent_color,omitempty"`
@@ -78,6 +79,7 @@ func ParseHeroesJSON(data []byte) ([]parsedHero, error) {
 				Name:        h.Name,
 				MaxHP:       h.MaxHP,
 				Kingdom:     h.Kingdom,
+				Gender:      h.Gender,
 				SkillIDs:    append([]string(nil), h.SkillIDs...),
 				Pack:        file.Pack,
 				AccentColor: h.AccentColor,

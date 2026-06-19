@@ -4,7 +4,8 @@ import { pendingHandlers } from './handlers'
 import type { PendingHandler } from './types'
 import type { YuzhoushaState } from '../../../types/yuzhousha'
 
-const TARGET_PICK_MODES = new Set(['skill_fankui', 'skill_tuxi', 'skill_qixi'])
+// 保留兼容：window_kind 为 take 的 pending 也需要清空目标选择状态
+const TARGET_PICK_WINDOW_KINDS = new Set(['take'])
 
 export function findPendingHandler(
   state: YuzhoushaState | null | undefined,
@@ -52,7 +53,8 @@ export function pendingOnModeChange(
   if (prevMode && prevMode !== mode) {
     findPendingHandlerByMode(prevMode)?.onModeLeave?.(ctx)
   }
-  if (!TARGET_PICK_MODES.has(mode ?? '')) {
+  const windowKind = ctx.state.pending?.window_kind
+  if (!TARGET_PICK_WINDOW_KINDS.has(windowKind ?? '')) {
     if (!opts.isMyPlay || !opts.selectedCardNeedsTargetCard()) {
       ctx.selectedTargetZone.value = ''
       ctx.selectedTargetCardId.value = ''

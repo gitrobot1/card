@@ -114,7 +114,13 @@ export function useYzsHints(deps: YzsHintsDeps) {
       return '【反间】：选择一张手牌交给对手，再点「发动反间」'
     }
     if (deps.isMyPlay.value && deps.qixiMode.value) {
-      return '【奇袭】：选择一张黑色手牌，再点「发动奇袭」'
+      if (deps.selectedCard.value && deps.selectedCard.value.suit && (deps.selectedCard.value.suit === 'S' || deps.selectedCard.value.suit === 'C')) {
+        if (deps.shaTarget.value == null) {
+          return '【奇袭】：黑色牌将当过河拆桥打出，点击敌方头像选定目标，再点「出牌」'
+        }
+        return '【奇袭】：已锁定目标，点「出牌」将黑色牌当【过河拆桥】打出'
+      }
+      return '【奇袭】：选择一张黑色牌（手牌或装备区），选目标后点「出牌」即可当过河拆桥打出'
     }
     if (deps.isMyPlay.value && deps.wushengMode.value) {
       if (deps.selectedCard.value && deps.cardPlaysAsSha(deps.selectedCard.value) && deps.selectedCard.value.kind !== 'sha') {
@@ -123,7 +129,7 @@ export function useYzsHints(deps: YzsHintsDeps) {
         }
         return '【武圣】：已锁定目标，点「出牌」将红色牌当【杀】打出'
       }
-      return '【武圣】已发动：选一张红色手牌（♥♦），再指定敌方'
+      return '【武圣】已发动：选一张红色牌（♥♦），再指定敌方'
     }
     if (deps.isMyPlay.value && deps.needsOpponentTarget(deps.selectedCard.value) && deps.shaTarget.value == null) {
       if (deps.selectedCard.value?.kind === 'bingliang') {

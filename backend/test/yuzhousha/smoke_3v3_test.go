@@ -66,10 +66,23 @@ func allCardsInGame(g *engine.Game) []engine.Card {
 	for _, p := range g.Players {
 		out = append(out, p.Hand...)
 		out = append(out, p.JudgeArea...)
+		out = append(out, p.CampCards...)
 		for _, slot := range []*engine.Card{p.Weapon, p.Armor, p.PlusHorse, p.MinusHorse} {
 			if slot != nil {
 				out = append(out, *slot)
 			}
+		}
+	}
+	if g.Pending != nil {
+		out = append(out, g.Pending.RevealedCards...)
+		if g.Pending.JudgeCard.ID != "" {
+			out = append(out, g.Pending.JudgeCard)
+		}
+		if g.Pending.Card.ID != "" {
+			out = append(out, g.Pending.Card)
+		}
+		if g.Pending.FankuiResumeCard.ID != "" {
+			out = append(out, g.Pending.FankuiResumeCard)
 		}
 	}
 	return out

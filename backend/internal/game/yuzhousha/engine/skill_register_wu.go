@@ -50,7 +50,7 @@ func registerWuSkills() {
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDTianxiang, Name: "天香", Kind: skill.KindPassive,
-			Desc: "当你受到伤害时，你可以弃一张红色手牌，将伤害转移给一名体力不少于你的其他角色。",
+			Desc: "当你受到伤害时，你可以弃置一张红桃手牌并选择一名其他角色。若如此做，你将此伤害转移给该角色，然后其摸X张牌（X为其已损失体力值）。",
 		},
 		CanActivate: tianxiangCanActivate,
 		Activate:    tianxiangActivate,
@@ -61,10 +61,11 @@ func registerWuSkills() {
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDQixi, Name: "奇袭", Kind: skill.KindActive,
-			Desc: "出牌阶段限一次，你可以弃置一张黑色手牌并选择一名有手牌的其他角色，获得其一张手牌。",
+			Desc: "出牌阶段，你可以将一张黑色的牌当过河拆桥打出，包括装备区的牌。",
 		},
 		CanActivate: qixiCanActivate,
 		Activate:    qixiActivate,
+		CardPlaysAs: qixiCardPlaysAs,
 		AIPriority:  qixiAIPriority,
 		AIActivate:  qixiAIActivate,
 	})
@@ -72,7 +73,7 @@ func registerWuSkills() {
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDYinghun, Name: "英魂", Kind: skill.KindActive,
-			Desc: "准备阶段，你可以令一名其他角色选择：双方各摸一张牌；或令你摸两张牌并弃置一张手牌。",
+			Desc: "准备阶段，若你已受伤，你可以选择一项：1.令对手摸X张牌，然后其弃置一张牌；2.令对手摸一张牌，然后其弃置X张牌（X为你已损失的体力值）。",
 		},
 		PreparePhase: skill.PreparePhaseDecl{
 			Offer: func(r skill.Runtime, seat int) bool {
@@ -88,7 +89,7 @@ func registerWuSkills() {
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDGuose, Name: "国色", Kind: skill.KindActive,
-			Desc: "出牌阶段限一次，你可以弃置一张方块牌并选择一名其他角色，该角色本回合不能使用【杀】。",
+			Desc: "出牌阶段，你可以将一张方块牌当【乐不思蜀】使用。",
 		},
 		CanActivate: guoseCanActivate,
 		Activate:    guoseActivate,
@@ -121,7 +122,7 @@ func registerWuSkills() {
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDPojun, Name: "破军", Kind: skill.KindActive,
-			Desc: "当你使用【杀】指定一名角色为目标后，你可以将其至多X张牌置于其武将牌上（X为其体力值）。其于此回合结束阶段须弃置「营」中至少一张牌；若其为该【杀】唯一目标，则须弃置X张。",
+			Desc: "当你使用【杀】指定一个目标后，你可以将其至多X张牌扣置于该角色的武将牌旁（X为其体力值），若如此做，当前回合结束后，该角色获得这些牌。当你使用【杀】对手牌数与装备数均不大于你的角色造成伤害时，此伤害+1。",
 		},
 		CanActivate: pojunCanActivate,
 		Activate:    pojunActivate,
@@ -330,42 +331,6 @@ func tianxiangAIActivate(r skill.Runtime, seat int) error {
 	return r.PassTianxiang(seat)
 }
 
-func qixiCanActivate(r skill.Runtime, seat int) bool {
-	if !r.HasSkill(seat, skill.IDQixi) {
-		return false
-	}
-	if r.Phase() != PhasePlaying || r.TurnStep() != StepPlay || r.CurrentTurn() != seat {
-		return false
-	}
-	if r.SkillCounter(seat, counterQixiUsed) > 0 {
-		return false
-	}
-	return r.HasBlackHandCard(seat) && r.OpponentHasHandCard(seat)
-}
-
-func qixiActivate(r skill.Runtime, seat int, req skill.ActivateReq) error {
-	if len(req.CardIDs) != 1 {
-		return ErrInvalidCard
-	}
-	return r.ActivateQixi(seat, req.CardIDs[0])
-}
-
-func qixiAIPriority(r skill.Runtime, seat int) int {
-	if qixiCanActivate(r, seat) {
-		return 62
-	}
-	return 0
-}
-
-func qixiAIActivate(r skill.Runtime, seat int) error {
-	for _, id := range r.PlayerHandCardIDs(seat) {
-		if err := r.ActivateQixi(seat, id); err == nil {
-			return nil
-		}
-	}
-	return nil
-}
-
 func yinghunCanActivate(r skill.Runtime, seat int) bool {
 	if !r.HasSkill(seat, skill.IDYinghun) {
 		return false
@@ -373,7 +338,12 @@ func yinghunCanActivate(r skill.Runtime, seat int) bool {
 	if r.Phase() != PhasePlaying || r.TurnStep() != StepPrepare || r.CurrentTurn() != seat {
 		return false
 	}
-	return r.SkillCounter(seat, counterYinghunUsed) == 0
+	if r.SkillCounter(seat, counterYinghunUsed) > 0 {
+		return false
+	}
+	// 必须已受伤才能发动
+	hp, maxHP := r.PlayerHP(seat)
+	return hp < maxHP
 }
 
 func yinghunActivate(r skill.Runtime, seat int, req skill.ActivateReq) error {
@@ -402,7 +372,7 @@ func guoseCanActivate(r skill.Runtime, seat int) bool {
 	if r.Phase() != PhasePlaying || r.TurnStep() != StepPlay || r.CurrentTurn() != seat {
 		return false
 	}
-	return r.SkillCounter(seat, counterGuoseUsed) == 0 && r.HasDiamondHandCard(seat)
+	return r.HasDiamondHandCard(seat)
 }
 
 func guoseActivate(r skill.Runtime, seat int, req skill.ActivateReq) error {

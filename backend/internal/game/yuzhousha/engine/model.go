@@ -15,12 +15,36 @@ type GameEvent struct {
 	SkillID     string `json:"skill_id,omitempty"`
 }
 
+// PlayerGameStats 单玩家对局统计（游戏结束时填充，预留扩展）。
+// 目前只记录基础数据，后续可扩展击杀数、伤害量、治疗量等。
+type PlayerGameStats struct {
+	Seat         int    `json:"seat"`
+	Name          string `json:"name"`
+	CharacterID   string `json:"character_id"`
+	IsWinner      bool   `json:"is_winner"`
+	DamageDealt   int    `json:"damage_dealt,omitempty"`   // 造成的总伤害
+	DamageTaken   int    `json:"damage_taken,omitempty"`   // 受到的总伤害
+	HealDone      int    `json:"heal_done,omitempty"`      // 治疗量
+	KillCount     int    `json:"kill_count,omitempty"`      // 击杀数
+	SurvivalRank  int    `json:"survival_rank,omitempty"`  // 存活排名（1=最先阵亡）
+}
+
+// GameOverStats 游戏结束时的统计数据（预留，暂未全部填充）。
+// 前端可在结算界面展示 MVP、伤害统计等信息。
+type GameOverStats struct {
+	WinnerIndex   int                `json:"winner_index"`
+	WinnerTeam    int                `json:"winner_team,omitempty"`
+	Reason        string             `json:"reason,omitempty"` // damage | hp_loss | timeout | surrender
+	PlayerStats   []PlayerGameStats `json:"player_stats,omitempty"`
+}
+
 // Character 角色元数据。
 type Character struct {
 	ID            string              `json:"id"`
 	Name          string              `json:"name"`
 	MaxHP         int                 `json:"max_hp"`
 	Kingdom       string              `json:"kingdom,omitempty"`
+	Gender        string              `json:"gender,omitempty"` // male | female
 	SkillIDs      []string            `json:"skill_ids,omitempty"`
 	Skills        []SkillMeta         `json:"skills,omitempty"`
 	DefaultSkinID string              `json:"default_skin_id,omitempty"`
@@ -30,12 +54,14 @@ type Character struct {
 
 // Card 基础牌。
 type Card struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"`
-	Suit  string `json:"suit,omitempty"`
-	Rank  int    `json:"rank,omitempty"`
-	Label string `json:"label,omitempty"`
-	Name  string `json:"name"`
+	ID         string `json:"id"`
+	Kind       string `json:"kind"`
+	Suit       string `json:"suit,omitempty"`
+	Rank       int    `json:"rank,omitempty"`
+	Label      string `json:"label,omitempty"`
+	Name       string `json:"name"`
+	TrickScope string `json:"trick_scope,omitempty"`
+	DamageType string `json:"damage_type,omitempty"`
 }
 
 // Player 对局中的玩家状态。
@@ -81,6 +107,7 @@ type PendingCombat struct {
 	TargetZone   string `json:"target_zone,omitempty"`
 	TargetCardID string `json:"target_card_id,omitempty"`
 	AllowWuxiek   bool   `json:"allow_wuxiek,omitempty"`
+	TaoYuanQueue  bool   `json:"-"` // 桃园结义队列标记
 	ResponsesNeeded int  `json:"responses_needed,omitempty"`
 	BaguaUsed     bool   `json:"bagua_used,omitempty"`
 	IgnoreArmor   bool   `json:"ignore_armor,omitempty"`
@@ -111,11 +138,27 @@ type PendingCombat struct {
 	PojunRemaining  int `json:"pojun_remaining,omitempty"`
 	SavedPending   *PendingCombat `json:"-"`
 
+	// Extra 通用扩展字段，用于技能逻辑传递中间状态
+	Extra map[string]int `json:"extra,omitempty"`
+
+	// 响应队列：按照三国杀规则管理响应顺序
+	ResponseQueue []int `json:"response_queue,omitempty"` // 响应队列，按顺序排列
+	ResponseIndex int   `json:"response_index,omitempty"` // 当前响应者在队列中的索引
+	
 	// 语义字段（v0.1）：优先于 SourceIndex/TargetIndex 推导；由 FillPendingRoles 填充。
 	ActorSeat   int    `json:"actor_seat"`
 	SubjectSeat int    `json:"subject_seat,omitempty"`
 	OriginSeat  int    `json:"origin_seat,omitempty"`
 	WindowKind  string `json:"window_kind,omitempty"`
+
+	// 无懈可击链：记录所有打出的无懈可击顺序（最后一张是最新的）
+	WuxiekChain []WuxiekEntry `json:"-"`
+}
+
+// WuxiekEntry 无懈可击链中的一条记录
+type WuxiekEntry struct {
+	Seat int    // 谁打出的
+	Card Card   // 打出的无懈可击牌
 }
 
 // PlayerPublic 对外公开的玩家信息。

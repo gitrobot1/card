@@ -122,7 +122,7 @@ const {
             </div>
           </div>
           <div
-            v-else-if="isWuguPick && state?.pending?.revealed_cards?.length"
+            v-else-if="state?.pending?.revealed_cards?.length"
             class="yzs__wugu-pick"
           >
             <button
@@ -131,8 +131,8 @@ const {
               type="button"
               class="yzs__wugu-pick-btn"
               :class="{ 'yzs__wugu-pick-btn--selected': selectedId === card.id }"
-              :disabled="!canInteract"
-              @click="selectCard(card.id)"
+              :disabled="!canInteract || !isWuguPick"
+              @click="isWuguPick ? selectCard(card.id) : undefined"
             >
               <YzsCardView :card="card" :selected="selectedId === card.id" />
             </button>

@@ -89,6 +89,7 @@ func trickStaysInJudge(kind string) bool {
 }
 
 func (g *Game) canBingliangTarget(from, to int) bool {
+	// 注意：立牧只影响"杀"的攻击范围判断，不影响兵粮寸断
 	if g.runSkillHooks(nil, skill.HookCall{
 		Kind: skill.HookTrickIgnoresDistance, Seat: from, TrickKind: CardBingLiang,
 	}).Bool {

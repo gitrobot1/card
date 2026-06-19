@@ -7,26 +7,7 @@ func (g *Game) PendingActorSeat() int {
 	}
 	if g.Phase == PhaseResponse && g.Pending != nil {
 		g.ensurePendingRoles()
-		if g.Pending.ActorSeat >= 0 {
-			return g.Pending.ActorSeat
-		}
-		// fallback：未识别 mode 时沿用旧推导（迁移完成后删除）
-		p := g.Pending
-		if p.TieqiPending {
-			return p.SourceIndex
-		}
-		switch p.ResponseMode {
-		case "skill_pojun":
-			return p.SourceIndex
-		case ResponseModeDying:
-			return p.SourceIndex
-		case ResponseModeWuguPick:
-			return p.WuguPickSeat
-		case "skill_pojun_discard":
-			return p.TargetIndex
-		default:
-			return p.TargetIndex
-		}
+		return g.Pending.ActorSeat
 	}
 	if g.Phase == PhasePlaying {
 		if g.TurnStep == StepPrepare || g.TurnStep == StepPlay || g.TurnStep == StepDiscard {

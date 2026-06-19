@@ -43,6 +43,7 @@ func (g *Game) ActivateFanjian(seat int, cardID string, events *[]GameEvent) err
 	msg := fmt.Sprintf("%s 发动【反间】，请 %s 选择一种花色", g.Players[seat].Name, g.Players[target].Name)
 	g.Message = msg
 	g.appendSkillEvent(events, skill.IDFanjian, seat, target, msg)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "skill_fanjian_offer",

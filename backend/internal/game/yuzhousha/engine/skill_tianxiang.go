@@ -62,6 +62,7 @@ func (g *Game) offerTianxiangWindow(source, victim, amount int, card Card, resum
 	msg := fmt.Sprintf("%s 可发动【天香】转移 %d 点伤害", g.Players[victim].Name, amount)
 	g.Message = msg
 	g.appendSkillEvent(events, skill.IDTianxiang, victim, g.Pending.EffectTarget, msg)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	return nil
 }
@@ -81,7 +82,7 @@ func (g *Game) ApplyTianxiang(seat int, cardID string, events *[]GameEvent) erro
 		return ErrInvalidCard
 	}
 	redirect := g.tianxiangRedirectTarget(seat)
-	if redirect < 0 || g.Players[redirect].HP < g.Players[seat].HP {
+	if redirect < 0 || redirect == seat {
 		return ErrInvalidTarget
 	}
 
@@ -109,7 +110,25 @@ func (g *Game) ApplyTianxiang(seat int, cardID string, events *[]GameEvent) erro
 		r := DamageResume{ReturnIndex: pending.ReturnIndex}
 		resume = &r
 	}
-	return g.finalizeDamageHit(pending.SourceIndex, redirect, pending.Damage, pending.Card, *resume, events)
+	
+	// 先转移伤害，让目标扣血
+	if err := g.finalizeDamageHit(pending.SourceIndex, redirect, pending.Damage, pending.Card, *resume, events); err != nil {
+		return err
+	}
+	
+	// 伤害转移后，目标已扣血
+	// 只有当目标还活着时，才摸X张牌（X为其已损失体力值）
+	if g.Players[redirect].HP > 0 {
+		_, targetMaxHP := g.PlayerHP(redirect)
+		targetLostHP := targetMaxHP - g.Players[redirect].HP
+		if targetLostHP > 0 {
+			// 目标摸牌
+			drawCount := targetLostHP
+			g.drawCards(redirect, drawCount, events)
+		}
+	}
+	
+	return nil
 }
 
 func (g *Game) PassTianxiang(seat int, events *[]GameEvent) error {
@@ -143,7 +162,7 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 		return g.offerTianxiangWindow(source, target, damage, card, resume, events)
 	}
 
-	g.applyDamage(source, target, damage, card, events)
+	g.applyDamageWithHook(source, target, damage, card, events)
 	victim := &g.Players[target]
 
 	eventType := "trick_hit"

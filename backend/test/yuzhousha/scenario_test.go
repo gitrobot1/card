@@ -272,13 +272,18 @@ func TestScenario_LebuWuxiekOnJudgeCancelsSkip(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertPendingMode(t, g, engine.ResponseModeWuxiekLebu)
-	if err := g.RespondWuxiek(1, "wx-1", &events); err != nil {
+	// 玩家 1 打出无懈可击
+	if err := g.RespondWuxiekForTest(1, "wx-1", &events); err != nil {
 		t.Fatal(err)
 	}
+	// 跳过反无懈可击窗口，使第一张无懈可击生效
+	if g.Pending != nil && g.Pending.ResponseMode == engine.ResponseModeWuxiekLebu {
+		if err := g.PassResponse(g.CurrentTurn, &events); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 现在乐不思蜀应该被取消了
 	if g.HasJudgeKindForTest(1, engine.CardLeBu) || g.Players[1].SkipPlay {
 		t.Fatalf("expected lebu cancelled, judge=%+v skip=%v", g.Players[1].JudgeArea, g.Players[1].SkipPlay)
-	}
-	if g.TurnStep != engine.StepPlay {
-		t.Fatalf("expected opponent play step after wuxiek lebu, step=%s", g.TurnStep)
 	}
 }

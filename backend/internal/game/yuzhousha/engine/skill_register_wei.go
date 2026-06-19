@@ -77,7 +77,7 @@ func registerWeiSkills() {
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDLuoyi, Name: "裸衣", Kind: skill.KindActive,
-			Desc: "摸牌阶段，你可以放弃摸牌，若如此做，你于此回合内使用【杀】造成的伤害+1。",
+			Desc: "摸牌阶段，你可以放弃摸牌，若如此做，你于此回合内使用【杀】和【决斗】造成的伤害+1。",
 		},
 		CanActivate: luoyiCanActivate,
 		Activate:    luoyiActivate,
@@ -88,7 +88,7 @@ func registerWeiSkills() {
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDTuxi, Name: "突袭", Kind: skill.KindActive,
-			Desc: "摸牌阶段，你可以少摸至多2张牌，然后对对手获得等量的牌。",
+			Desc: "摸牌阶段，你可以放弃摸牌，然后从至多2名对手中各获得一张牌。",
 		},
 		CanActivate: tuxiCanActivate,
 		Activate:    tuxiActivate,
@@ -296,11 +296,8 @@ func tuxiActivate(r skill.Runtime, seat int, req skill.ActivateReq) error {
 	if r.PendingTuxiTakeFor(seat) {
 		return r.TuxiTakeFrom(seat, req.TargetZone, req.TargetCardID)
 	}
-	skip := 1
-	if req.TargetIndex >= 2 || req.TargetZone == "skip_2" {
-		skip = 2
-	}
-	return r.StartTuxi(seat, skip)
+	// 新突袭：放弃摸牌，从至多2名对手中各获得一张牌
+	return r.StartTuxi(seat)
 }
 
 func tuxiAIPriority(r skill.Runtime, seat int) int {
@@ -332,12 +329,7 @@ func tuxiAIActivate(r skill.Runtime, seat int) error {
 		}
 		return r.TuxiTakeFrom(seat, zone, cardID)
 	}
-	opp := r.OpponentOf(seat)
-	skip := 1
-	if r.PlayerHandCount(opp) >= 4 {
-		skip = 2
-	}
-	return r.StartTuxi(seat, skip)
+	return r.StartTuxi(seat)
 }
 
 func yijiCanActivate(r skill.Runtime, seat int) bool {

@@ -17,24 +17,46 @@ func FillPendingRoles(p *PendingCombat) {
 	}
 
 	if p.TieqiPending {
-		p.WindowKind = WindowKindChoice
-		p.ActorSeat = p.SourceIndex
+		// 铁骑：出杀者可选择发动，但当前窗口仍是"目标需出闪"
+		// ActorSeat 应为目标（需出闪的人），SourceIndex 在 PassResponse 中特殊处理
+		p.WindowKind = WindowKindRespond
+		p.ActorSeat = p.TargetIndex
 		p.SubjectSeat = p.TargetIndex
 		p.OriginSeat = p.SourceIndex
 		return
 	}
 
 	switch p.ResponseMode {
-	case ResponseModeSkillFankui, ResponseModeSkillTuxi, ResponseModeSkillQixi:
+	case ResponseModeWuxiekLebu,
+		ResponseModeWuxiekBingliang, ResponseModeWuxiekShandian,
+		ResponseModeWuxiekGuose:
+		// 判定前无懈可击窗口：ActorSeat 由响应队列管理（startJudgeWuxiekWindow / advance*Queue），不覆盖
+		// TargetIndex = -1 表示任何人都可以响应
+		p.WindowKind = WindowKindRespond
+		p.SubjectSeat = p.SourceIndex
+		p.OriginSeat = p.SourceIndex
+		return
+	case ResponseModeWuxiekTrick:
+		// 锦囊牌无懈可击窗口：
+		// - TargetIndex >= 0：初始无懈可击窗口，TargetIndex 是当前可响应者
+		// - TargetIndex = -1：反无懈可击窗口（startWuxiekRecursiveWindow），ActorSeat 由响应队列管理
+		p.WindowKind = WindowKindRespond
+		if p.TargetIndex >= 0 {
+			p.ActorSeat = p.TargetIndex
+			p.SubjectSeat = p.TargetIndex
+		} else {
+			p.SubjectSeat = p.SourceIndex
+		}
+		p.OriginSeat = p.SourceIndex
+		return
+	case ResponseModeSkillFankui, ResponseModeSkillTuxi:
 		p.WindowKind = WindowKindTake
 		p.ActorSeat = p.TargetIndex
 		p.SubjectSeat = p.SourceIndex
 		p.OriginSeat = p.TargetIndex
 	case "skill_pojun":
-		p.WindowKind = WindowKindTake
-		p.ActorSeat = p.SourceIndex
-		p.SubjectSeat = p.TargetIndex
-		p.OriginSeat = p.SourceIndex
+		// 破军：OpenTakeWindowOnPending 已正确设置 ActorSeat/SubjectSeat，不覆盖
+		return
 	case "skill_pojun_discard", ResponseModeSkillYinghunDiscard:
 		p.WindowKind = WindowKindDiscard
 		p.ActorSeat = p.TargetIndex
@@ -50,6 +72,9 @@ func FillPendingRoles(p *PendingCombat) {
 		p.ActorSeat = p.TargetIndex
 		p.SubjectSeat = p.TargetIndex
 		p.OriginSeat = p.SourceIndex
+	case ResponseModeGuoHe, ResponseModeTanNang:
+		// 过河拆桥/顺手牵羊的 TakeWindow：Actor/Subject/WindowKind 由 OpenTakeWindow 已设置，不覆盖
+		return
 	case ResponseModeWuguPick:
 		p.WindowKind = WindowKindPick
 		p.ActorSeat = p.WuguPickSeat
@@ -87,4 +112,36 @@ func (g *Game) PendingSubjectSeat() int {
 func (g *Game) IsActorSeat(seat int) bool {
 	actor := g.PendingActorSeat()
 	return actor >= 0 && actor == seat
+}
+
+// CanRespondSeat 判断 seat 是否可以响应当前 Pending。
+// 当 TargetIndex == -1 时，任何人都可以响应（用于无懈可击等全局响应）。
+func (g *Game) CanRespondSeat(seat int) bool {
+	if g.Pending == nil {
+		return false
+	}
+	// AOE无懈窗口：任何人都可以出无懈可击
+	if g.Pending.AllowWuxiek && g.Pending.TaoYuanQueue {
+		return true
+	}
+	if g.Pending.TargetIndex == -1 {
+		return seat >= 0 && seat < len(g.Players)
+	}
+	return g.Pending.TargetIndex == seat
+}
+
+// CanRespondWuxiek 检查是否可以出无懈可击（比 CanRespondSeat 更宽松，用于无懈可击专用检查）
+func (g *Game) CanRespondWuxiek(seat int) bool {
+	if g.Pending == nil {
+		return false
+	}
+	// 桃园结义：任何人都可以出无懈可击
+	if g.Pending.AllowWuxiek && g.Pending.TaoYuanQueue {
+		return seat >= 0 && seat < len(g.Players)
+	}
+	// 无懈链期间：任何人都可以出无懈可击
+	if g.Pending.ResponseMode == ResponseModeWuxiekTrick {
+		return seat >= 0 && seat < len(g.Players)
+	}
+	return g.CanRespondSeat(seat)
 }

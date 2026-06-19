@@ -75,9 +75,6 @@ func (g *Game) OpenDiscardWindow(cfg DiscardWindowConfig, events *[]GameEvent) e
 	}
 	if events != nil && cfg.Message != "" {
 		offerType := cfg.EventType + "_offer"
-		if cfg.ResponseMode == ResponseModeSkillPojunDiscard {
-			offerType = "pojun_discard_offer"
-		}
 		*events = append(*events, GameEvent{
 			Type:        offerType,
 			PlayerIndex: seat,
@@ -92,17 +89,15 @@ func (g *Game) syncLegacyDiscardRemaining() {
 	if g.discardWindow == nil || g.Pending == nil {
 		return
 	}
-	switch g.Pending.ResponseMode {
-	case ResponseModeSkillPojunDiscard:
-		g.Pending.PojunRemaining = g.discardWindow.remaining()
-	}
+	// 新版破军不再需要 DiscardWindow，此处留空
+	_ = g.Pending.ResponseMode
 }
 
 func (g *Game) validateDiscardActor(actor int) error {
 	if g.Phase != PhaseResponse || g.Pending == nil || g.discardWindow == nil {
 		return ErrWrongPhase
 	}
-	if g.Pending.WindowKind != WindowKindDiscard && g.Pending.ResponseMode != ResponseModeSkillPojunDiscard {
+	if g.Pending.WindowKind != WindowKindDiscard {
 		return ErrWrongPhase
 	}
 	if !g.IsActorSeat(actor) {

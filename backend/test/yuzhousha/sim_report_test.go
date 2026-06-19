@@ -33,6 +33,7 @@ type simContext struct {
 	Hero3  string
 	Seed   int64
 	Reason string // stuck | timeout | card_loss | force_error | no_winner
+	Detail string // card distribution detail for card_loss
 }
 
 func (ctx simContext) is2v2() bool {
@@ -223,6 +224,9 @@ func buildSimReport(g *engine.Game, ctx simContext, run simRun) string {
 		fmt.Fprintf(&b, "模式: %s\n", ctx.Mode)
 	}
 	fmt.Fprintf(&b, "失败类型: %s\n", ctx.Reason)
+	if ctx.Detail != "" {
+		fmt.Fprintf(&b, "牌分布: %s\n", ctx.Detail)
+	}
 	fmt.Fprintf(&b, "步数: %d / %d\n", run.result.steps, defaultSimMaxSteps)
 	if run.stuckAtFP != "" {
 		fmt.Fprintf(&b, "卡住指纹: %s\n", run.stuckAtFP)
@@ -355,6 +359,7 @@ func assertSimFinished(t *testing.T, g *engine.Game, ctx simContext, run simRun)
 	}
 	if cards := countCardsInPlay(g); cards != expectedDeckSizeFor(g) {
 		ctx.Reason = "card_loss"
+		ctx.Detail = cardDistribution(g)
 		if os.Getenv("CARD_SIM_STRICT") == "1" {
 			reportSimFailure(t, g, ctx, run)
 			t.FailNow()

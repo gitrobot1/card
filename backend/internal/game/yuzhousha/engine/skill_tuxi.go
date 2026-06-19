@@ -47,25 +47,60 @@ func (g *Game) isDrawPhaseChoicePending(seat int) bool {
 		g.getSkillCounter(seat, counterDrawChoicePending) > 0
 }
 
-func (g *Game) StartTuxi(seat, skipCount int, events *[]GameEvent) error {
+// StartTuxi 发动突袭：放弃摸牌，从至多2名对手中各获得一张牌
+func (g *Game) StartTuxi(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return ErrGameOver
 	}
 	if !g.isDrawPhaseChoicePending(seat) {
 		return ErrWrongPhase
 	}
-	drawN := g.drawCountFor(seat)
-	if !g.hasSkill(seat, SkillTuxi) || skipCount < 1 || skipCount > drawN {
+	if !g.hasSkill(seat, SkillTuxi) {
 		return ErrInvalidTarget
 	}
-	opp := g.firstEnemyWhere(seat, g.hasTakeableCard)
-	if !g.hasTakeableCard(opp) {
-		return ErrInvalidTarget
-	}
-	g.setSkillCounter(seat, counterDrawChoicePending, 0)
-	g.setSkillCounter(seat, counterTuxiDrawSkip, skipCount)
 
-	msg := fmt.Sprintf("%s 发动【突袭】，少摸 %d 张，请选择获得 %s 的牌", g.Players[seat].Name, skipCount, g.Players[opp].Name)
+	// 检查是否有至少1名有牌的对手
+	hasValidTarget := false
+	for _, enemy := range g.enemiesOf(seat) {
+		if g.hasTakeableCard(enemy) {
+			hasValidTarget = true
+			break
+		}
+	}
+	if !hasValidTarget {
+		return ErrInvalidTarget
+	}
+
+	g.setSkillCounter(seat, counterDrawChoicePending, 0)
+
+	// 初始化突袭状态：已选择0名对手，最多可选2名
+	g.setSkillCounter(seat, "tuxi_selected", 0)
+	g.setSkillCounter(seat, "tuxi_max", 2)
+
+	// 开始第一次选择
+	return g.startTuxiTake(seat, events)
+}
+
+// startTuxiTake 开始一次突袭拿牌
+func (g *Game) startTuxiTake(seat int, events *[]GameEvent) error {
+	// 查找第一个有牌的对手
+	opp := -1
+	for _, enemy := range g.enemiesOf(seat) {
+		if g.hasTakeableCard(enemy) {
+			opp = enemy
+			break
+		}
+	}
+
+	if opp < 0 {
+		// 没有可选择的对手，结束突袭
+		return g.finishTuxi(seat, events)
+	}
+
+	selected := g.getSkillCounter(seat, "tuxi_selected")
+	msg := fmt.Sprintf("%s 发动【突袭】（%d/2），请选择获得 %s 的牌",
+		g.Players[seat].Name, selected+1, g.Players[opp].Name)
+
 	actor := seat
 	return g.OpenTakeWindow(TakeWindowConfig{
 		SkillID:          skill.IDTuxi,
@@ -73,13 +108,75 @@ func (g *Game) StartTuxi(seat, skipCount int, events *[]GameEvent) error {
 		ActorSeat:        seat,
 		SubjectSeat:      opp,
 		OriginSeat:       seat,
-		MaxTake:          skipCount,
+		MaxTake:          1, // 每次只能拿1张
 		Destination:      TakeDestination{Zone: ZoneHand, Seat: seat},
 		Message:          msg,
 		EventType:        "tuxi_take",
 		SkillEventLabel:  "突袭",
-		PassClosesWindow: true,
+		PassClosesWindow: false, // 不关闭窗口，可以继续选择第二名对手
 		OnComplete: func(g *Game, events *[]GameEvent) error {
+			// 拿牌完成后，增加计数
+			g.addSkillCounter(seat, "tuxi_selected", 1)
+			selected := g.getSkillCounter(seat, "tuxi_selected")
+
+			// 如果已经选择了2名对手，结束突袭
+			if selected >= 2 {
+				return g.finishTuxi(actor, events)
+			}
+
+			// 否则，检查是否还有第二名对手可选
+			hasMore := false
+			for _, enemy := range g.enemiesOf(seat) {
+				if g.hasTakeableCard(enemy) {
+					hasMore = true
+					break
+				}
+			}
+
+			if !hasMore {
+				// 没有更多对手可选，结束突袭
+				return g.finishTuxi(actor, events)
+			}
+
+			// 继续选择第二名对手
+			return g.continueTuxi(actor, events)
+		},
+	}, events)
+}
+
+// continueTuxi 继续选择第二名对手
+func (g *Game) continueTuxi(seat int, events *[]GameEvent) error {
+	// 查找另一个有牌的对手（排除已经选择过的）
+	opp := -1
+	for _, enemy := range g.enemiesOf(seat) {
+		if g.hasTakeableCard(enemy) {
+			opp = enemy
+			break
+		}
+	}
+
+	if opp < 0 {
+		return g.finishTuxi(seat, events)
+	}
+
+	msg := fmt.Sprintf("%s 可继续发动【突袭】（2/2），请选择获得 %s 的牌，或点击跳过",
+		g.Players[seat].Name, g.Players[opp].Name)
+
+	actor := seat
+	return g.OpenTakeWindow(TakeWindowConfig{
+		SkillID:          skill.IDTuxi,
+		ResponseMode:     ResponseModeSkillTuxi,
+		ActorSeat:        seat,
+		SubjectSeat:      opp,
+		OriginSeat:       seat,
+		MaxTake:          1,
+		Destination:      TakeDestination{Zone: ZoneHand, Seat: seat},
+		Message:          msg,
+		EventType:        "tuxi_take",
+		SkillEventLabel:  "突袭",
+		PassClosesWindow: true, // 第二次可以选择跳过
+		OnComplete: func(g *Game, events *[]GameEvent) error {
+			g.addSkillCounter(seat, "tuxi_selected", 1)
 			return g.finishTuxi(actor, events)
 		},
 	}, events)
@@ -99,18 +196,16 @@ func (g *Game) PassTuxi(seat int, events *[]GameEvent) error {
 }
 
 func (g *Game) finishTuxi(seat int, events *[]GameEvent) error {
-	skipped := g.getSkillCounter(seat, counterTuxiDrawSkip)
-	if skipped <= 0 && g.Pending != nil {
-		skipped = g.Pending.TuxiRemaining
-	}
-	g.setSkillCounter(seat, counterTuxiDrawSkip, 0)
+	// 清理突袭状态
+	g.setSkillCounter(seat, "tuxi_selected", 0)
+	g.setSkillCounter(seat, "tuxi_max", 0)
+
 	g.Pending = nil
 	g.Phase = PhasePlaying
-	g.TurnStep = StepDraw
-	drawLeft := g.drawCountFor(seat) - skipped
-	if drawLeft > 0 {
-		g.drawCards(seat, drawLeft, events)
-	}
+	g.TurnStep = StepPlay
+
+	// 突袭放弃摸牌，所以不需要再摸牌
+	// 直接进入出牌阶段
 	return g.advanceTurnAfterDraw(seat, events)
 }
 

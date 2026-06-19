@@ -44,6 +44,7 @@ export interface YzsAnimationsDeps {
   selectedDiscardIds: Ref<string[]>
   syncWeaponSkillTargeting: (next: YuzhoushaState) => void
   syncWushengFromState: () => void
+  syncQixiFromState: () => void
   clearTargeting: () => void
 }
 
@@ -71,6 +72,7 @@ export function useYzsAnimations(deps: YzsAnimationsDeps) {
     selectedDiscardIds,
     syncWeaponSkillTargeting,
     syncWushengFromState,
+    syncQixiFromState,
     clearTargeting,
   } = deps
 
@@ -112,6 +114,7 @@ export function useYzsAnimations(deps: YzsAnimationsDeps) {
   centerMessage.value = next.message
   syncWeaponSkillTargeting(next)
   syncWushengFromState()
+  syncQixiFromState()
 }
 
 function appendDrawnCards(cards: YzsCard[]) {
@@ -283,6 +286,11 @@ async function applyState(next: YuzhoushaState) {
 
   const skipReplay =
     next.pending?.response_mode === 'peek_deck' || next.turn_step === 'prepare'
+
+  // 先把最终 state 设上（events 暂时保留用于 replay），
+  // 确保 TakeWindow / 选牌框等能立刻看到正确的 hand_count 等数据，
+  // 不会因为事件 replay 期间的中间态显示错误。
+  state.value = { ...next }
 
   if (events.length === 0 || skipReplay) {
     state.value = { ...next, events: [] }

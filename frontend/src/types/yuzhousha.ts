@@ -24,6 +24,7 @@ export interface YzsCharacter {
   name: string
   max_hp: number
   kingdom?: string
+  gender?: 'male' | 'female'
   skill_ids?: string[]
   skills?: YzsSkillMeta[]
   accent_color?: string
@@ -60,11 +61,15 @@ export interface YzsPackMeta {
 
 export interface YzsCard {
   id: string
-  kind: 'sha' | 'shan' | 'tao' | string
+  kind: 'sha' | 'sha_fire' | 'sha_thunder' | 'shan' | 'tao' | string
   suit?: string
   rank?: number
   label?: string
   name: string
+  /** single | aoe — 锦囊作用域，非锦囊牌为空 */
+  trick_scope?: 'single' | 'aoe'
+  /** normal | fire | thunder — 伤害类型，仅杀牌有 */
+  damage_type?: 'normal' | 'fire' | 'thunder'
 }
 
 export interface YzsPlayer {
@@ -138,6 +143,7 @@ export interface YzsPendingCombat {
   pojun_max?: number
   pojun_placed?: number
   pojun_remaining?: number
+  extra?: Record<string, number>
 }
 
 export interface YzsEvent {
@@ -182,6 +188,28 @@ export interface YuzhoushaState {
   turn_deadline_unix: number
   events?: YzsEvent[]
   activatable_skills?: YzsSkillMeta[]
+  game_over_stats?: YzsGameOverStats
+}
+
+/** 玩家对局统计（游戏结束时） */
+export interface YzsPlayerGameStats {
+  seat: number
+  name: string
+  character_id: string
+  is_winner: boolean
+  damage_dealt?: number
+  damage_taken?: number
+  heal_done?: number
+  kill_count?: number
+  survival_rank?: number
+}
+
+/** 游戏结束统计 */
+export interface YzsGameOverStats {
+  winner_index: number
+  winner_team?: number
+  reason?: string
+  player_stats?: YzsPlayerGameStats[]
 }
 
 export interface YzsModeMeta {
@@ -223,6 +251,9 @@ export const YZS_CARD_LABELS: Record<string, string> = {
   weapon_4: '方天画戟',
   weapon_5: '麒麟弓',
   weapon_6: '古锭刀',
+  weapon_7: '朱雀羽扇',
+  weapon_8: '雌雄双股剑',
+  weapon_9: '贯石斧',
   armor: '八卦阵',
   armor_vine: '藤甲',
   huogong: '火攻',

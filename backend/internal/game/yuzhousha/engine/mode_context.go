@@ -86,6 +86,9 @@ func (g *Game) finishTeamGame(winnerTeam int, events *[]GameEvent) {
 		PlayerIndex: winnerSeat,
 		Message:     g.Message,
 	})
+
+	// 初始化游戏结束统计
+	g.buildGameOverStats(winnerSeat, winnerTeam, "damage")
 }
 
 func (g *Game) checkTeamElimination(events *[]GameEvent) bool {

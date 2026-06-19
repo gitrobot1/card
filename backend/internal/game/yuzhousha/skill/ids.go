@@ -61,6 +61,11 @@ const (
 	IDJuejing     = "juejing"
 	IDLonghun     = "longhun"
 	IDPojun       = "pojun"
+	IDQingnang    = "qingnang"
+	IDTushe       = "tushe"
+	IDLimu         = "limu"
+	IDQuhu         = "quhu"
+	IDJieming      = "jieming"
 
 	CharLiuBei     = "liu_bei"
 	CharGuanYu     = "guan_yu"
@@ -97,4 +102,6 @@ const (
 	CharSpZhaoYun       = "sp_zhao_yun"
 	CharShenZhaoYun     = "shen_zhao_yun"
 	CharJieXuSheng      = "jie_xu_sheng"
+	CharLiuYan           = "liu_yan"
+	CharXunYu           = "xun_yu"
 )

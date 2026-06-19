@@ -9,7 +9,7 @@ const { opponentSeat } = useYzsGameInject()
 <template>
   <div class="yzs__arena">
     <div class="yzs__opponent-row">
-      <YzsSeatPanel :seat="opponentSeat" placement="top" />
+      <YzsSeatPanel :seat="opponentSeat" placement="bottom" />
     </div>
     <YzsArenaCenter />
   </div>

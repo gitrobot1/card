@@ -46,7 +46,7 @@ func TestCatalogPassiveDeclHooks(t *testing.T) {
 		{skill.IDWeimu, func(h skill.Handler) bool { return h.Decl.BlocksTrickTarget != nil }},
 		{skill.IDWansha, func(h skill.Handler) bool { return h.Decl.BlocksPeachUse != nil }},
 		{skill.IDJueqing, func(h skill.Handler) bool { return h.Decl.DamageAsHPLoss != nil }},
-		{skill.IDShangshi, func(h skill.Handler) bool { return h.Decl.OnCardsDiscarded != nil }},
+		{skill.IDShangshi, func(h skill.Handler) bool { return h.Decl.OnHPChanged != nil || h.Decl.OnCardsDiscarded != nil || h.Decl.OnTurnEnd != nil }},
 		{skill.IDHongyan, func(h skill.Handler) bool { return h.Decl.EffectiveSuit != nil }},
 		{skill.IDXiaoji, func(h skill.Handler) bool { return h.Decl.OnEquipLost != nil }},
 	}

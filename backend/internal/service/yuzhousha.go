@@ -228,6 +228,12 @@ func (s *YuzhoushaService) DiscardCards(gameID string, userID uint64, cardIDs []
 	})
 }
 
+func (s *YuzhoushaService) RespondDiscardCards(gameID string, userID uint64, cardIDs []string) (engine.PublicState, error) {
+	return s.act(gameID, userID, func(g *engine.Game, seat int, ev *[]engine.GameEvent) error {
+		return g.RespondDiscardCards(seat, cardIDs, ev)
+	})
+}
+
 func (s *YuzhoushaService) PassPrepare(gameID string, userID uint64) (engine.PublicState, error) {
 	return s.act(gameID, userID, func(g *engine.Game, seat int, ev *[]engine.GameEvent) error {
 		return g.PassPrepare(seat, ev)
@@ -299,8 +305,10 @@ func (s *YuzhoushaService) finalize(g *engine.Game, seat int, events []engine.Ga
 	if events == nil {
 		events = []engine.GameEvent{}
 	}
+	engine.LogGameState(g, "finalize BEFORE AI")
 	if g.HasAI() {
 		engine.RunAIActions(g, &events)
 	}
+	engine.LogGameState(g, "finalize AFTER AI")
 	return g.PublicViewForSeat(seat, events)
 }

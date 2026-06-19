@@ -7,13 +7,18 @@ func TestListHeroesPagination(t *testing.T) {
 	if len(page1.Heroes) != 10 {
 		t.Fatalf("page1 len=%d want 10", len(page1.Heroes))
 	}
-	if page1.Total != 34 || page1.TotalPages != 4 {
-		t.Fatalf("total=%d pages=%d want 34/4", page1.Total, page1.TotalPages)
+	expectedPages := (page1.Total + 9) / 10 // 向上取整
+	if page1.TotalPages != expectedPages {
+		t.Fatalf("total=%d pages=%d want %d", page1.Total, page1.TotalPages, expectedPages)
 	}
-
-	page4 := ListHeroes(HeroesQuery{Page: 4, PageSize: 10})
-	if len(page4.Heroes) != 4 {
-		t.Fatalf("page4 len=%d want 4", len(page4.Heroes))
+	
+	pageLast := ListHeroes(HeroesQuery{Page: page1.TotalPages, PageSize: 10})
+	expectedLastLen := page1.Total % 10
+	if expectedLastLen == 0 {
+		expectedLastLen = 10
+	}
+	if len(pageLast.Heroes) != expectedLastLen {
+		t.Fatalf("last page len=%d want %d", len(pageLast.Heroes), expectedLastLen)
 	}
 }
 

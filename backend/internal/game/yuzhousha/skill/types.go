@@ -27,6 +27,7 @@ type CharacterDef struct {
 	Name        string   `json:"name"`
 	MaxHP       int      `json:"max_hp"`
 	Kingdom     string   `json:"kingdom"`
+	Gender      string   `json:"gender,omitempty"` // male | female
 	SkillIDs    []string `json:"skill_ids"`
 	Pack        string   `json:"pack,omitempty"`
 	AccentColor string   `json:"accent_color,omitempty"`
@@ -79,6 +80,7 @@ type Runtime interface {
 	PendingOriginSeat() int
 	CardPlaysAs(seat int, cardKind, asKind, suit string) bool
 	HandPlaysAs(seat int, asKind string) bool
+	HasBlackCard(seat int) bool
 	AlivePlayerCount() int
 	DrawPileCount() int
 	DrawCards(seat, count int) error
@@ -88,6 +90,7 @@ type Runtime interface {
 	StartJijiangForUse(lord, target int) error
 	StartJijiangForResponse(lord int) error
 	ToggleWusheng(seat int) error
+	ToggleQixi(seat int) error
 	StartPeekDeck(seat int, skillID string) error
 	ApplyTieqi(seat int) error
 	SkipTieqi(seat int) error
@@ -122,7 +125,7 @@ type Runtime interface {
 	GanglieDiscard(seat int, cardIDs []string) error
 	ActivateLuoyi(seat int) error
 	PendingDrawPhaseChoiceFor(seat int) bool
-	StartTuxi(seat, skipCount int) error
+	StartTuxi(seat int) error
 	TuxiTakeFrom(seat int, zone, cardID string) error
 	PassTuxi(seat int) error
 	PendingTuxiTakeFor(seat int) bool
@@ -136,13 +139,9 @@ type Runtime interface {
 	ResolveFanjianSuit(seat int, suit string) error
 	ApplyTianxiang(seat int, cardID string) error
 	PassTianxiang(seat int) error
-	HasBlackHandCard(seat int) bool
-	OpponentHasHandCard(seat int) bool
-	ActivateQixi(seat int, cardID string) error
-	QixiTakeFrom(seat int, cardID string) error
 	ActivateYinghun(seat, target int) error
 	ResolveYinghunChoice(seat int, option string) error
-	YinghunDiscard(seat int, cardID string) error
+	YinghunDiscard(seat int, cardIDs []string) error
 	ActivateGuose(seat, target int, cardID string) error
 	HasDiamondHandCard(seat int) bool
 	ApplyLiuli(seat int, cardID string, redirect int) error
@@ -164,6 +163,10 @@ type Runtime interface {
 	StartLeijiJudge(seat int) error
 	PassLeijiOffer(seat int) error
 	IsSeatInDyingRescue(seat int) bool
+	// 龙魂技能相关方法
+	PlayerHandCards(seat int) []CardView
+	UseLonghunCards(seat int, cardIDs []string, asKind string, useTwoCards, isRed, isBlack bool) error
+	ResponseLonghunCards(seat int, cardIDs []string, asKind string, useTwoCards, isRed, isBlack bool) error
 }
 
 // Decl 声明式技能：按需填字段，未填则使用默认零行为。
@@ -182,7 +185,11 @@ type Decl struct {
 	DistanceDelta      func(r Runtime, from, to int) int
 	TrickIgnoresDistance func(r Runtime, seat int, trickKind string) bool
 	OnInstantTrickUsed func(r Runtime, seat int, trickKind string) error
+	OnDamageCalculated func(r Runtime, ctx DamageCalculatedCtx) (int, error) // 伤害值计算完后（可修改）
 	OnDamageDealt      func(r Runtime, ctx DamageCtx) error
+	OnBeforeHPChange   func(r Runtime, ctx BeforeHPChangeCtx) (bool, error) // 扣血前（返回 true 可防止）
+	OnHPLost           func(r Runtime, ctx HPLostCtx) error  // 血量流失后（非伤害）
+	OnHPChanged        func(r Runtime, ctx HPChangedCtx) error // 血量变化后（伤害/流失/回复）
 	OnJudgeResult      func(r Runtime, ctx JudgeCtx) error
 	OnCardsDiscarded   func(r Runtime, ctx CardsDiscardedCtx) error
 	OnEquipLost        func(r Runtime, ctx EquipLostCtx) error
@@ -193,9 +200,13 @@ type Decl struct {
 	BlocksTrickTarget  func(r Runtime, target int, trickKind, suit string) bool
 	BlocksPeachUse     func(r Runtime, userSeat int) bool
 	DamageAsHPLoss     func(r Runtime, source int) bool
+	OnLongdanActivate  func(r Runtime, seat int, target int) error // 龙胆发动时触发
 	ExtraResponsesNeeded func(r Runtime, source int, cardKind string) int
 	SkipsDiscardPhase  func(r Runtime, seat int) bool
 	OnCardResolved     func(r Runtime, ctx CardResolvedCtx) error
+	OnBecomeTarget     func(r Runtime, ctx BecomeTargetCtx) error // 成为某张牌的目标时
+	OnDeath            func(r Runtime, ctx DeathCtx) error // 阵亡时（亡语，牌还在）
+	OnAfterDeath       func(r Runtime, ctx DeathCtx) error // 阵亡后（牌已弃）
 	HandRetainLimit    func(r Runtime, seat int) int // 0=默认按体力；更大值提高留牌上限
 	AIPriority         func(r Runtime, seat int) int
 	AIActivate   func(r Runtime, seat int) error
@@ -278,6 +289,34 @@ func (h Handler) OnDamageDealt(r Runtime, ctx DamageCtx) error {
 		return nil
 	}
 	return h.Decl.OnDamageDealt(r, ctx)
+}
+
+func (h Handler) OnDamageCalculated(r Runtime, ctx DamageCalculatedCtx) (int, error) {
+	if h.Decl.OnDamageCalculated == nil {
+		return ctx.Amount, nil
+	}
+	return h.Decl.OnDamageCalculated(r, ctx)
+}
+
+func (h Handler) OnBeforeHPChange(r Runtime, ctx BeforeHPChangeCtx) (bool, error) {
+	if h.Decl.OnBeforeHPChange == nil {
+		return false, nil
+	}
+	return h.Decl.OnBeforeHPChange(r, ctx)
+}
+
+func (h Handler) OnHPLost(r Runtime, ctx HPLostCtx) error {
+	if h.Decl.OnHPLost == nil {
+		return nil
+	}
+	return h.Decl.OnHPLost(r, ctx)
+}
+
+func (h Handler) OnHPChanged(r Runtime, ctx HPChangedCtx) error {
+	if h.Decl.OnHPChanged == nil {
+		return nil
+	}
+	return h.Decl.OnHPChanged(r, ctx)
 }
 
 func (h Handler) OnJudgeResult(r Runtime, ctx JudgeCtx) error {
@@ -372,6 +411,27 @@ func (h Handler) OnCardResolved(r Runtime, ctx CardResolvedCtx) error {
 		return nil
 	}
 	return h.Decl.OnCardResolved(r, ctx)
+}
+
+func (h Handler) OnBecomeTarget(r Runtime, ctx BecomeTargetCtx) error {
+	if h.Decl.OnBecomeTarget == nil {
+		return nil
+	}
+	return h.Decl.OnBecomeTarget(r, ctx)
+}
+
+func (h Handler) OnDeath(r Runtime, ctx DeathCtx) error {
+	if h.Decl.OnDeath == nil {
+		return nil
+	}
+	return h.Decl.OnDeath(r, ctx)
+}
+
+func (h Handler) OnAfterDeath(r Runtime, ctx DeathCtx) error {
+	if h.Decl.OnAfterDeath == nil {
+		return nil
+	}
+	return h.Decl.OnAfterDeath(r, ctx)
 }
 
 func (h Handler) HandRetainLimit(r Runtime, seat int) int {

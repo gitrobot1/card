@@ -1,14 +1,22 @@
 package engine
 
-import "github.com/time/card/backend/internal/game/yuzhousha/skill"
+import (
+	"time"
+
+	"github.com/time/card/backend/internal/game/yuzhousha/skill"
+)
 
 const maxAIActionsPerBurst = 500
+
+// AIDelay AI每次行动之间的延迟，让前端有时间渲染动画
+const AIDelay = 2 * time.Second
 
 func RunAIActions(g *Game, events *[]GameEvent) {
 	for i := 0; !g.IsFinished() && RunAIActionStep(g, events); i++ {
 		if i >= maxAIActionsPerBurst {
 			break
 		}
+		time.Sleep(AIDelay)
 	}
 }
 
@@ -17,6 +25,7 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 	if g.IsFinished() {
 		return false
 	}
+	LogGameState(g, "RunAIActionStep ENTER")
 	acted := false
 
 	if g.Phase == PhaseResponse && g.Pending != nil {
@@ -181,7 +190,8 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			if len(ids) == 0 {
 				return false
 			}
-			_ = g.YinghunDiscard(seat, ids[len(ids)-1].ID, events)
+			// AI 逐张弃牌，每次弃最后一张
+			_ = g.YinghunDiscard(seat, []string{ids[len(ids)-1].ID}, events)
 			return true
 		}
 		if pending.ResponseMode == ResponseModeSkillLiuli {
@@ -193,6 +203,40 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 				return true
 			}
 			_ = g.PassLiuli(seat, events)
+			return true
+		}
+		if pending.ResponseMode == ResponseModeWeapon9 {
+			seat := pending.SourceIndex
+			if !g.Players[seat].IsAI {
+				return false
+			}
+			target := pending.EffectTarget
+			hand := g.Players[seat].Hand
+			if len(hand) < 2 {
+				_ = g.passGuanshifu(seat, events)
+				return true
+			}
+			shouldDiscard := g.Players[target].HP <= 2 || g.Players[target].HP >= g.Players[target].MaxHP
+			if shouldDiscard {
+				cardIDs := []string{hand[0].ID, hand[1].ID}
+				_ = g.RespondDiscardCards(seat, cardIDs, events)
+			} else {
+				_ = g.passGuanshifu(seat, events)
+			}
+			return true
+		}
+		if pending.ResponseMode == ResponseModeWeapon8 {
+			seat := pending.TargetIndex
+			if !g.Players[seat].IsAI {
+				return false
+			}
+			// AI 目标：若有手牌，优先弃一张牌（避免让对方摸牌）
+			hand := g.Players[seat].Hand
+			if len(hand) > 0 {
+				_ = g.RespondCard(seat, hand[0].ID, events)
+			} else {
+				_ = g.PassResponse(seat, events)
+			}
 			return true
 		}
 		if pending.ResponseMode == ResponseModeDying {
@@ -210,7 +254,24 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			_ = g.PassResponse(seat, events)
 			return true
 		}
-		seat := g.Pending.TargetIndex
+		// AOE/桃园阶段：所有AI考虑出无懈可击介入（不区分目标是否为AI）
+		if pending.AllowWuxiek && pending.ResponseMode == "" && pending.TargetIndex >= 0 {
+			for s := range g.Players {
+				if s == pending.TargetIndex || !g.Players[s].IsAI || g.Players[s].HP <= 0 {
+					continue
+				}
+				if idx := firstCardKind(g.Players[s].Hand, CardWuxiek); idx >= 0 {
+					Logf("AI aoe/taoyuan: seat=%d plays wuxiek", s)
+					_ = g.RespondWuxiek(s, g.Players[s].Hand[idx].ID, events)
+					return true
+				}
+			}
+		}
+		// 用 ActorSeat 获取当前响应者（支持反无懈窗口 TargetIndex=-1 的情况）
+		seat := g.PendingActorSeat()
+		if seat < 0 || seat >= len(g.Players) {
+			return false
+		}
 		if !g.Players[seat].IsAI {
 			return false
 		}
@@ -240,14 +301,7 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 		}
 		if pending.ResponseMode == ResponseModeWuxiekTrick || pending.ResponseMode == ResponseModeWuxiekLebu ||
 			pending.ResponseMode == ResponseModeWuxiekBingliang || pending.ResponseMode == ResponseModeWuxiekShandian {
-			if shouldAIWuxiekTrick(g, seat, pending) {
-				if idx := firstCardKind(g.Players[seat].Hand, CardWuxiek); idx >= 0 {
-					if err := g.RespondWuxiek(seat, g.Players[seat].Hand[idx].ID, events); err == nil {
-						return true
-					}
-				}
-			}
-			_ = g.PassResponse(seat, events)
+			// AI 自动决定（在 advanceToNextWuxiekResponder 中已处理）
 			return true
 		}
 		if pending.ResponseMode == ResponseModeDdzJudgeCancel {
@@ -270,17 +324,18 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			return true
 		}
 		if pending.ResponseMode == ResponseModeWuguPick {
+			// 选牌者是AI，自动选牌（无懈可击已在前面处理）
 			picker := pending.WuguPickSeat
-			if !g.Players[picker].IsAI {
-				return false
-			}
-			if len(pending.RevealedCards) > 0 {
-				if err := g.autoPickWuguCard(picker, events); err == nil {
-					return true
+			if g.Players[picker].IsAI {
+				if len(pending.RevealedCards) > 0 {
+					if err := g.autoPickWuguCard(picker, events); err == nil {
+						return true
+					}
 				}
+				_ = g.autoPickWuguCard(picker, events)
+				return true
 			}
-			_ = g.autoPickWuguCard(picker, events)
-			return true
+			return false
 		}
 		if pending.ResponseMode == ResponseModeSkillJijiang {
 			ally := pending.TargetIndex
@@ -336,6 +391,7 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 				g.Pending.BaguaUsed = true
 			}
 		}
+		// 尝试从手牌中找到可变牌的牌
 		if idx := firstShaLikeCard(g, seat); idx >= 0 && required == CardSha {
 			cardID := g.Players[seat].Hand[idx].ID
 			_ = g.RespondCard(seat, cardID, events)
@@ -344,9 +400,16 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			cardID := g.Players[seat].Hand[idx].ID
 			_ = g.RespondCard(seat, cardID, events)
 			acted = true
-		} else if pending.AllowWuxiek && firstCardKind(g.Players[seat].Hand, CardWuxiek) >= 0 {
-			idx := firstCardKind(g.Players[seat].Hand, CardWuxiek)
-			_ = g.RespondWuxiek(seat, g.Players[seat].Hand[idx].ID, events)
+		} else if _, equipCard, ok := findPlayableEquipCard(g, seat, required); ok {
+			// 尝试从装备区变牌（武圣红色装备当杀、倾国黑色装备当闪等）
+			_ = g.PlayCardWithTarget(seat, equipCard.ID, PlayTarget{SeatIndex: pending.SourceIndex}, events)
+			acted = true
+		} else if pending.AllowWuxiek && (firstCardKind(g.Players[seat].Hand, CardWuxiek) >= 0 || g.cardPlaysAs(seat, firstEquipCardFor(g, seat, CardWuxiek), CardWuxiek)) {
+			if idx := firstCardKind(g.Players[seat].Hand, CardWuxiek); idx >= 0 {
+				_ = g.RespondWuxiek(seat, g.Players[seat].Hand[idx].ID, events)
+			} else {
+				_ = g.RespondWuxiek(seat, firstEquipCardFor(g, seat, CardWuxiek).ID, events)
+			}
 			acted = true
 		} else {
 			_ = g.PassResponse(seat, events)
@@ -418,7 +481,7 @@ func runAIPlayPhase(g *Game, seat int, events *[]GameEvent) bool {
 		return true
 	}
 
-	for _, kind := range []string{CardWeapon6, CardWeapon5, CardWeapon4, CardWeapon3, CardWeapon2, CardWeapon1, CardArmorVine, CardArmor, CardPlusHorse, CardMinusHorse} {
+	for _, kind := range []string{CardWeapon9, CardWeapon8, CardWeapon7, CardWeapon6, CardWeapon5, CardWeapon4, CardWeapon3, CardWeapon2, CardWeapon1, CardArmorVine, CardArmor, CardPlusHorse, CardMinusHorse} {
 		idx := firstCardKind(p.Hand, kind)
 		if idx < 0 || !shouldAIEquip(p, kind) {
 			continue
@@ -521,21 +584,41 @@ func firstCardKind(hand []Card, kind string) int {
 }
 
 func firstShaLikeCard(g *Game, seat int) int {
-	for i, c := range g.Players[seat].Hand {
-		if g.cardPlaysAs(seat, c, CardSha) {
-			return i
-		}
-	}
-	return -1
+	return firstPlaysAsCard(g, seat, CardSha)
 }
 
 func firstPlaysAsCard(g *Game, seat int, asKind string) int {
+	// 先查手牌
 	for i, c := range g.Players[seat].Hand {
 		if g.cardPlaysAs(seat, c, asKind) {
 			return i
 		}
 	}
 	return -1
+}
+
+// firstShaLikeCardWithEquip 查找可变牌的牌（手牌或装备区），返回 (zone, idx, card) 或 ("", -1, Card{})
+func findPlayableEquipCard(g *Game, seat int, asKind string) (zone string, card Card, ok bool) {
+	p := &g.Players[seat]
+	if p.Weapon != nil && g.cardPlaysAs(seat, *p.Weapon, asKind) {
+		return EquipWeapon, *p.Weapon, true
+	}
+	if p.Armor != nil && g.cardPlaysAs(seat, *p.Armor, asKind) {
+		return EquipArmor, *p.Armor, true
+	}
+	if p.PlusHorse != nil && g.cardPlaysAs(seat, *p.PlusHorse, asKind) {
+		return EquipPlusHorse, *p.PlusHorse, true
+	}
+	if p.MinusHorse != nil && g.cardPlaysAs(seat, *p.MinusHorse, asKind) {
+		return EquipMinusHorse, *p.MinusHorse, true
+	}
+	return "", Card{}, false
+}
+
+// firstEquipCardFor 从装备区找第一张可当 asKind 使用的牌
+func firstEquipCardFor(g *Game, seat int, asKind string) Card {
+	_, card, _ := findPlayableEquipCard(g, seat, asKind)
+	return card
 }
 
 func shouldAIWuxiekTrick(g *Game, seat int, pending *PendingCombat) bool {

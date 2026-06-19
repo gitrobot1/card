@@ -15,7 +15,10 @@ export interface BeamPreviewLine extends BeamPoint {
 
 function seatAnchor(seat: number, root?: ParentNode | null) {
   const scope = root ?? document
-  return scope.querySelector<HTMLElement>(`.ddz__seat-anchor[data-seat="${seat}"]`)
+  // 先尝试旧选择器，再尝试新卡片选择器
+  return scope.querySelector<HTMLElement>(`.ddz__seat-anchor[data-seat="${seat}"]`) ??
+    scope.querySelector<HTMLElement>(`.yzs__hero-card[data-seat="${seat}"]`) ??
+    null
 }
 
 /** 射线与矩形边界的最近交点（从外侧射入），略向内缩避免压进头像 */

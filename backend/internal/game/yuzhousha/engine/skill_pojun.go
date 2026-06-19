@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	ResponseModeSkillPojun        = "skill_pojun"
-	ResponseModeSkillPojunDiscard = "skill_pojun_discard"
-	counterPojunEndDiscard        = "pojun_end_discard"
+	ResponseModeSkillPojun = "skill_pojun"
 )
 
+// initPojunOnShaPending 用杀指定目标后，初始化破军：
+// 1. 设置 PojunMax（目标体力值），用于后续拿牌
+// 2. 若目标手牌数≤源且装备数≤源，伤害+1
 func (g *Game) initPojunOnShaPending(source, target int, pending *PendingCombat) {
 	if !g.hasSkill(source, SkillPojun) || pending == nil {
 		return
@@ -20,6 +21,35 @@ func (g *Game) initPojunOnShaPending(source, target int, pending *PendingCombat)
 	if pending.PojunMax < 0 {
 		pending.PojunMax = 0
 	}
+	// 效果2：对手牌数≤源 且 装备数≤源 的角色，伤害+1
+	src := &g.Players[source]
+	tgt := &g.Players[target]
+	srcEquipCount := countEquip(src)
+	if tgt.HandCount <= src.HandCount && countEquip(tgt) <= srcEquipCount {
+		if pending.Damage <= 0 {
+			pending.Damage = 2
+		} else {
+			pending.Damage++
+		}
+	}
+}
+
+// countEquip 统计玩家的装备数
+func countEquip(p *Player) int {
+	n := 0
+	if p.Weapon != nil {
+		n++
+	}
+	if p.Armor != nil {
+		n++
+	}
+	if p.PlusHorse != nil {
+		n++
+	}
+	if p.MinusHorse != nil {
+		n++
+	}
+	return n
 }
 
 func (g *Game) advanceShaBeforeTargetResponse(events *[]GameEvent) error {
@@ -33,8 +63,16 @@ func (g *Game) advanceShaBeforeTargetResponse(events *[]GameEvent) error {
 	if p.ResponseMode == ResponseModeSkillPojun {
 		return nil
 	}
-	if p.PojunPlaced < p.PojunMax && g.hasSkill(p.SourceIndex, SkillPojun) && g.hasTakeableCard(p.TargetIndex) {
+	if p.PojunPlaced < p.PojunMax && g.hasSkill(p.SourceIndex, SkillPojun) {
+		if !g.hasTakeableCard(p.TargetIndex) {
+			// 目标没有可拿的牌，跳过拿牌直接继续
+			return g.finishPojunPlacement(events)
+		}
 		return g.enterPojunPlacing(events)
+	}
+	// 雌雄双股剑：出杀指定目标后，若目标为异性则触发
+	if g.tryOfferChixiongOnSha(events) {
+		return nil
 	}
 	p.ResponseMode = ""
 	p.SkillID = ""
@@ -114,14 +152,8 @@ func (g *Game) finishPojunPlacement(events *[]GameEvent) error {
 	}
 	victim := p.TargetIndex
 	if p.PojunPlaced > 0 {
-		need := 1
-		if g.isSoleShaTarget(p.SourceIndex, victim) {
-			need = p.PojunMax
-			if need < 1 {
-				need = 1
-			}
-		}
-		g.setSkillCounter(victim, counterPojunEndDiscard, need)
+		// 新版破军：回合结束后，该角色获得「营」中的牌
+		g.setSkillCounter(victim, "pojun_gain_pending", 1)
 	}
 	p.ResponseMode = ""
 	p.SkillID = ""
@@ -131,97 +163,32 @@ func (g *Game) finishPojunPlacement(events *[]GameEvent) error {
 	return nil
 }
 
-func (g *Game) isSoleShaTarget(source, target int) bool {
-	_ = source
-	_ = target
-	return true
-}
-
-func (g *Game) discardCampCards(seat int, count int, events *[]GameEvent) {
-	if count <= 0 || seat < 0 || seat >= len(g.Players) {
+// giveCampCardsToPlayer 将目标的「营」中牌移回其手牌（新版破军效果）
+func (g *Game) giveCampCardsToPlayer(seat int, events *[]GameEvent) {
+	p := &g.Players[seat]
+	if len(p.CampCards) == 0 {
 		return
 	}
-	p := &g.Players[seat]
-	for count > 0 && len(p.CampCards) > 0 {
-		card := p.CampCards[0]
-		p.CampCards = p.CampCards[1:]
-		g.DiscardPile = append(g.DiscardPile, card)
+	for _, card := range p.CampCards {
+		p.Hand = append(p.Hand, card)
 		*events = append(*events, GameEvent{
-			Type:        "pojun_discard",
+			Type:        "pojun_gain",
 			PlayerIndex: seat,
 			Card:        &card,
-			Message:     fmt.Sprintf("%s 弃置「营」中 %s", p.Name, card.Label),
+			Message:     fmt.Sprintf("%s 获得「营」中的 %s", p.Name, card.Label),
 		})
-		count--
 	}
+	p.CampCards = nil
 	g.syncCounts()
 }
 
-func (g *Game) startPojunCampDiscardIfNeeded(seat int, events *[]GameEvent) bool {
-	need := g.getSkillCounter(seat, counterPojunEndDiscard)
-	if need <= 0 || len(g.Players[seat].CampCards) == 0 {
-		g.setSkillCounter(seat, counterPojunEndDiscard, 0)
-		return false
+// startPojunGainIfNeeded 回合结束时，若目标有「营」中牌，获得这些牌
+func (g *Game) startPojunGainIfNeeded(seat int, events *[]GameEvent) {
+	if g.getSkillCounter(seat, "pojun_gain_pending") <= 0 {
+		return
 	}
-	discardN := need
-	if discardN > len(g.Players[seat].CampCards) {
-		discardN = len(g.Players[seat].CampCards)
-	}
-	if g.Players[seat].IsAI {
-		g.discardCampCards(seat, discardN, events)
-		g.setSkillCounter(seat, counterPojunEndDiscard, 0)
-		return false
-	}
-	msg := fmt.Sprintf("%s 回合结束，须弃置 %d 张「营」中牌", g.Players[seat].Name, discardN)
-	return g.OpenDiscardWindow(DiscardWindowConfig{
-		SkillID:      skill.IDPojun,
-		ResponseMode: ResponseModeSkillPojunDiscard,
-		ActorSeat:    seat,
-		SourceZone:   ZoneCamp,
-		MinDiscard:   discardN,
-		MaxDiscard:   discardN,
-		Message:      msg,
-		EventType:    "pojun_discard",
-		OnEachDiscard: func(g *Game, card Card, events *[]GameEvent) error {
-			msg := fmt.Sprintf("%s 弃置「营」中 %s", g.Players[seat].Name, card.Label)
-			*events = append(*events, GameEvent{
-				Type:        "pojun_discard",
-				PlayerIndex: seat,
-				Card:        &card,
-				Message:     msg,
-			})
-			return nil
-		},
-		OnComplete: func(g *Game, events *[]GameEvent) error {
-			g.setSkillCounter(seat, counterPojunEndDiscard, 0)
-			return g.endTurnAfterPojunDiscard(seat, events)
-		},
-	}, events) == nil
-}
-
-// PojunDiscardCamp 破军弃「营」（DiscardWindow 薄封装）。
-func (g *Game) PojunDiscardCamp(seat int, cardID string, events *[]GameEvent) error {
-	return g.DiscardOne(seat, cardID, events)
-}
-
-func (g *Game) finishPojunCampDiscardPhase(seat int, events *[]GameEvent) error {
-	g.Pending = nil
-	g.Phase = PhasePlaying
-	return g.endTurnAfterPojunDiscard(seat, events)
-}
-
-func (g *Game) endTurnAfterPojunDiscard(seat int, events *[]GameEvent) error {
-	g.runTurnEndHooks(seat, events)
-	g.Players[seat].Drunk = false
-	*events = append(*events, GameEvent{
-		Type:        "turn_end",
-		PlayerIndex: seat,
-		Message:     fmt.Sprintf("%s 结束回合", g.Players[seat].Name),
-	})
-	g.CurrentTurn = g.nextTurnSeat(seat)
-	g.beginTurn(events)
-	g.Message = fmt.Sprintf("轮到 %s", g.Players[g.CurrentTurn].Name)
-	return nil
+	g.setSkillCounter(seat, "pojun_gain_pending", 0)
+	g.giveCampCardsToPlayer(seat, events)
 }
 
 func aiPickPojunTake(g *Game, source, victim int) (zone, cardID string, ok bool) {

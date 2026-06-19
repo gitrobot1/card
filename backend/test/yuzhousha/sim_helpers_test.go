@@ -52,7 +52,7 @@ func gameFingerprint(g *engine.Game) string {
 func countCardsInPlay(g *engine.Game) int {
 	n := len(g.DrawPile) + len(g.DiscardPile)
 	for _, p := range g.Players {
-		n += len(p.Hand) + len(p.JudgeArea)
+		n += len(p.Hand) + len(p.JudgeArea) + len(p.CampCards)
 		for _, slot := range []*engine.Card{p.Weapon, p.Armor, p.PlusHorse, p.MinusHorse} {
 			if slot != nil {
 				n++
@@ -62,6 +62,12 @@ func countCardsInPlay(g *engine.Game) int {
 	if g.Pending != nil {
 		n += len(g.Pending.RevealedCards)
 		if g.Pending.JudgeCard.ID != "" {
+			n++
+		}
+		if g.Pending.Card.ID != "" {
+			n++
+		}
+		if g.Pending.FankuiResumeCard.ID != "" {
 			n++
 		}
 	}
@@ -78,9 +84,29 @@ func assertGameInvariants(t *testing.T, g *engine.Game) {
 	total := countCardsInPlay(g)
 	want := expectedDeckSizeFor(g)
 	if total != want {
-		t.Fatalf("card conservation: expected %d cards in play, got %d (phase=%s step=%s pending=%v)",
-			want, total, g.Phase, g.TurnStep, g.Pending)
+		detail := cardDistribution(g)
+		t.Fatalf("card conservation: expected %d cards in play, got %d (phase=%s step=%s pending=%v)\n  distribution: %s",
+			want, total, g.Phase, g.TurnStep, g.Pending, detail)
 	}
+}
+
+func cardDistribution(g *engine.Game) string {
+	parts := []string{}
+	parts = append(parts, fmt.Sprintf("draw=%d discard=%d", len(g.DrawPile), len(g.DiscardPile)))
+	for i, p := range g.Players {
+		equip := 0
+		for _, slot := range []*engine.Card{p.Weapon, p.Armor, p.PlusHorse, p.MinusHorse} {
+			if slot != nil {
+				equip++
+			}
+		}
+		parts = append(parts, fmt.Sprintf("P%d:hand=%d judge=%d camp=%d equip=%d", i, len(p.Hand), len(p.JudgeArea), len(p.CampCards), equip))
+	}
+	if g.Pending != nil {
+		parts = append(parts, fmt.Sprintf("pend:reveal=%d judge=%t card=%t fankui=%t",
+			len(g.Pending.RevealedCards), g.Pending.JudgeCard.ID != "", g.Pending.Card.ID != "", g.Pending.FankuiResumeCard.ID != ""))
+	}
+	return strings.Join(parts, " ")
 }
 
 func responseActor(g *engine.Game) (int, bool) {
@@ -88,6 +114,7 @@ func responseActor(g *engine.Game) (int, bool) {
 		return -1, false
 	}
 	p := g.Pending
+	// 先按 ResponseMode 推导 actor，因为 ActorSeat 可能在 FillPendingRoles 之前未被填充
 	switch p.ResponseMode {
 	case engine.ResponseModeGuanYuFollow, engine.ResponseModeQilinBow:
 		return p.TargetIndex, true
@@ -103,8 +130,28 @@ func responseActor(g *engine.Game) (int, bool) {
 		return p.WuguPickSeat, true
 	case engine.ResponseModeDying:
 		return p.SourceIndex, true
+	case engine.ResponseModeWuxiekLebu,
+		engine.ResponseModeWuxiekBingliang, engine.ResponseModeWuxiekShandian,
+		engine.ResponseModeWuxiekGuose, engine.ResponseModeWuxiekTrick:
+		// 无懈可击窗口：优先用 TargetIndex（锦囊牌初始无懈可击窗口的 TargetIndex 是具体座位）
+		// 当 TargetIndex=-1 时（反无懈可击/判定前窗口），使用 ActorSeat
+		if p.TargetIndex >= 0 {
+			return p.TargetIndex, true
+		}
+		if p.ActorSeat >= 0 && p.ActorSeat < len(g.Players) {
+			return p.ActorSeat, true
+		}
+		return -1, false
 	default:
-		return p.TargetIndex, true
+		// 普通响应窗口（杀/闪等）：直接使用 TargetIndex
+		if p.TargetIndex >= 0 {
+			return p.TargetIndex, true
+		}
+		// fallback 到 ActorSeat
+		if p.ActorSeat >= 0 && p.ActorSeat < len(g.Players) {
+			return p.ActorSeat, true
+		}
+		return -1, false
 	}
 }
 
@@ -119,7 +166,11 @@ func forceProgress(g *engine.Game, events *[]engine.GameEvent) error {
 			return g.FinishPeekDeckForSim(seat, events)
 		case engine.ResponseModeWuxiekTrick, engine.ResponseModeWuxiekLebu,
 			engine.ResponseModeWuxiekBingliang, engine.ResponseModeWuxiekShandian:
-			seat := g.Pending.TargetIndex
+			// 无懈可击窗口：用 responseActor 获取当前应响应的座位
+			seat, ok := responseActor(g)
+			if !ok {
+				return fmt.Errorf("no wuxiek actor (pending=%+v)", g.Pending)
+			}
 			return g.PassResponse(seat, events)
 		case engine.ResponseModeWuguPick:
 			return g.AutoPickWuguForSim(events)
@@ -132,9 +183,14 @@ func forceProgress(g *engine.Game, events *[]engine.GameEvent) error {
 		}
 		seat, ok := responseActor(g)
 		if !ok {
-			return fmt.Errorf("no response actor")
+			return fmt.Errorf("no response actor (pending=%+v)", g.Pending)
 		}
-		return g.PassResponse(seat, events)
+		err := g.PassResponse(seat, events)
+		if err != nil {
+			return fmt.Errorf("forceProgress PassResponse(seat=%d): %v (pending: mode=%s tgt=%d actor=%d)",
+				seat, err, g.Pending.ResponseMode, g.Pending.TargetIndex, g.Pending.ActorSeat)
+		}
+		return nil
 	}
 	if g.Phase == engine.PhaseResponse && g.Pending == nil {
 		g.Phase = engine.PhasePlaying

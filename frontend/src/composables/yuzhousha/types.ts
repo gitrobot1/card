@@ -31,8 +31,4 @@ export interface YzsTargetingDeps {
   equipTagLabel: (card: YzsCard) => string
   isKongchengProtected: (player?: YzsPlayer) => boolean
   attackRangeOf: (player?: YzsPlayer) => number
-  fankuiSourceSeat: ComputedRef<number>
-  tuxiSourceSeat: ComputedRef<number>
-  qixiSourceSeat: ComputedRef<number>
-  pojunVictimSeat: ComputedRef<number>
 }

@@ -5,7 +5,8 @@ import {
   useYuzhoushaSkill,
 } from '../../../api/games'
 import { YZS_CARD_LABELS } from '../../../types/yuzhousha'
-import { isBusy, pickFirstTarget, responseAnyMode, responseMode } from './helpers'
+import { isBusy, responseAnyMode, responseMode } from './helpers'
+import { makeTakeWindowHandler } from './templates/takeWindow'
 import type { PendingHandler } from './types'
 
 function cardLabel(kind: string | undefined) {
@@ -18,7 +19,7 @@ const peekDeckHandler: PendingHandler = {
   match: (state) =>
     state.phase === 'response' &&
     state.pending?.response_mode === 'peek_deck' &&
-    state.pending.target_index === state.human_player,
+    state.pending.actor_seat === state.human_player,
   allowsCancel: false,
   onEnter(ctx) {
     const ids = ctx.state.pending?.revealed_cards?.map((c) => c.id) ?? []
@@ -45,113 +46,58 @@ const peekDeckHandler: PendingHandler = {
   },
 }
 
-const fankuiHandler: PendingHandler = {
+const fankuiHandler = makeTakeWindowHandler({
   modes: ['skill_fankui'],
-  match: (state) => responseMode(state, 'skill_fankui'),
-  skillOnly: true,
-  onEnter(ctx) {
-    pickFirstTarget(ctx, ctx.fankuiTargetOptions.value)
-  },
-  canSubmitSkill(ctx, skillId) {
-    if (skillId !== 'fankui' || isBusy(ctx)) return false
-    if (ctx.selectedTargetZone.value) return true
-    return ctx.fankuiTargetOptions.value.some((o) => o.zone === 'hand')
-  },
-  async submitSkill(ctx) {
-    const zone = ctx.selectedTargetZone.value || 'hand'
-    await ctx.act(() =>
-      useYuzhoushaSkill(ctx.state.id, 'fankui', {
-        targetZone: zone,
-        targetCardId: ctx.selectedTargetCardId.value,
-      }),
-    )
-    ctx.selectedTargetZone.value = ''
-    ctx.selectedTargetCardId.value = ''
-  },
-  hint(ctx) {
-    return ctx.centerMessage.value || '【反馈】：选择来源的一张牌，再点「反馈」'
-  },
-}
+  skillId: 'fankui',
+  hint: (ctx) => ctx.centerMessage.value || '【反馈】：选择来源的一张牌，再点「反馈」',
+})
 
-const tuxiHandler: PendingHandler = {
+const tuxiHandler = makeTakeWindowHandler({
   modes: ['skill_tuxi'],
-  match: (state) => responseMode(state, 'skill_tuxi'),
-  skillOnly: true,
-  onEnter(ctx) {
-    pickFirstTarget(ctx, ctx.tuxiTargetOptions.value)
-  },
-  canSubmitSkill(ctx, skillId) {
-    if (skillId !== 'tuxi' || isBusy(ctx)) return false
-    if (ctx.selectedTargetZone.value) return true
-    return ctx.tuxiTargetOptions.value.some((o) => o.zone === 'hand')
-  },
-  async submitSkill(ctx, skillId) {
-    if (skillId !== 'tuxi') return
-    const zone = ctx.selectedTargetZone.value || 'hand'
-    await ctx.act(() =>
-      useYuzhoushaSkill(ctx.state.id, 'tuxi', {
-        targetZone: zone,
-        targetCardId: ctx.selectedTargetCardId.value,
-      }),
-    )
-    ctx.selectedTargetZone.value = ''
-    ctx.selectedTargetCardId.value = ''
-  },
-  hint(ctx) {
-    return ctx.centerMessage.value || '【突袭】：选择获得对手的一张牌，再点「突袭」'
-  },
-}
+  skillId: 'tuxi',
+  hint: (ctx) => ctx.centerMessage.value || '【突袭】：选择获得对手的一张牌，再点「突袭」',
+})
 
-const qixiHandler: PendingHandler = {
+const qixiHandler = makeTakeWindowHandler({
   modes: ['skill_qixi'],
-  match: (state) => responseMode(state, 'skill_qixi'),
-  skillOnly: true,
-  onEnter(ctx) {
-    pickFirstTarget(ctx, ctx.qixiTargetOptions.value)
-  },
-  canSubmitSkill(ctx, skillId) {
-    if (skillId !== 'qixi' || isBusy(ctx)) return false
-    return ctx.qixiTargetOptions.value.length > 0
-  },
-  async submitSkill(ctx, skillId) {
-    if (skillId !== 'qixi') return
-    await ctx.act(() =>
-      useYuzhoushaSkill(ctx.state.id, 'qixi', {
-        targetZone: 'hand',
-        targetCardId: ctx.selectedTargetCardId.value,
-      }),
-    )
-    ctx.selectedTargetZone.value = ''
-    ctx.selectedTargetCardId.value = ''
-  },
-  hint(ctx) {
-    return ctx.centerMessage.value || '【奇袭】：选择获得对手的一张手牌'
-  },
-}
+  skillId: 'qixi',
+  hint: (ctx) => ctx.centerMessage.value || '【奇袭】：选择一张黑色牌（手牌或装备区）',
+  zoneFilter: ['hand'],
+})
 
 const pojunHandler: PendingHandler = {
   modes: ['skill_pojun'],
   match: (state) => responseMode(state, 'skill_pojun'),
   skillOnly: true,
-  onEnter(ctx) {
-    pickFirstTarget(ctx, ctx.pojunTargetOptions.value)
-  },
   canSubmitSkill(ctx, skillId) {
-    if (skillId !== 'pojun' || isBusy(ctx)) return false
-    if (ctx.selectedTargetZone.value) return true
-    return ctx.pojunTargetOptions.value.length > 0
+    if (skillId !== 'pojun') return false
+    if (isBusy(ctx)) return false
+    // 支持批量 cardIds（由 YuzhoushaView 在 onPojunConfirm 中设置）
+    if (ctx.pojunCardIds?.value?.length) return true
+    // 兼容单选
+    return !!ctx.selectedTargetZone.value
   },
-  async submitSkill(ctx, skillId) {
-    if (skillId !== 'pojun') return
-    const zone = ctx.selectedTargetZone.value || 'hand'
-    await ctx.act(() =>
-      useYuzhoushaSkill(ctx.state.id, 'pojun', {
-        targetZone: zone,
-        targetCardId: ctx.selectedTargetCardId.value,
-      }),
-    )
-    ctx.selectedTargetZone.value = ''
-    ctx.selectedTargetCardId.value = ''
+  async submitSkill(ctx) {
+    const cardIds = ctx.pojunCardIds?.value
+    if (cardIds && cardIds.length > 0) {
+      // 批量提交：一次性发送所有选中的牌
+      await ctx.act(() =>
+        useYuzhoushaSkill(ctx.state.id, 'pojun', {
+          cardIds: [...cardIds],
+        }),
+      )
+      ctx.pojunCardIds!.value = []
+    } else {
+      const zone = ctx.selectedTargetZone.value || 'hand'
+      await ctx.act(() =>
+        useYuzhoushaSkill(ctx.state.id, 'pojun', {
+          targetZone: zone,
+          targetCardId: ctx.selectedTargetCardId.value,
+        }),
+      )
+      ctx.selectedTargetZone.value = ''
+      ctx.selectedTargetCardId.value = ''
+    }
   },
   hint(ctx) {
     const left = Math.max(
@@ -166,22 +112,84 @@ const pojunDiscardHandler: PendingHandler = {
   modes: ['skill_pojun_discard'],
   match: (state) => responseMode(state, 'skill_pojun_discard'),
   skillOnly: true,
+  canPlayCard() {
+    return true
+  },
   canSubmitSkill(ctx, skillId) {
-    if (skillId !== 'pojun' || isBusy(ctx)) return false
-    return !!ctx.selectedTargetCardId.value
+    if (skillId !== 'pojun') return false
+    return !!ctx.selectedId.value && !isBusy(ctx)
   },
   async submitSkill(ctx, skillId) {
-    if (skillId !== 'pojun' || !ctx.selectedTargetCardId.value) return
+    if (skillId !== 'pojun') return
+    const cardId = ctx.selectedId.value
+    if (!cardId) return
     await ctx.act(() =>
       useYuzhoushaSkill(ctx.state.id, 'pojun', {
-        cardIds: [ctx.selectedTargetCardId.value],
+        cardIds: [cardId],
       }),
     )
+    ctx.selectedId.value = ''
+  },
+  hint(ctx) {
+    return ctx.centerMessage.value || '【破军】：选择一张手牌弃置，或「取消」跳过'
+  },
+}
+
+const guoheHandler: PendingHandler = {
+  modes: ['guohe'],
+  match: (state) => responseMode(state, 'guohe'),
+  skillOnly: true,
+  canPlayCard() {
+    return false
+  },
+  canSubmitSkill(ctx, skillId) {
+    if (skillId !== '') return false
+    if (isBusy(ctx)) return false
+    // 装备/判定区需要选具体 zone；手牌选背面牌即可（后端总是取第一张）
+    return !!ctx.selectedTargetZone.value
+  },
+  async submitSkill(ctx, _skillId) {
+    const zone = ctx.selectedTargetZone.value || 'hand'
+    await ctx.act(() =>
+      useYuzhoushaSkill(ctx.state.id, '', {
+        targetZone: zone,
+        targetCardId: ctx.selectedTargetCardId.value,
+      }),
+    )
+    ctx.selectedTargetZone.value = ''
     ctx.selectedTargetCardId.value = ''
   },
   hint(ctx) {
-    const need = ctx.state.pending?.pojun_remaining ?? 1
-    return ctx.centerMessage.value || `【破军】：弃置「营」中 ${need} 张牌`
+    return ctx.centerMessage.value || '【过河拆桥】：选择要拆掉的一张牌，或「取消」'
+  },
+}
+
+const tannangHandler: PendingHandler = {
+  modes: ['tannang'],
+  match: (state) => responseMode(state, 'tannang'),
+  skillOnly: true,
+  canPlayCard() {
+    return false
+  },
+  canSubmitSkill(ctx, skillId) {
+    if (skillId !== '') return false
+    if (isBusy(ctx)) return false
+    // 装备/判定区需要选具体 zone；手牌选背面牌即可（后端总是取第一张）
+    return !!ctx.selectedTargetZone.value
+  },
+  async submitSkill(ctx, _skillId) {
+    const zone = ctx.selectedTargetZone.value || 'hand'
+    await ctx.act(() =>
+      useYuzhoushaSkill(ctx.state.id, '', {
+        targetZone: zone,
+        targetCardId: ctx.selectedTargetCardId.value,
+      }),
+    )
+    ctx.selectedTargetZone.value = ''
+    ctx.selectedTargetCardId.value = ''
+  },
+  hint(ctx) {
+    return ctx.centerMessage.value || '【顺手牵羊】：选择要获得的一张牌，或「取消」'
   },
 }
 
@@ -460,12 +468,11 @@ const yinghunChoiceHandler: PendingHandler = {
   skillOnly: true,
   canSubmitAction(ctx, action) {
     return (
-      (action === 'yinghun_draw_both' || action === 'yinghun_draw_two_discard') && !isBusy(ctx)
+      (action === 'yinghun_opp_draw_x_discard_1' || action === 'yinghun_opp_draw_1_discard_x') && !isBusy(ctx)
     )
   },
   async submitAction(ctx, action) {
-    const option =
-      action === 'yinghun_draw_two_discard' ? 'draw_two_discard' : 'draw_both'
+    const option = action === 'yinghun_opp_draw_1_discard_x' ? 'opp_draw_1_discard_x' : 'opp_draw_x_discard_1'
     await ctx.act(() =>
       useYuzhoushaSkill(ctx.state.id, 'yinghun', {
         targetZone: option,
@@ -473,7 +480,7 @@ const yinghunChoiceHandler: PendingHandler = {
     )
   },
   hint(ctx) {
-    return ctx.centerMessage.value || '【英魂】：选择一项（双方各摸一张 / 令孙坚摸两张并弃一张手牌）'
+    return ctx.centerMessage.value || '【英魂】：选择一项'
   },
 }
 
@@ -485,18 +492,52 @@ const yinghunDiscardHandler: PendingHandler = {
     return true
   },
   canSubmitSkill(ctx, skillId) {
-    return skillId === 'yinghun' && !!ctx.selectedId.value && !isBusy(ctx)
+    if (skillId !== 'yinghun') return false
+    const extra = ctx.state.pending?.extra
+    const need = (extra?.['yinghun_discard_need'] ?? 1) as number
+    const done = (extra?.['yinghun_discard_done'] ?? 0) as number
+    const remaining = need - done
+    // 选项1：弃1张，使用 selectedId；选项2：弃X张，使用 selectedDiscardIds
+    if (remaining > 1) {
+      return ctx.selectedDiscardIds.value.length > 0 && ctx.selectedDiscardIds.value.length <= remaining && !isBusy(ctx)
+    }
+    return !!ctx.selectedId.value && !isBusy(ctx)
   },
   async submitSkill(ctx, skillId) {
-    if (skillId !== 'yinghun' || !ctx.selectedId.value) return
+    if (skillId !== 'yinghun') return
+    const extra = ctx.state.pending?.extra
+    const need = (extra?.['yinghun_discard_need'] ?? 1) as number
+    const done = (extra?.['yinghun_discard_done'] ?? 0) as number
+    const remaining = need - done
+
+    let cardIds: string[]
+    if (remaining > 1) {
+      // 多选模式：使用 selectedDiscardIds
+      if (ctx.selectedDiscardIds.value.length === 0) return
+      cardIds = [...ctx.selectedDiscardIds.value]
+      ctx.selectedDiscardIds.value = []
+    } else {
+      // 单选模式：使用 selectedId
+      if (!ctx.selectedId.value) return
+      cardIds = [ctx.selectedId.value]
+      ctx.selectedId.value = ''
+    }
+
     await ctx.act(() =>
       useYuzhoushaSkill(ctx.state.id, 'yinghun', {
-        cardIds: [ctx.selectedId.value],
+        cardIds,
       }),
     )
-    ctx.selectedId.value = ''
   },
   hint(ctx) {
+    const extra = ctx.state.pending?.extra
+    const need = (extra?.['yinghun_discard_need'] ?? 1) as number
+    const done = (extra?.['yinghun_discard_done'] ?? 0) as number
+    const remaining = need - done
+    if (remaining > 1) {
+      const selected = ctx.selectedDiscardIds.value.length
+      return ctx.centerMessage.value || `【英魂】：请选择 ${remaining} 张手牌弃置（已选 ${selected}/${remaining}）`
+    }
     return ctx.centerMessage.value || '【英魂】：请选择一张手牌弃置'
   },
 }
@@ -574,18 +615,24 @@ const qilinBowHandler: PendingHandler = {
 const wuguPickHandler: PendingHandler = {
   modes: ['wugu_pick'],
   match: (state) => responseMode(state, 'wugu_pick'),
-  allowsCancel: false,
-  canPlayCard(ctx) {
+  // 选牌者不能取消，必须选牌
+  get allowsCancel() {
+    return false
+  },
+  canPlayCard(ctx, _card) {
+    // 只有当前选牌者可以选牌
+    if (ctx.state.pending?.actor_seat !== ctx.mySeat) return false
     return (
       !!ctx.selectedId.value &&
       (ctx.state.pending?.revealed_cards?.some((c) => c.id === ctx.selectedId.value) ?? false)
     )
   },
   canSubmitPlay(ctx) {
+    // 只有当前选牌者可以提交
+    if (ctx.state.pending?.actor_seat !== ctx.mySeat) return false
     return (
       !!ctx.selectedId.value &&
-      (ctx.state.pending?.revealed_cards?.some((c) => c.id === ctx.selectedId.value) ??
-        false) &&
+      (ctx.state.pending?.revealed_cards?.some((c) => c.id === ctx.selectedId.value) ?? false) &&
       !isBusy(ctx)
     )
   },
@@ -595,7 +642,10 @@ const wuguPickHandler: PendingHandler = {
     ctx.selectedId.value = ''
   },
   hint(ctx) {
-    return ctx.centerMessage.value || '请选择【五谷丰登】亮出的一张牌'
+    if (ctx.state.pending?.actor_seat === ctx.mySeat) {
+      return ctx.centerMessage.value || '请选择【五谷丰登】亮出的一张牌'
+    }
+    return ctx.centerMessage.value || '等待选牌中...'
   },
 }
 
@@ -680,6 +730,8 @@ export const pendingHandlers: PendingHandler[] = [
   qixiHandler,
   pojunHandler,
   pojunDiscardHandler,
+  guoheHandler,
+  tannangHandler,
   guicaiHandler,
   guidaoHandler,
   leijiHandler,

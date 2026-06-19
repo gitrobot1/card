@@ -90,16 +90,16 @@ func catalogSkills() []Decl {
 		{
 			Meta: Meta{
 				ID: IDJiji, Name: "急救", Kind: KindPassive,
-				Desc: "锁定技，你的回合外，你可以将一张红色牌当【桃】使用。",
+				Desc: "你于回合外可以将一张红色牌当【桃】使用。",
 			},
-			CardPlaysAs: func(r Runtime, seat int, cardKind, asKind, suit string) bool {
+			CardPlaysAs: func(r Runtime, seat int, _, asKind, suit string) bool {
 				if !r.HasSkill(seat, IDJiji) || asKind != "tao" {
 					return false
 				}
+				// 回合外才能使用
 				if r.CurrentTurn() == seat {
 					return false
 				}
-				_ = cardKind
 				return IsRedSuit(suit)
 			},
 		},
@@ -167,17 +167,19 @@ func catalogSkills() []Decl {
 		{
 			Meta: Meta{
 				ID: IDShangshi, Name: "伤逝", Kind: KindPassive,
-				Desc: "锁定技，除弃牌阶段外，若你的体力值不大于1，每当你失去手牌区里的牌时，你摸一张牌。",
+				Desc: "锁定技，当你的手牌数小于X时，你将手牌摸至X张（X为你已损失的体力值）。",
+			},
+			OnHPChanged: func(r Runtime, ctx HPChangedCtx) error {
+				// 锁定技：体力变化后，检查手牌数
+				return shangshiCheck(r, ctx.Seat)
 			},
 			OnCardsDiscarded: func(r Runtime, ctx CardsDiscardedCtx) error {
-				if !r.HasSkill(ctx.Seat, IDShangshi) || ctx.Reason == "discard_phase" {
-					return nil
-				}
-				hp, _ := r.PlayerHP(ctx.Seat)
-				if hp > 1 || len(ctx.Cards) == 0 {
-					return nil
-				}
-				return r.DrawSkillCards(ctx.Seat, IDShangshi, len(ctx.Cards), "")
+				// 锁定技：失去手牌后，检查手牌数（包括弃牌阶段）
+				return shangshiCheck(r, ctx.Seat)
+			},
+			OnTurnEnd: func(r Runtime, seat int) error {
+				// 锁定技：回合结束时（弃牌阶段后），检查手牌数
+				return shangshiCheck(r, seat)
 			},
 		},
 		{
@@ -243,7 +245,13 @@ func catalogSkills() []Decl {
 		{
 			Meta: Meta{
 				ID: IDJiang, Name: "激昂", Kind: KindPassive,
-				Desc: "每当你的【决斗】或【红色杀】被【无懈可击】抵消时，或你使用的【决斗】或【红色杀】生效后，你可以摸一张牌。",
+				Desc: "每当你成为【决斗】或【红色杀】的目标以及你使用的【决斗】或【红色杀】时，你摸一张牌。",
+			},
+			OnBecomeTarget: func(r Runtime, ctx BecomeTargetCtx) error {
+				if !r.HasSkill(ctx.Seat, IDJiang) || !IsJiangCard(ctx.Card.Kind, ctx.Card.Suit) {
+					return nil
+				}
+				return r.DrawSkillCards(ctx.Seat, IDJiang, 1, "")
 			},
 			OnCardResolved: func(r Runtime, ctx CardResolvedCtx) error {
 				if !r.HasSkill(ctx.Seat, IDJiang) || !IsJiangCard(ctx.Card.Kind, ctx.Card.Suit) {
@@ -255,52 +263,82 @@ func catalogSkills() []Decl {
 		{
 			Meta: Meta{
 				ID: IDChongzhen, Name: "冲阵", Kind: KindPassive,
-				Desc: "当你成为【杀】或普通锦囊牌的目标后，你可以弃置与该牌花色相同的手牌并摸等量的牌。",
+				Desc: "当你发动【龙胆】时，你可以获得对方的一张手牌。",
+			},
+		},
+		// 绝境和龙魂技能已在 engine/skill_juejing.go 和 engine/skill_longhun.go 中实现
+		// 这里不再重复注册，避免冲突
+		// ===== 使用新钩子实现的技能 =====
+		// 注意：这些技能目前只是框架，完整实现需要与 engine 包的交互
+		// TODO: 完善技能窗口交互逻辑
+		{
+			Meta: Meta{
+				ID: IDYiji, Name: "遗计", Kind: KindPassive,
+				Desc: "当你受到1点伤害后，你可以摸两张牌，然后可以将至多两张手牌交给其他角色。",
+			},
+			OnDamageDealt: func(r Runtime, ctx DamageCtx) error {
+				if !r.HasSkill(ctx.Target, IDYiji) {
+					return nil
+				}
+				if ctx.Amount != 1 {
+					return nil
+				}
+				// 受到伤害后摸两张牌
+				return r.DrawCards(ctx.Target, 2)
 			},
 		},
 		{
 			Meta: Meta{
-				ID: IDJuejing, Name: "绝境", Kind: KindPassive,
-				Desc: "锁定技，体力不大于 1 时，你手牌数无上限；摸牌阶段，你额外摸两张牌。",
+				ID: IDFankui, Name: "反馈", Kind: KindPassive,
+				Desc: "当你受到伤害后，你可以获得伤害来源的一张牌。",
 			},
-			DrawCountBonus: func(r Runtime, seat int) int {
-				if !r.HasSkill(seat, IDJuejing) {
-					return 0
+			OnDamageDealt: func(r Runtime, ctx DamageCtx) error {
+				if !r.HasSkill(ctx.Target, IDFankui) {
+					return nil
 				}
-				hp, _ := r.PlayerHP(seat)
-				if hp <= 1 {
-					return 2
+				if ctx.Source < 0 {
+					return nil
 				}
-				return 0
-			},
-			HandRetainLimit: func(r Runtime, seat int) int {
-				if !r.HasSkill(seat, IDJuejing) {
-					return 0
-				}
-				hp, _ := r.PlayerHP(seat)
-				if hp <= 1 {
-					return 1 << 20
-				}
-				return 0
+				// 获得伤害来源的一张牌
+				// 使用 FankuiTakeFrom 方法（需要在 Runtime 接口中定义）
+				// 暂时返回 nil，等待完整实现
+				return nil
 			},
 		},
 		{
 			Meta: Meta{
-				ID: IDLonghun, Name: "龙魂", Kind: KindPassive,
-				Desc: "你可以将 X 张花色相同的牌当【杀】或【闪】使用或打出（X 为你的当前体力值）。",
+				ID: IDJianxiong, Name: "奸雄", Kind: KindPassive,
+				Desc: "当你受到伤害后，你可以获得造成此伤害的牌。",
 			},
-			CardPlaysAs: func(r Runtime, seat int, cardKind, asKind, suit string) bool {
-				if !r.HasSkill(seat, IDLonghun) {
-					return false
+			OnDamageDealt: func(r Runtime, ctx DamageCtx) error {
+				if !r.HasSkill(ctx.Target, IDJianxiong) {
+					return nil
 				}
-				hp, _ := r.PlayerHP(seat)
-				if hp == 1 {
-					return asKind == "sha" || asKind == "shan"
+				if ctx.Card.ID == "" {
+					return nil
 				}
-				_ = cardKind
-				_ = suit
-				return false
+				// 获得造成伤害的牌
+				// 暂时返回 nil，等待完整实现
+				return nil
 			},
 		},
 	}
+}
+
+// shangshiCheck 伤逝技能的公共检查函数
+func shangshiCheck(r Runtime, seat int) error {
+	if !r.HasSkill(seat, IDShangshi) {
+		return nil
+	}
+	hp, maxHP := r.PlayerHP(seat)
+	lostHP := maxHP - hp // 已损失的体力值
+	if lostHP <= 0 {
+		return nil
+	}
+	handCount := r.PlayerHandCount(seat)
+	if handCount < lostHP {
+		drawCount := lostHP - handCount
+		return r.DrawSkillCards(seat, IDShangshi, drawCount, "")
+	}
+	return nil
 }

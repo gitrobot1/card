@@ -82,7 +82,7 @@ func (g *Game) resolveHuoGongFail(seat int, events *[]GameEvent) error {
 	target := pending.EffectTarget
 	card := pending.Card
 	damage := g.adjustDamageAmount(source, target, 1, card, true, false)
-	g.applyDamage(source, target, damage, card, events)
+	g.applyDamageWithHook(source, target, damage, card, events)
 	*events = append(*events, GameEvent{
 		Type:        "trick_hit",
 		PlayerIndex: source,

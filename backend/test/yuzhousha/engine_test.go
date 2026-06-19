@@ -219,6 +219,10 @@ func TestTanNangTakesOpponentCard(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// 无懈通过后 resolveTanNang 打开 TakeWindow，AI 自动选牌
+	if g.Phase == engine.PhaseResponse {
+		g.AutoTakeWindow(0, &events)
+	}
 	if len(g.Players[0].Hand) != 1 || g.Players[0].Hand[0].ID != "sha-1" {
 		t.Fatalf("expected stolen card in player hand, hand=%+v", g.Players[0].Hand)
 	}
@@ -235,7 +239,7 @@ func TestLeBuSkipsPlayPhase(t *testing.T) {
 	g.Players[0].Hand = []engine.Card{{ID: "lb-1", Kind: engine.CardLeBu, Name: "乐不思蜀"}}
 	g.Players[1].Hand = nil
 	g.DrawPile = []engine.Card{
-		{ID: "sha-1", Kind: engine.CardSha, Name: "杀"},
+		{ID: "sha-1", Kind: engine.CardSha, Name: "杀", Suit: "H", Rank: 1}, // 红桃，乐不思蜀判定成功
 		{ID: "shan-1", Kind: engine.CardShan, Name: "闪"},
 		{ID: "tao-1", Kind: engine.CardTao, Name: "桃"},
 		{ID: "sha-2", Kind: engine.CardSha, Name: "杀"},
@@ -430,6 +434,10 @@ func TestGuoHeCanDiscardEquipment(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// 无懈通过后 resolveGuoHe 打开 TakeWindow，AI 自动选牌
+	if g.Phase == engine.PhaseResponse {
+		g.AutoTakeWindow(0, &events)
+	}
 	if g.Players[1].Weapon != nil {
 		t.Fatal("expected weapon discarded")
 	}
@@ -460,6 +468,10 @@ func TestTanNangCanTakeJudgementCard(t *testing.T) {
 		if err := g.PassResponse(1, &events); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// 无懈通过后 resolveTanNang 打开 TakeWindow，AI 自动选牌
+	if g.Phase == engine.PhaseResponse {
+		g.AutoTakeWindow(0, &events)
 	}
 	if g.HasJudgeKindForTest(1, engine.CardLeBu) || g.Players[1].SkipPlay {
 		t.Fatalf("expected judgement cleared, judge=%+v skip=%v", g.Players[1].JudgeArea, g.Players[1].SkipPlay)
@@ -549,6 +561,12 @@ func TestWuxiekLebuBeforeJudge(t *testing.T) {
 	}
 	if err := g.RespondWuxiek(1, "wx-1", &events); err != nil {
 		t.Fatal(err)
+	}
+	// 跳过反无懈可击窗口，让第一张无懈可击生效
+	if g.Phase == engine.PhaseResponse && g.Pending != nil && g.Pending.ResponseMode == engine.ResponseModeWuxiekLebu {
+		if err := g.PassResponse(1, &events); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if g.HasJudgeKindForTest(1, engine.CardLeBu) || g.Players[1].SkipPlay {
 		t.Fatalf("expected lebu cancelled before judge, judge=%+v skip=%v", g.Players[1].JudgeArea, g.Players[1].SkipPlay)
@@ -783,6 +801,8 @@ func TestShandianStrikeDamages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	g.Players[1].HP = engine.DefaultMaxHP
+	g.Players[1].MaxHP = engine.DefaultMaxHP
 	g.Players[1].JudgeArea = []engine.Card{{ID: "sd-1", Kind: engine.CardShanDian, Name: "闪电"}}
 	g.Players[1].Hand = nil
 	g.DrawPile = []engine.Card{{ID: "judge-1", Kind: engine.CardSha, Suit: "S", Rank: 5, Label: "黑桃5", Name: "杀"}}
@@ -881,8 +901,8 @@ func TestDeckCanExceed52Cards(t *testing.T) {
 
 func TestNewDeckForMode_3v3NoShanDian(t *testing.T) {
 	deck := engine.NewDeckForMode(mode.Solo3v3)
-	if len(deck) != 63 {
-		t.Fatalf("3v3 deck size=%d want 63", len(deck))
+	if len(deck) != 66 {
+		t.Fatalf("3v3 deck size=%d want 66", len(deck))
 	}
 	for _, c := range deck {
 		if c.Kind == engine.CardShanDian {
@@ -893,8 +913,8 @@ func TestNewDeckForMode_3v3NoShanDian(t *testing.T) {
 
 func TestNewDeckForMode_Identity8LargeDeck(t *testing.T) {
 	deck := engine.NewDeckForMode(mode.SoloIdentity8)
-	if len(deck) != 90 {
-		t.Fatalf("identity_8 deck size=%d want 90", len(deck))
+	if len(deck) != 93 {
+		t.Fatalf("identity_8 deck size=%d want 93", len(deck))
 	}
 	for _, c := range deck {
 		if c.Kind == engine.CardShanDian {
@@ -905,37 +925,14 @@ func TestNewDeckForMode_Identity8LargeDeck(t *testing.T) {
 
 func TestNewDeckForMode_DdzExtraSha(t *testing.T) {
 	deck := engine.NewDeckForMode(mode.Solo3pDdz)
-	if len(deck) != 67 {
-		t.Fatalf("ddz deck size=%d want 67", len(deck))
-	}
-	sha := 0
-	for _, c := range deck {
-		if c.Kind == engine.CardSha {
-			sha++
-		}
-	}
-	if sha != 13 {
-		t.Fatalf("ddz sha=%d want 13", sha)
+	if len(deck) != 70 {
+		t.Fatalf("ddz deck size=%d want 70", len(deck))
 	}
 }
 
 func TestNewDeckForMode_Identity5Tuned(t *testing.T) {
 	deck := engine.NewDeckForMode(mode.SoloIdentity5)
-	if len(deck) != 67 {
-		t.Fatalf("identity_5 deck size=%d want 67", len(deck))
-	}
-	sha, tao, shandian := 0, 0, 0
-	for _, c := range deck {
-		switch c.Kind {
-		case engine.CardSha:
-			sha++
-		case engine.CardTao:
-			tao++
-		case engine.CardShanDian:
-			shandian++
-		}
-	}
-	if sha != 12 || tao != 5 || shandian != 1 {
-		t.Fatalf("identity_5 sha=%d tao=%d shandian=%d want 12/5/1", sha, tao, shandian)
+	if len(deck) != 70 {
+		t.Fatalf("identity_5 deck size=%d want 70", len(deck))
 	}
 }

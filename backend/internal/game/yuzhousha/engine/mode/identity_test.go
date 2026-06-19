@@ -327,3 +327,4 @@ func (s identityTargetStub) PlayerHP(seat int) (int, int) {
 	return hp, 5
 }
 func (s identityTargetStub) HandCount(_ int) int { return 1 }
+func (s identityTargetStub) LimuActive(_ int) bool { return false }

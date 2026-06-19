@@ -196,7 +196,12 @@ func (h *YuzhoushaHandler) ReadyNextRoom(c *gin.Context) {
 
 func (h *YuzhoushaHandler) UseSkill(c *gin.Context) {
 	var req yzsSkillRequest
-	if err := c.ShouldBindJSON(&req); err != nil || req.SkillID == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	// 允许空 skill_id（用于过河拆桥/顺手牵羊等 TakeWindow 选牌）
+	if req.SkillID == "" && req.TargetZone == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
@@ -309,6 +314,21 @@ func (h *YuzhoushaHandler) DiscardCard(c *gin.Context) {
 	}
 	userID, _ := currentUser(c)
 	state, err := h.Games.DiscardCards(c.Param("gameId"), userID, req.CardIDs)
+	if err != nil {
+		writeYuzhoushaError(c, err)
+		return
+	}
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
+}
+
+func (h *YuzhoushaHandler) RespondWeaponDiscard(c *gin.Context) {
+	var req yzsDiscardRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.CardIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	userID, _ := currentUser(c)
+	state, err := h.Games.RespondDiscardCards(c.Param("gameId"), userID, req.CardIDs)
 	if err != nil {
 		writeYuzhoushaError(c, err)
 		return

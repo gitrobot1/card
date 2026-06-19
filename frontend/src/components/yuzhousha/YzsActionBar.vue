@@ -52,6 +52,11 @@ const {
   isPeekDeck,
   isQilinBow,
   isQixiTake,
+  isGuoHeTake,
+  isTanNangTake,
+  isTakeWindow,
+  selectedTargetZone,
+  selectedTargetCardId,
   isSkillOnlyResponse,
   isTianxiangOffer,
   isTuxiTake,
@@ -289,17 +294,17 @@ const {
           type="button"
           class="ddz__btn"
           :disabled="loading || isAnimating"
-          @click="submitYinghunOption('draw_both')"
+          @click="submitYinghunOption('opp_draw_x_discard_1')"
         >
-          各摸一张
+          令对手摸 X 弃 1
         </button>
         <button
           type="button"
           class="ddz__btn"
           :disabled="loading || isAnimating"
-          @click="submitYinghunOption('draw_two_discard')"
+          @click="submitYinghunOption('opp_draw_1_discard_x')"
         >
-          摸二弃一
+          令对手摸 1 弃 X
         </button>
       </template>
 
@@ -455,6 +460,25 @@ const {
         </button>
       </template>
 
+      <template v-else-if="isTakeWindow">
+        <button
+          type="button"
+          class="ddz__btn ddz__btn--primary"
+          :disabled="selectedTargetZone === '' || selectedTargetCardId === ''"
+          @click="submitSkill('')"
+        >
+          {{ isGuoHeTake ? '拆掉' : '获得' }}
+        </button>
+        <button
+          v-if="canSubmitCancel"
+          type="button"
+          class="ddz__btn"
+          @click="submitCancelResponse"
+        >
+          取消
+        </button>
+      </template>
+
       <template v-else-if="isGuicai">
         <button
           type="button"
@@ -559,8 +583,9 @@ const {
         >
           八卦判定
         </button>
+        <!-- 在所有响应阶段，统一显示“取消”按钮（无懈可击等无法出牌时也能跳过） -->
         <button
-          v-if="canSubmitCancel"
+          v-if="!loading && !isAnimating && !isFanjianSuit && !isYinghunChoice && !isYinghunDiscard && !isGanglieChoice"
           type="button"
           class="ddz__btn"
           @click="submitCancelResponse"

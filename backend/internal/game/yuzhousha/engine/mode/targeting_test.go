@@ -55,6 +55,10 @@ func (s stubTargetCtx) HandCount(seat int) int {
 	return 1
 }
 
+func (s stubTargetCtx) LimuActive(source int) bool {
+	return false
+}
+
 func TestValidPlayTargets2v2Sha(t *testing.T) {
 	ctx := stubTargetCtx{
 		stubCtx: stubCtx{mode: Solo2v2, players: []int{4, 4, 4, 4}},

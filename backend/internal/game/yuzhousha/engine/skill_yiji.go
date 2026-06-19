@@ -23,6 +23,7 @@ func (g *Game) offerYijiWindow(a *DamageAftermath, events *[]GameEvent) bool {
 		SkillID:      skill.IDYiji,
 	}
 	g.Message = fmt.Sprintf("%s 可发动【遗计】，摸 %d 张牌后可将至多 %d 张手牌交给其他角色", g.Players[a.Target].Name, yijiDrawCount, yijiGiveLimit)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	g.appendSkillEvent(events, skill.IDYiji, a.Target, a.Source, g.Message)
 	return true

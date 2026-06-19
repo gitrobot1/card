@@ -47,11 +47,11 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 			if seat != g.Pending.TargetIndex {
 				return ErrNotYourTurn
 			}
-			target := g.Pending.EffectTarget
-			if target < 0 {
-				target = seat
+			t := g.Pending.EffectTarget
+			if t < 0 {
+				t = seat
 			}
-			return g.playLuanwuSha(seat, cardID, target, events)
+			return g.playLuanwuSha(seat, cardID, t, events)
 		case ResponseModeHuoGong:
 			if seat != g.Pending.TargetIndex {
 				return ErrNotYourTurn
@@ -71,9 +71,70 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 		return ErrNotYourTurn
 	}
 
-	_, cardObj, ok := g.findCard(seat, cardID)
+	// 查找牌（手牌或装备区）
+	zone, idx, cardObj, ok := g.findCardInHandOrEquip(seat, cardID)
 	if !ok {
 		return ErrInvalidCard
+	}
+
+	// 通用：如果是装备牌被技能变牌（cardPlaysAs 返回 true），先移除装备，再按变牌逻辑处理
+	if isEquipKind(cardObj.Kind) {
+		// 奇袭：装备区黑色牌视为过河拆桥
+		if g.getSkillCounter(seat, counterQixiActive) > 0 && skill.IsBlackSuit(cardObj.Suit) {
+			discarded := g.removeEquipCard(seat, zone, events)
+			g.DiscardPile = append(g.DiscardPile, discarded)
+			g.notifyEquipLost(seat, discarded, "skill", events)
+			g.appendSkillEvent(events, skill.IDQixi, seat, -1, fmt.Sprintf("%s 使用【奇袭】", g.Players[seat].Name))
+			return g.playTrickAsGuoHe(seat, target, events)
+		}
+		// 变牌为杀（武圣/龙胆等）
+		if g.cardPlaysAs(seat, cardObj, CardSha) && g.canUseSha(seat) && g.isValidPlayTarget(seat, target.SeatIndex, CardSha) {
+			discarded := g.removeEquipCard(seat, zone, events)
+			g.notifyEquipLost(seat, discarded, "skill", events)
+			return g.playShaWithCard(seat, discarded, target.SeatIndex, events)
+		}
+		// 变牌为桃（急救等）
+		if g.cardPlaysAs(seat, cardObj, CardTao) {
+			discarded := g.removeEquipCard(seat, zone, events)
+			g.notifyEquipLost(seat, discarded, "skill", events)
+			discarded = g.convertCardToKind(discarded, CardTao)
+			return g.playTaoWithCard(seat, discarded, events)
+		}
+		// 变牌为闪（龙胆/倾国等）——出牌阶段一般不出闪，但预留
+		if g.cardPlaysAs(seat, cardObj, CardShan) {
+			// 出牌阶段不出闪
+		}
+		// 变牌为锦囊（国色/立牧等）
+		if g.cardPlaysAs(seat, cardObj, CardLeBu) || g.cardPlaysAs(seat, cardObj, CardGuoHe) || g.cardPlaysAs(seat, cardObj, CardTanNang) || g.cardPlaysAs(seat, cardObj, CardJueDou) {
+			discarded := g.removeEquipCard(seat, zone, events)
+			g.notifyEquipLost(seat, discarded, "skill", events)
+			// 确定目标锦囊类型并转换
+			trickKind := ""
+			if g.cardPlaysAs(seat, cardObj, CardLeBu) {
+				trickKind = CardLeBu
+			} else if g.cardPlaysAs(seat, cardObj, CardGuoHe) {
+				trickKind = CardGuoHe
+			} else if g.cardPlaysAs(seat, cardObj, CardTanNang) {
+				trickKind = CardTanNang
+			} else if g.cardPlaysAs(seat, cardObj, CardJueDou) {
+				trickKind = CardJueDou
+			}
+			if trickKind != "" {
+				discarded = g.convertCardToKind(discarded, trickKind)
+			}
+			return g.playTrickWithCard(seat, discarded, target, events)
+		}
+		// 没有变牌，正常装备
+		return g.playEquip(seat, cardID, events)
+	}
+
+	// 手牌：奇袭
+	if g.getSkillCounter(seat, counterQixiActive) > 0 && skill.IsBlackSuit(cardObj.Suit) {
+		discarded := g.removeHandCard(seat, idx, events)
+		g.DiscardPile = append(g.DiscardPile, discarded)
+		g.runCardsDiscardedHooks(seat, "cost", []Card{discarded}, events)
+		g.appendSkillEvent(events, skill.IDQixi, seat, -1, fmt.Sprintf("%s 使用【奇袭】", g.Players[seat].Name))
+		return g.playTrickAsGuoHe(seat, target, events)
 	}
 
 	if cardObj.Kind != CardSha && g.cardPlaysAs(seat, cardObj, CardSha) {
@@ -83,7 +144,7 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 	}
 
 	switch cardObj.Kind {
-	case CardSha:
+	case CardSha, CardShaFire, CardShaThunder:
 		return g.playSha(seat, cardID, target.SeatIndex, events)
 	case CardShan:
 		return ErrInvalidCard
@@ -93,14 +154,31 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 		return g.playJiu(seat, cardID, events)
 	case CardGuoHe, CardTanNang, CardNanMan, CardWanJian, CardJueDou, CardLeBu, CardBingLiang, CardShanDian, CardWuGu, CardTaoYuan, CardWuZhong, CardHuoGong, CardTieSuo:
 		return g.playTrick(seat, cardID, target, events)
-	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardArmor, CardArmorVine, CardPlusHorse, CardMinusHorse:
-		return g.playEquip(seat, cardID, events)
 	default:
 		return ErrInvalidCard
 	}
 }
 
+// isEquipKind 判断是否为装备牌
+func isEquipKind(kind string) bool {
+	switch kind {
+	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardWeapon7, CardWeapon8, CardWeapon9, CardArmor, CardArmorVine, CardPlusHorse, CardMinusHorse:
+		return true
+	}
+	return false
+}
+
 func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameEvent) error {
+	idx, cardObj, ok := g.findCard(seat, cardID)
+	if !ok || !g.cardPlaysAs(seat, cardObj, CardSha) {
+		return ErrInvalidCard
+	}
+	played := g.removeHandCard(seat, idx, events)
+	return g.playShaWithCard(seat, played, targetIndex, events)
+}
+
+// playShaWithCard 用已移除的牌打出杀（支持装备牌变牌）
+func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, events *[]GameEvent) error {
 	guanYuFollow := g.isGuanYuFollowPending() && seat == g.Pending.TargetIndex
 	if !guanYuFollow && !g.canUseSha(seat) {
 		return ErrAlreadyActed
@@ -118,12 +196,27 @@ func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameE
 	} else if !g.isValidPlayTarget(seat, targetIndex, CardSha) {
 		return ErrInvalidTarget
 	}
-	idx, cardObj, ok := g.findCard(seat, cardID)
-	if !ok || !g.cardPlaysAs(seat, cardObj, CardSha) {
-		return ErrInvalidCard
+
+	// 检查是否因龙胆而将闪当杀使用，如果是则触发冲阵
+	g.triggerChongzhen(seat, played, CardSha)
+
+	// 如果牌本身不是杀（通过技能变牌，如武圣/龙胆），统一转为普通杀
+	if !isSha(played.Kind) {
+		played = g.convertCardToKind(played, CardSha)
 	}
 
-	played := g.removeHandCard(seat, idx, events)
+	// 激昂：使用红色杀时摸一张牌
+	if g.hasSkill(seat, skill.IDJiang) && skill.IsJiangCard(CardSha, played.Suit) {
+		_ = g.drawSkillCards(seat, skill.IDJiang, 1, "", events)
+	}
+
+	// 朱雀羽扇：将普通杀转为火杀
+	hasZhuQue := g.hasWeaponKind(seat, CardWeapon7)
+	if hasZhuQue && played.DamageType == DamageTypeNormal {
+		played.DamageType = DamageTypeFire
+		played.Name = "火杀"
+	}
+
 	g.DiscardPile = append(g.DiscardPile, played)
 	if !guanYuFollow {
 		g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
@@ -148,6 +241,13 @@ func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameE
 	if ignoreArmor {
 		msg += "（【青釭剑】无视防具）"
 	}
+	if hasZhuQue && played.DamageType == DamageTypeFire {
+		msg = fmt.Sprintf("%s 对 %s 使用【火杀】（【朱雀羽扇】）", g.Players[seat].Name, g.Players[targetIndex].Name)
+	} else if played.DamageType == DamageTypeFire {
+		msg = fmt.Sprintf("%s 对 %s 使用【火杀】，等待出闪", g.Players[seat].Name, g.Players[targetIndex].Name)
+	} else if played.DamageType == DamageTypeThunder {
+		msg = fmt.Sprintf("%s 对 %s 使用【雷杀】，等待出闪", g.Players[seat].Name, g.Players[targetIndex].Name)
+	}
 	if g.getSkillCounter(seat, counterLuoyiActive) > 0 {
 		msg += "（【裸衣】+1）"
 	}
@@ -165,8 +265,26 @@ func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameE
 		IgnoreArmor:     ignoreArmor,
 		TieqiPending:    tieqiPending,
 		ResponsesNeeded: g.wushuangResponsesNeeded(seat, CardSha),
+		ActorSeat:       targetIndex,
+		SubjectSeat:     targetIndex,
 	}
 	g.initPojunOnShaPending(seat, targetIndex, g.Pending)
+	
+	// 破军技能：如果源有破军且目标有可拿的牌，直接打开选牌窗口
+	if g.hasSkill(seat, SkillPojun) && g.hasTakeableCard(targetIndex) {
+		g.Message = msg
+		g.resetTimer()
+		*events = append(*events, GameEvent{
+			Type:        "play_sha",
+			PlayerIndex: seat,
+			TargetIndex: targetIndex,
+			Card:        &played,
+			Message:     g.Message,
+		})
+		g.notifyBecameTarget(targetIndex, seat, played, events)
+		return g.enterPojunPlacing(events)
+	}
+	
 	g.Message = msg
 	g.resetTimer()
 
@@ -191,31 +309,8 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 	if !ok {
 		return ErrInvalidCard
 	}
-	if g.is3v3() && cardObj.Kind == CardShanDian {
-		return ErrInvalidCard
-	}
-	if g.isIdentity() && cardObj.Kind == CardShanDian {
-		return ErrInvalidCard
-	}
-
-	target := targetSpec.SeatIndex
-	if trickNeedsOpponentTarget(cardObj.Kind) {
-		if target < 0 || target >= len(g.Players) || !g.isValidPlayTarget(seat, target, cardObj.Kind) {
-			return ErrInvalidTarget
-		}
-	} else if target < 0 || target >= len(g.Players) {
-		target = g.opponentOf(seat)
-	}
-	if (cardObj.Kind == CardGuoHe || cardObj.Kind == CardTanNang) && !g.hasTakeableCard(target) {
-		return ErrInvalidTarget
-	}
-	if cardObj.Kind == CardBingLiang && !g.canBingliangTarget(seat, target) {
-		return ErrInvalidTarget
-	}
-	if cardObj.Kind == CardHuoGong && len(g.Players[target].Hand) == 0 {
-		return ErrInvalidTarget
-	}
-	if cardObj.Kind == CardTieSuo && target == seat {
+	// 铁索连环重铸（target 是自己）
+	if cardObj.Kind == CardTieSuo && targetSpec.SeatIndex == seat {
 		played := g.removeHandCard(seat, idx, events)
 		g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
 		*events = append(*events, GameEvent{
@@ -223,22 +318,57 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 			PlayerIndex: seat,
 			TargetIndex: seat,
 			Card:        &played,
-			Message:     fmt.Sprintf("%s 使用【%s】", g.Players[seat].Name, played.Name),
+			Message:     fmt.Sprintf("%s 重铸【铁索连环】", g.Players[seat].Name),
 		})
 		return g.playTieSuoRecast(seat, played, events)
 	}
+	played := g.removeHandCard(seat, idx, events)
+	return g.playTrickWithCard(seat, played, targetSpec, events)
+}
+
+// playTrickWithCard 用已移除的牌当锦囊使用（支持装备牌变牌，如国色）
+func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, events *[]GameEvent) error {
+	if g.is3v3() && played.Kind == CardShanDian {
+		return ErrInvalidCard
+	}
+	if g.isIdentity() && played.Kind == CardShanDian {
+		return ErrInvalidCard
+	}
+
+	target := targetSpec.SeatIndex
+	if trickNeedsOpponentTarget(played.Kind) {
+		if target < 0 || target >= len(g.Players) || !g.isValidPlayTarget(seat, target, played.Kind) {
+			return ErrInvalidTarget
+		}
+	} else if target < 0 || target >= len(g.Players) {
+		target = g.opponentOf(seat)
+	}
+	if (played.Kind == CardGuoHe || played.Kind == CardTanNang) && !g.hasTakeableCard(target) {
+		return ErrInvalidTarget
+	}
+	if played.Kind == CardBingLiang && !g.canBingliangTarget(seat, target) {
+		return ErrInvalidTarget
+	}
+	if played.Kind == CardHuoGong && len(g.Players[target].Hand) == 0 {
+		return ErrInvalidTarget
+	}
+
+	// 激昂：使用【决斗】时摸一张牌
+	if g.hasSkill(seat, skill.IDJiang) && played.Kind == CardJueDou {
+		_ = g.drawSkillCards(seat, skill.IDJiang, 1, "", events)
+	}
+
 	effectTarget := targetSpec.SeatIndex
 	if effectTarget < 0 || effectTarget >= len(g.Players) {
 		effectTarget = target
 	}
-	if g.targetBlockedByTrick(effectTarget, cardObj) {
+	if g.targetBlockedByTrick(effectTarget, played) {
 		return ErrInvalidTarget
 	}
-	if cardObj.Kind == CardJueDou && g.runSkillHooks(nil, skill.HookCall{Kind: skill.HookTargetBlocked, Target: effectTarget, CardKind: CardJueDou}).Bool {
+	if played.Kind == CardJueDou && g.runSkillHooks(nil, skill.HookCall{Kind: skill.HookTargetBlocked, Target: effectTarget, CardKind: CardJueDou}).Bool {
 		return ErrInvalidTarget
 	}
 
-	played := g.removeHandCard(seat, idx, events)
 	if !trickStaysInJudge(played.Kind) {
 		g.DiscardPile = append(g.DiscardPile, played)
 		g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
@@ -251,6 +381,16 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 		Message:     fmt.Sprintf("%s 使用【%s】", g.Players[seat].Name, played.Name),
 	})
 
+	// 图射：使用非装备牌指定目标后，若没有基本牌，摸X张牌
+	g.tryTriggerTushe(seat, played, targetSpec.SeatIndex, events)
+
+	Logf("playTrickWithCard: seat=%d(%s) kind=%s", seat, g.Players[seat].Name, played.Kind)
+
+	// 非延时锦囊打出时触发集智（延时锦囊乐/兵/闪电不触发）
+	if !trickStaysInJudge(played.Kind) {
+		g.notifyInstantTrickUsed(seat, played.Kind, events)
+	}
+
 	switch played.Kind {
 	case CardLeBu:
 		g.notifyBecameTarget(target, seat, played, events)
@@ -262,7 +402,7 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 		return g.placeShandian(seat, played, events)
 	case CardWuGu:
 		return g.resolveWugu(seat, events)
-	case CardGuoHe, CardTanNang, CardJueDou, CardTaoYuan, CardWuZhong:
+	case CardGuoHe, CardTanNang, CardJueDou, CardWuZhong, CardTaoYuan:
 		effectTarget := targetSpec.SeatIndex
 		if effectTarget < 0 || effectTarget >= len(g.Players) {
 			effectTarget = target
@@ -301,18 +441,43 @@ func (g *Game) placeLebu(source, target int, lebu Card, events *[]GameEvent) err
 }
 
 func (g *Game) startWuxiekTrickWindow(source, responder, effectTarget int, trick Card, spec PlayTarget, events *[]GameEvent) error {
+	n := len(g.Players)
+	if source < 0 || source >= n {
+		return fmt.Errorf("wuxiek: invalid source=%d", source)
+	}
+	if responder < 0 || responder >= n {
+		responder = source
+	}
+	if effectTarget < 0 || effectTarget >= n {
+		effectTarget = source
+	}
+	// 构建响应队列：从 responder 开始，轮询所有存活玩家，排除锦囊使用者自己
+	allQueue := g.createResponseQueue(responder)
+	queue := make([]int, 0, len(allQueue))
+	for _, s := range allQueue {
+		if s != source {
+			queue = append(queue, s)
+		}
+	}
 	g.Phase = PhaseResponse
 	g.Pending = &PendingCombat{
-		SourceIndex:  source,
-		TargetIndex:  responder,
-		ReturnIndex:  source,
-		EffectTarget: effectTarget,
-		Card:         trick,
-		ResponseMode: ResponseModeWuxiekTrick,
-		TargetZone:   spec.Zone,
-		TargetCardID: spec.CardID,
+		SourceIndex:   source,
+		TargetIndex:   -1,
+		ReturnIndex:   source,
+		EffectTarget:  effectTarget,
+		Card:          trick,
+		ResponseMode:  ResponseModeWuxiekTrick,
+		TargetZone:    spec.Zone,
+		TargetCardID:  spec.CardID,
+		ResponseQueue: queue,
+		ResponseIndex: 0,
+		WuxiekChain:   nil,
 	}
-	g.Message = fmt.Sprintf("%s 可使用【无懈可击】抵消【%s】", g.Players[responder].Name, trick.Name)
+	g.advanceToNextWuxiekResponder(events)
+	// 提示由 advanceToNextWuxiekResponder -> setWuxiekMessage 统一设置
+	if g.Message == "" {
+		g.Message = fmt.Sprintf("【%s】：是否使用【无懈可击】？", trick.Name)
+	}
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "wuxiek_offer",
@@ -324,30 +489,102 @@ func (g *Game) startWuxiekTrickWindow(source, responder, effectTarget int, trick
 	return nil
 }
 
+// advanceToNextWuxiekResponder 推进到队列中的下一个响应者（循环处理所有AI，避免递归栈溢出）
+func (g *Game) advanceToNextWuxiekResponder(events *[]GameEvent) {
+	const maxIter = 100
+	// 记录队列起始座位，用于判断是否已走完一圈
+	queueStart := -1
+	if g.Pending != nil && len(g.Pending.ResponseQueue) > 0 {
+		queueStart = g.Pending.ResponseQueue[0]
+	}
+	for iter := 0; iter < maxIter; iter++ {
+		if g.Pending == nil {
+			return
+		}
+		if len(g.Pending.ResponseQueue) == 0 {
+			g.finalizeWuxiekChain(events)
+			return
+		}
+		idx := g.Pending.ResponseIndex
+		if idx >= len(g.Pending.ResponseQueue) {
+			idx = 0
+		}
+		nextSeat := g.Pending.ResponseQueue[idx]
+		g.Pending.ActorSeat = nextSeat
+		g.Pending.SubjectSeat = nextSeat
+
+		// 如果是人类玩家，退出循环等待人类操作
+		if !g.Players[nextSeat].IsAI {
+			// 设置提示消息
+			g.setWuxiekMessage()
+			return
+		}
+		// AI 自动决定：有 wuxiek 就出，没有就跳过
+		inChain := false
+		for _, entry := range g.Pending.WuxiekChain {
+			if entry.Seat == nextSeat {
+				inChain = true
+				break
+			}
+		}
+		acted := false
+		if !inChain {
+			for _, card := range g.Players[nextSeat].Hand {
+				if card.Kind == CardWuxiek {
+					_ = g.RespondWuxiek(nextSeat, card.ID, events)
+					acted = true
+					break
+				}
+			}
+		}
+		if !acted {
+			// 跳过，推进队列。检查是否已回到队列起点（走完一圈）。
+			g.Pending.ResponseIndex++
+			if g.Pending.ResponseIndex >= len(g.Pending.ResponseQueue) {
+				g.Pending.ResponseIndex = 0
+			}
+			// 如果队列中只有一个人，或者已经回到队列起点，终止
+			if len(g.Pending.ResponseQueue) == 1 || g.Pending.ResponseQueue[g.Pending.ResponseIndex] == queueStart {
+				g.finalizeWuxiekChain(events)
+				return
+			}
+			continue
+		}
+		// AI 出了 wuxiek，队列已重建，重新记录队列起点
+		if g.Pending != nil && len(g.Pending.ResponseQueue) > 0 {
+			queueStart = g.Pending.ResponseQueue[0]
+		}
+	}
+}
+
+// autoAIWuxiekRespond AI 自动决定是否出无懈可击
+func (g *Game) autoAIWuxiekRespond(seat int, events *[]GameEvent) {
+	// 检查 AI 是否有无懈可击（且不在链中）
+	inChain := false
+	for _, entry := range g.Pending.WuxiekChain {
+		if entry.Seat == seat {
+			inChain = true
+			break
+		}
+	}
+	if !inChain {
+		for _, card := range g.Players[seat].Hand {
+			if card.Kind == CardWuxiek {
+				_ = g.RespondWuxiek(seat, card.ID, events)
+				return
+			}
+		}
+	}
+	// 没有无懈可击（或已在链中），跳过
+	g.advanceWuxiekQueueAfterPass(seat, events)
+}
+
 func (g *Game) startWuxiekLebuJudgeWindow(seat int, events *[]GameEvent) {
 	jc := g.Players[seat].judgeCardByKind(CardLeBu)
 	if jc == nil {
 		return
 	}
-	lebu := *jc
-	g.Phase = PhaseResponse
-	g.Pending = &PendingCombat{
-		SourceIndex:  g.opponentOf(seat),
-		TargetIndex:  seat,
-		ReturnIndex:  seat,
-		EffectTarget: seat,
-		Card:         lebu,
-		ResponseMode: ResponseModeWuxiekLebu,
-	}
-	g.Message = fmt.Sprintf("%s 可对【乐不思蜀】使用【无懈可击】（判定前）", g.Players[seat].Name)
-	g.resetTimer()
-	*events = append(*events, GameEvent{
-		Type:        "wuxiek_offer",
-		PlayerIndex: g.opponentOf(seat),
-		TargetIndex: seat,
-		Card:        &lebu,
-		Message:     g.Message,
-	})
+	g.startJudgeWuxiekWindow(seat, *jc, events)
 }
 
 func (g *Game) continueTrickAfterWuxiekPass(events *[]GameEvent) error {
@@ -367,27 +604,16 @@ func (g *Game) continueTrickAfterWuxiekPass(events *[]GameEvent) error {
 	switch pending.Card.Kind {
 	case CardGuoHe:
 		err = g.resolveGuoHe(source, target, spec, events)
-		if err == nil {
-			g.notifyInstantTrickUsed(source, CardGuoHe, events)
-		}
 	case CardTanNang:
 		err = g.resolveTanNang(source, target, spec, events)
-		if err == nil {
-			g.notifyInstantTrickUsed(source, CardTanNang, events)
-		}
 	case CardJueDou:
 		err = g.startCardResponse(source, target, pending.Card, CardSha, fmt.Sprintf("%s 对 %s 发起【决斗】，%s 需出杀", g.Players[source].Name, g.Players[target].Name, g.Players[target].Name), events)
-		if err == nil {
-			g.notifyInstantTrickUsed(source, CardJueDou, events)
-		}
 	case CardTaoYuan:
 		g.resolveTaoYuan(source, events)
-		g.notifyInstantTrickUsed(source, CardTaoYuan, events)
 	case CardWuZhong:
 		g.Message = fmt.Sprintf("%s 使用【无中生有】，摸两张牌", g.Players[source].Name)
 		*events = append(*events, GameEvent{Type: "trick_effect", PlayerIndex: source, TargetIndex: source, Message: g.Message})
 		g.drawCards(source, 2, events)
-		g.notifyInstantTrickUsed(source, CardWuZhong, events)
 	default:
 		return ErrInvalidCard
 	}
@@ -396,6 +622,33 @@ func (g *Game) continueTrickAfterWuxiekPass(events *[]GameEvent) error {
 	}
 	g.resetTimer()
 	return nil
+}
+
+// playTrickAsGuoHe 执行过河拆桥效果（用于奇袭）
+func (g *Game) playTrickAsGuoHe(seat int, target PlayTarget, events *[]GameEvent) error {
+	// 创建一张虚拟的过河拆桥牌
+	fakeCard := Card{
+		ID:   "qixi_guobe",
+		Kind:  CardGuoHe,
+		Name:  "过河拆桥",
+		Label: "过河拆桥",
+	}
+	
+	targetSeat := target.SeatIndex
+	if targetSeat < 0 || targetSeat >= len(g.Players) {
+		targetSeat = g.opponentOf(seat)
+	}
+	
+	if !g.isValidPlayTarget(seat, targetSeat, CardGuoHe) {
+		return ErrInvalidTarget
+	}
+	
+	if !g.hasTakeableCard(targetSeat) {
+		return ErrInvalidTarget
+	}
+	
+	g.notifyBecameTarget(targetSeat, seat, fakeCard, events)
+	return g.startWuxiekTrickWindow(seat, targetSeat, targetSeat, fakeCard, target, events)
 }
 
 func (g *Game) applyLebuSkipDirect(seat int, events *[]GameEvent) {
@@ -422,72 +675,284 @@ func (g *Game) applyLebuSkip(seat int, events *[]GameEvent) error {
 	return nil
 }
 
+// cancelTrickWithWuxiek 有人出了无懈可击后，将其加入无懈链，继续问下一个人
 func (g *Game) cancelTrickWithWuxiek(pending PendingCombat, events *[]GameEvent) error {
+	wuxiekSeat := pending.TargetIndex // RespondWuxiek 中已记录打出无懈可击的人
 	g.Pending = nil
-	seat := pending.TargetIndex
 
 	switch pending.ResponseMode {
-	case ResponseModeWuxiekLebu:
-		p := &g.Players[seat]
-		p.SkipPlay = false
-		g.removeJudgeByKind(seat, CardLeBu)
+	case ResponseModeWuxiekGuose:
+		target := pending.EffectTarget
+		g.removeJudgeByKind(target, CardLeBu)
+		g.Players[target].SkipPlay = false
 		g.Phase = PhasePlaying
 		g.TurnStep = StepPlay
-		g.CurrentTurn = seat
+		g.CurrentTurn = pending.SourceIndex
+		g.Message = fmt.Sprintf("【国色】的【乐不思蜀】被【无懈可击】抵消")
+		*events = append(*events, GameEvent{
+			Type: "trick_cancelled", PlayerIndex: pending.SourceIndex, TargetIndex: target, Message: g.Message,
+		})
+		g.resetTimer()
+	case ResponseModeWuxiekLebu:
+		p := &g.Players[wuxiekSeat]
+		p.SkipPlay = false
+		g.removeJudgeByKind(wuxiekSeat, CardLeBu)
+		g.Phase = PhasePlaying
+		g.TurnStep = StepPlay
+		g.CurrentTurn = wuxiekSeat
 		g.Message = fmt.Sprintf("【乐不思蜀】被【无懈可击】抵消，%s 可正常出牌", p.Name)
+		g.resetTimer()
 	case ResponseModeWuxiekBingliang:
-		p := &g.Players[seat]
+		p := &g.Players[wuxiekSeat]
 		p.SkipDraw = false
-		g.removeJudgeByKind(seat, CardBingLiang)
+		g.removeJudgeByKind(wuxiekSeat, CardBingLiang)
 		g.Phase = PhasePlaying
 		g.TurnStep = StepDraw
-		g.CurrentTurn = seat
+		g.CurrentTurn = wuxiekSeat
 		g.Message = fmt.Sprintf("【兵粮寸断】被【无懈可击】抵消，%s 正常摸牌", p.Name)
-		g.drawCards(seat, g.drawCountFor(seat), events)
+		g.drawCards(wuxiekSeat, g.drawCountFor(wuxiekSeat), events)
 		if g.IsFinished() {
 			return nil
 		}
 		if p.SkipPlay {
 			if p.hasJudgeKind(CardLeBu) {
-				g.startWuxiekLebuJudgeWindow(seat, events)
+				g.startWuxiekLebuJudgeWindow(wuxiekSeat, events)
 				return nil
 			}
-			g.applyLebuSkipDirect(seat, events)
+			g.applyLebuSkipDirect(wuxiekSeat, events)
 			return nil
 		}
 		g.TurnStep = StepPlay
+		g.resetTimer()
 	case ResponseModeWuxiekShandian:
-		g.removeJudgeByKind(seat, CardShanDian)
+		g.removeJudgeByKind(wuxiekSeat, CardShanDian)
 		g.Phase = PhasePlaying
 		g.TurnStep = StepDraw
-		g.CurrentTurn = seat
+		g.CurrentTurn = wuxiekSeat
 		g.Message = fmt.Sprintf("【闪电】被【无懈可击】抵消")
 		*events = append(*events, GameEvent{
-			Type:        "trick_cancelled",
-			PlayerIndex: pending.SourceIndex,
-			TargetIndex: pending.TargetIndex,
-			Card:        &pending.Card,
-			Message:     g.Message,
+			Type: "trick_cancelled", PlayerIndex: pending.SourceIndex, TargetIndex: pending.TargetIndex,
+			Card: &pending.Card, Message: g.Message,
 		})
-		return g.resumeBeginTurnAfterLightning(seat, events)
 	default:
+		// 锦囊被无懈可击抵消：记录到链中，继续问下一个
 		g.Phase = PhasePlaying
 		g.TurnStep = StepPlay
 		g.CurrentTurn = pending.SourceIndex
 		g.Message = fmt.Sprintf("【%s】被【无懈可击】抵消", pending.Card.Name)
+		*events = append(*events, GameEvent{
+			Type: "trick_cancelled", PlayerIndex: pending.SourceIndex, TargetIndex: pending.TargetIndex,
+			Card: &pending.Card, Message: g.Message,
+		})
+		if pending.Card.Kind == CardJueDou {
+			g.tryJiangDraw(pending.SourceIndex, pending.Card, events)
+		}
+		g.resetTimer()
 	}
-	*events = append(*events, GameEvent{
-		Type:        "trick_cancelled",
-		PlayerIndex: pending.SourceIndex,
-		TargetIndex: pending.TargetIndex,
-		Card:        &pending.Card,
-		Message:     g.Message,
-	})
-	if pending.Card.Kind == CardJueDou {
-		g.tryJiangDraw(pending.SourceIndex, pending.Card, events)
+	return nil
+}
+
+// setWuxiekMessage 根据当前无懈窗口状态设置提示消息
+func (g *Game) setWuxiekMessage() {
+	if g.Pending == nil {
+		return
+	}
+	actor := g.Pending.ActorSeat
+	if actor < 0 || actor >= len(g.Players) {
+		return
+	}
+	actorName := g.Players[actor].Name
+	chain := g.Pending.WuxiekChain
+	trickName := g.Pending.Card.Name
+
+	// 确定被无懈的目标描述
+	targetDesc := ""
+	sourceName := g.Players[g.Pending.SourceIndex].Name
+	switch g.Pending.Card.Kind {
+	case CardWuGu:
+		pickerName := ""
+		if g.Pending.WuguPickSeat >= 0 && g.Pending.WuguPickSeat < len(g.Players) {
+			pickerName = g.Players[g.Pending.WuguPickSeat].Name
+		}
+		if len(chain) == 0 {
+			targetDesc = fmt.Sprintf("%s 的选牌", pickerName)
+		}
+	default:
+		// 普通锦囊：显示为 "XX 的【锦囊名】"
+		if len(chain) == 0 {
+			targetDesc = fmt.Sprintf("%s 的【%s】", sourceName, trickName)
+		}
+	}
+
+	if actor == g.HumanPlayer {
+		if len(chain) > 0 {
+			lastName := g.Players[chain[len(chain)-1].Seat].Name
+			g.Message = fmt.Sprintf("是否对 %s 的【无懈可击】使用【无懈可击】？", lastName)
+		} else {
+			g.Message = fmt.Sprintf("是否对【%s】使用【无懈可击】？", targetDesc)
+		}
+	} else {
+		if len(chain) > 0 {
+			lastName := g.Players[chain[len(chain)-1].Seat].Name
+			g.Message = fmt.Sprintf("等待 %s 响应 %s 的【无懈可击】...", actorName, lastName)
+		} else {
+			g.Message = fmt.Sprintf("等待 %s 决定是否出【无懈可击】...", actorName)
+		}
+	}
+}
+
+// advanceWuxiekQueueAfterPass 当前响应者跳过，推进到下一个
+func (g *Game) advanceWuxiekQueueAfterPass(seat int, events *[]GameEvent) {
+	if g.Pending == nil || len(g.Pending.ResponseQueue) == 0 {
+		g.finalizeWuxiekChain(events)
+		return
+	}
+	// 记录队列起始座位
+	queueStart := g.Pending.ResponseQueue[0]
+	g.Pending.ResponseIndex++
+	if g.Pending.ResponseIndex >= len(g.Pending.ResponseQueue) {
+		g.Pending.ResponseIndex = 0
+	}
+	// 如果队列只有一个人，或已回到队列起点，终止
+	if len(g.Pending.ResponseQueue) == 1 || g.Pending.ResponseQueue[g.Pending.ResponseIndex] == queueStart {
+		g.finalizeWuxiekChain(events)
+		return
+	}
+	g.advanceToNextWuxiekResponder(events)
+}
+
+// nextAliveSeat 返回指定座位的下一个存活玩家
+func (g *Game) nextAliveSeat(seat int) int {
+	n := len(g.Players)
+	for i := 1; i <= n; i++ {
+		next := (seat + i) % n
+		if g.Players[next].HP > 0 {
+			return next
+		}
+	}
+	return seat
+}
+
+// finalizeWuxiekChain 统计无懈可击链，决定锦囊是否生效
+func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
+	if g.Pending == nil {
+		return
+	}
+	chainLen := len(g.Pending.WuxiekChain)
+	source := g.Pending.SourceIndex
+	effectTarget := g.Pending.EffectTarget
+	trick := g.Pending.Card
+	spec := PlayTarget{SeatIndex: effectTarget, Zone: g.Pending.TargetZone, CardID: g.Pending.TargetCardID}
+
+	// 保存 AOE 队列信息和五谷状态（在清空 Pending 之前）
+	aoeQueue := g.Pending.AoeQueue
+	aoeRequiredKind := g.Pending.RequiredKind
+	isAoe := trick.Kind == CardNanMan || trick.Kind == CardWanJian
+	isTaoYuan := trick.Kind == CardTaoYuan
+	isWuGu := trick.Kind == CardWuGu
+	wuguPicker := g.Pending.WuguPickSeat
+	wuguRevealed := append([]Card(nil), g.Pending.RevealedCards...)
+
+	g.Pending = nil
+	g.Phase = PhasePlaying
+	g.TurnStep = StepPlay
+	g.CurrentTurn = source
+
+	if chainLen%2 == 1 {
+		// 奇数张无懈可击 → 锦囊被抵消（或AOE/五谷/桃园玩家跳过）
+		if isAoe {
+			g.Message = fmt.Sprintf("【无懈可击】抵消了【%s】的效果，%s 无需出牌", trick.Name, g.Players[effectTarget].Name)
+			*events = append(*events, GameEvent{
+				Type:        "trick_cancelled",
+				PlayerIndex: effectTarget,
+				TargetIndex: effectTarget,
+				Card:        &trick,
+				Message:     g.Message,
+			})
+			g.continueAoeAfterTarget(source, trick, aoeRequiredKind, aoeQueue, events)
+			return
+		}
+		if isTaoYuan {
+			g.Message = fmt.Sprintf("【无懈可击】阻止了 %s 回复体力", g.Players[effectTarget].Name)
+			*events = append(*events, GameEvent{
+				Type:        "trick_cancelled",
+				PlayerIndex: effectTarget,
+				TargetIndex: effectTarget,
+				Card:        &trick,
+				Message:     g.Message,
+			})
+			g.continueTaoYuanAfterTarget(source, aoeQueue, events)
+			return
+		}
+		if isWuGu {
+			g.Message = fmt.Sprintf("【无懈可击】阻止了 %s 选牌", g.Players[wuguPicker].Name)
+			// 标记当前 picker 已被跳过
+			g.wuguPicked[wuguPicker] = true
+			next := g.nextWuguPicker(wuguPicker, source)
+			if next == source {
+				g.finishWugu(source, events)
+				return
+			}
+			g.startWuguPickFor(source, next, wuguRevealed, events)
+			return
+		}
+		g.Message = fmt.Sprintf("【%s】被【无懈可击】抵消", trick.Name)
+		g.resetTimer()
+		return
+	}
+	// 偶数张（含0）→ 锦囊生效（或AOE/五谷/桃园玩家继续）
+	if isAoe {
+		rest := append([]int(nil), aoeQueue...)
+		_ = g.startAoeResponse(source, effectTarget, trick, aoeRequiredKind, rest, events)
+		return
+	}
+	if isTaoYuan {
+		if g.Players[effectTarget].HP < g.Players[effectTarget].MaxHP {
+			g.Players[effectTarget].HP++
+			*events = append(*events, GameEvent{
+				Type:        "trick_heal",
+				PlayerIndex: source,
+				TargetIndex: effectTarget,
+				Heal:        1,
+				Message:     fmt.Sprintf("%s 回复 1 点体力", g.Players[effectTarget].Name),
+			})
+		}
+		g.continueTaoYuanAfterTarget(source, aoeQueue, events)
+		return
+	}
+	if isWuGu {
+		// 无懈通过（偶数链），picker 直接选牌
+		g.wuguPickPass(wuguPicker, wuguRevealed, source, events)
+		return
+	}
+	n := len(g.Players)
+	if source < 0 || source >= n {
+		g.resetTimer()
+		return
+	}
+	if effectTarget < 0 || effectTarget >= n {
+		effectTarget = source
+	}
+	g.continueTrickAfterWuxiekPassDirect(source, effectTarget, trick, spec, events)
+}
+
+// continueTrickAfterWuxiekPassDirect 锦囊生效（无懈窗口结束）
+func (g *Game) continueTrickAfterWuxiekPassDirect(source, target int, trick Card, spec PlayTarget, events *[]GameEvent) {
+	switch trick.Kind {
+	case CardGuoHe:
+		_ = g.resolveGuoHe(source, target, spec, events)
+	case CardTanNang:
+		_ = g.resolveTanNang(source, target, spec, events)
+	case CardJueDou:
+		_ = g.startCardResponse(source, target, trick, CardSha, fmt.Sprintf("%s 对 %s 发起【决斗】，%s 需出杀", g.Players[source].Name, g.Players[target].Name, g.Players[target].Name), events)
+	case CardTaoYuan:
+		g.resolveTaoYuan(source, events)
+	case CardWuZhong:
+		g.Message = fmt.Sprintf("%s 使用【无中生有】，摸两张牌", g.Players[source].Name)
+		*events = append(*events, GameEvent{Type: "trick_effect", PlayerIndex: source, TargetIndex: source, Message: g.Message})
+		g.drawCards(source, 2, events)
 	}
 	g.resetTimer()
-	return nil
 }
 
 func (g *Game) cancelAoeSelfWithWuxiek(pending PendingCombat, events *[]GameEvent) error {
@@ -553,7 +1018,7 @@ func (g *Game) playEquip(seat int, cardID string, events *[]GameEvent) error {
 
 func equipSlot(kind string) string {
 	switch kind {
-	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6:
+	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardWeapon7, CardWeapon8, CardWeapon9:
 		return EquipWeapon
 	case CardArmor, CardArmorVine:
 		return EquipArmor
@@ -665,69 +1130,214 @@ func takeCardPtr(slot **Card, cardID string, label string) (Card, string, bool) 
 }
 
 func (g *Game) resolveGuoHe(seat, target int, spec PlayTarget, events *[]GameEvent) error {
-	card, label, ok := g.takeTargetCard(target, spec, events)
-	if !ok {
-		return ErrInvalidTarget
+	// 无懈通过后，打开选牌窗口，让玩家选择要拆掉的牌
+	msg := fmt.Sprintf("%s 对 %s 使用【过河拆桥】，请选择要拆掉的牌", g.Players[seat].Name, g.Players[target].Name)
+	err := g.OpenTakeWindow(TakeWindowConfig{
+		SkillID:          "", // 不是技能，是锦囊牌
+		ResponseMode:     ResponseModeGuoHe,
+		ActorSeat:        seat,
+		SubjectSeat:      target,
+		OriginSeat:       seat,
+		MaxTake:          1,
+		Destination:      TakeDestination{Zone: ZoneVoid, Seat: -1}, // 弃置到虚无（直接进弃牌堆）
+		Message:          msg,
+		EventType:        "guohe_discard",
+		PassClosesWindow: true,
+		OnEachTake:       guoheOnEachTake,
+		OnComplete:       guoheTakeComplete,
+	}, events)
+	if err != nil {
+		return err
 	}
+	return nil
+}
+
+func guoheOnEachTake(g *Game, card Card, label string, events *[]GameEvent) error {
+	// 将牌放入弃牌堆
 	g.DiscardPile = append(g.DiscardPile, card)
-	g.Message = fmt.Sprintf("%s 拆掉 %s 的%s", g.Players[seat].Name, g.Players[target].Name, label)
+	source := g.Pending.ActorSeat
+	target := g.Pending.SubjectSeat
+	msg := fmt.Sprintf("%s 拆掉 %s 的%s", g.Players[source].Name, g.Players[target].Name, label)
+	g.Message = msg
 	*events = append(*events, GameEvent{
 		Type:        "trick_effect",
-		PlayerIndex: seat,
+		PlayerIndex: source,
 		TargetIndex: target,
 		Card:        &card,
-		Message:     g.Message,
+		Message:     msg,
 	})
 	return nil
 }
 
-func (g *Game) resolveTanNang(seat, target int, spec PlayTarget, events *[]GameEvent) error {
-	card, label, ok := g.takeTargetCard(target, spec, events)
-	if !ok {
-		return ErrInvalidTarget
+func guoheTakeComplete(g *Game, events *[]GameEvent) error {
+	// 选牌完成，回到出牌阶段
+	// 先保存 ActorSeat（出牌者），因为 Pending 会被清空
+	source := -1
+	if g.Pending != nil {
+		source = g.Pending.ActorSeat
 	}
-	g.Players[seat].Hand = append(g.Players[seat].Hand, card)
+	g.Pending = nil
+	g.Phase = PhasePlaying
+	g.TurnStep = StepPlay
+	if source < 0 {
+		// 如果 ActorSeat 无效，尝试从事件中获取
+		for i := len(*events) - 1; i >= 0; i-- {
+			if (*events)[i].Type == "play_trick" && (*events)[i].Card != nil && (*events)[i].Card.Kind == CardGuoHe {
+				source = (*events)[i].PlayerIndex
+				break
+			}
+		}
+	}
+	g.CurrentTurn = source
+	g.resetTimer()
+	return nil
+}
+
+func (g *Game) resolveTanNang(seat, target int, spec PlayTarget, events *[]GameEvent) error {
+	// 无懈通过后，打开选牌窗口，让玩家选择要获得的牌
+	msg := fmt.Sprintf("%s 对 %s 使用【顺手牵羊】，请选择要获得的牌", g.Players[seat].Name, g.Players[target].Name)
+	err := g.OpenTakeWindow(TakeWindowConfig{
+		SkillID:          "", // 不是技能，是锦囊牌
+		ResponseMode:     ResponseModeTanNang,
+		ActorSeat:        seat,
+		SubjectSeat:      target,
+		OriginSeat:       seat,
+		MaxTake:          1,
+		Destination:      TakeDestination{Zone: ZoneHand, Seat: seat}, // 获得的牌放入手牌
+		Message:          msg,
+		EventType:        "tannang_take",
+		PassClosesWindow: true,
+		OnEachTake:       tannangOnEachTake,
+		OnComplete:       tannangTakeComplete,
+	}, events)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func tannangOnEachTake(g *Game, card Card, label string, events *[]GameEvent) error {
+	// 牌已经通过 TakeOne 函数放入目标区域（手牌）
+	source := g.Pending.ActorSeat
+	target := g.Pending.SubjectSeat
+	msg := fmt.Sprintf("%s 获得 %s 的%s", g.Players[source].Name, g.Players[target].Name, label)
+	g.Message = msg
 	g.syncCounts()
-	g.Message = fmt.Sprintf("%s 获得 %s 的%s", g.Players[seat].Name, g.Players[target].Name, label)
 	*events = append(*events, GameEvent{
 		Type:        "trick_effect",
-		PlayerIndex: seat,
+		PlayerIndex: source,
 		TargetIndex: target,
 		Card:        &card,
-		Message:     g.Message,
+		Message:     msg,
 		Amount:      1,
 	})
 	return nil
 }
 
-func (g *Game) resolveTaoYuan(seat int, events *[]GameEvent) {
-	g.Message = fmt.Sprintf("%s 使用【桃园结义】", g.Players[seat].Name)
-	for i := range g.Players {
-		if g.Players[i].HP >= g.Players[i].MaxHP {
-			continue
-		}
-		g.Players[i].HP++
-		*events = append(*events, GameEvent{
-			Type:        "trick_heal",
-			PlayerIndex: seat,
-			TargetIndex: i,
-			Heal:        1,
-			Message:     fmt.Sprintf("%s 回复 1 点体力", g.Players[i].Name),
-		})
+func tannangTakeComplete(g *Game, events *[]GameEvent) error {
+	// 选牌完成，回到出牌阶段
+	// 先保存 ActorSeat（出牌者），因为 Pending 会被清空
+	source := -1
+	if g.Pending != nil {
+		source = g.Pending.ActorSeat
 	}
+	g.Pending = nil
+	g.Phase = PhasePlaying
+	g.TurnStep = StepPlay
+	if source < 0 {
+		// 从事件中获取来源座位号
+		for i := len(*events) - 1; i >= 0; i-- {
+			if (*events)[i].Type == "play_trick" && (*events)[i].Card != nil && (*events)[i].Card.Kind == CardTanNang {
+				source = (*events)[i].PlayerIndex
+				break
+			}
+		}
+	}
+	g.CurrentTurn = source
+	g.resetTimer()
+	return nil
+}
+
+func (g *Game) resolveTaoYuan(seat int, events *[]GameEvent) {
+	// 构建需要回复的玩家队列（从使用者开始，跳过满血玩家）
+	queue := make([]int, 0, len(g.Players))
+	n := len(g.Players)
+	for i := 0; i < n; i++ {
+		s := (seat + i) % n
+		if g.Players[s].HP > 0 && g.Players[s].HP < g.Players[s].MaxHP {
+			queue = append(queue, s)
+		}
+	}
+	if len(queue) == 0 {
+		g.Message = fmt.Sprintf("%s 使用【桃园结义】，无人需要回复", g.Players[seat].Name)
+		return
+	}
+	g.Message = fmt.Sprintf("%s 使用【桃园结义】", g.Players[seat].Name)
+	*events = append(*events, GameEvent{
+		Type:        "play_trick",
+		PlayerIndex: seat,
+		TargetIndex: seat,
+		Message:     g.Message,
+	})
+	// 开始第一个人的回复（带无懈可击窗口）
+	g.startTaoYuanHeal(seat, queue[0], queue[1:], events)
+}
+
+func (g *Game) startTaoYuanHeal(source, target int, rest []int, events *[]GameEvent) {
+	g.Phase = PhaseResponse
+	g.Pending = &PendingCombat{
+		SourceIndex:     source,
+		TargetIndex:     target,
+		ReturnIndex:     source,
+		Card:            Card{Kind: CardTaoYuan, Name: "桃园结义"},
+		ResponseMode:    "",
+		AllowWuxiek:     true,
+		AoeQueue:        rest,
+		TaoYuanQueue:    true,
+	}
+	g.Message = fmt.Sprintf("【桃园结义】：%s 回复 1 点体力？可出【无懈可击】阻止", g.Players[target].Name)
+	g.resetTimer()
+	*events = append(*events, GameEvent{
+		Type:        "taoyuan_offer",
+		PlayerIndex: source,
+		TargetIndex: target,
+		Message:     g.Message,
+	})
+}
+
+// continueTaoYuanAfterTarget 桃园结义：当前目标处理完毕，继续下一个
+func (g *Game) continueTaoYuanAfterTarget(source int, rest []int, events *[]GameEvent) {
+	if len(rest) == 0 {
+		g.Phase = PhasePlaying
+		g.TurnStep = StepPlay
+		g.CurrentTurn = source
+		g.Message = fmt.Sprintf("%s 继续出牌", g.Players[source].Name)
+		g.resetTimer()
+		return
+	}
+	next := rest[0]
+	newRest := append([]int(nil), rest[1:]...)
+	g.startTaoYuanHeal(source, next, newRest, events)
 }
 
 func (g *Game) startCardResponse(seat, target int, card Card, requiredKind string, message string, events *[]GameEvent) error {
 	g.Phase = PhaseResponse
 	allowWuxiek := card.Kind == CardNanMan || card.Kind == CardWanJian
 	g.appendWushuangMessage(seat, card.Kind, &message)
+	
+	// 计算伤害：决斗伤害可能受裸衣影响
+	damage := 1
+	if card.Kind == CardJueDou && g.getSkillCounter(seat, counterLuoyiActive) > 0 {
+		damage = 2  // 裸衣+1
+	}
+	
 	g.Pending = &PendingCombat{
 		SourceIndex:     seat,
 		TargetIndex:     target,
 		ReturnIndex:     seat,
 		Card:            card,
 		RequiredKind:    requiredKind,
-		Damage:          1,
+		Damage:          damage,
 		AllowWuxiek:     allowWuxiek,
 		ResponsesNeeded: g.wushuangResponsesNeeded(seat, card.Kind),
 	}
@@ -748,14 +1358,12 @@ func (g *Game) startCardResponse(seat, target int, card Card, requiredKind strin
 func (g *Game) startAoeTrick(source int, card Card, requiredKind string, events *[]GameEvent) error {
 	queue := g.filterAoeQueue(g.aoeResponderQueue(source), card.Kind)
 	if len(queue) == 0 {
-		g.notifyInstantTrickUsed(source, card.Kind, events)
 		return nil
 	}
 	rest := append([]int(nil), queue[1:]...)
 	if err := g.startAoeResponse(source, queue[0], card, requiredKind, rest, events); err != nil {
 		return err
 	}
-	g.notifyInstantTrickUsed(source, card.Kind, events)
 	return nil
 }
 
@@ -821,12 +1429,19 @@ func (g *Game) playTao(seat int, cardID string, events *[]GameEvent) error {
 	if !ok || cardObj.Kind != CardTao {
 		return ErrInvalidCard
 	}
-
 	played := g.removeHandCard(seat, idx, events)
+	return g.playTaoWithCard(seat, played, events)
+}
+
+// playTaoWithCard 用已移除的牌当桃使用（支持装备牌变牌）
+func (g *Game) playTaoWithCard(seat int, played Card, events *[]GameEvent) error {
+	p := &g.Players[seat]
+	if p.HP >= p.MaxHP {
+		return ErrInvalidCard
+	}
 	g.DiscardPile = append(g.DiscardPile, played)
 	p.HP++
 	g.Message = fmt.Sprintf("%s 使用【桃】，体力 %d/%d", p.Name, p.HP, p.MaxHP)
-
 	*events = append(*events, GameEvent{
 		Type:        "play_tao",
 		PlayerIndex: seat,

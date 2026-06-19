@@ -4,14 +4,18 @@ const (
 	MinPlayers = 2
 	MaxPlayers = 4
 
-	PhasePlaying  = "playing"
-	PhaseResponse = "response"
-	PhaseFinished = "finished"
+	PhasePlaying   = "playing"
+	PhaseResponse  = "response"
+	PhaseHPChange  = "hp_change" // 血量变化阶段
+	PhaseFinished  = "finished"
 
-	StepPrepare = "prepare"
-	StepDraw    = "draw"
-	StepPlay    = "play"
-	StepDiscard = "discard"
+	StepStart    = "start"
+	StepPrepare  = "prepare"
+	StepJudge    = "judge"
+	StepDraw     = "draw"
+	StepPlay     = "play"
+	StepDiscard  = "discard"
+	StepFinish   = "finish"
 
 	DefaultMaxHP    = 4
 	InitialHandSize = 4
@@ -38,15 +42,40 @@ const (
 	CardHuoGong   = "huogong"
 	CardTieSuo    = "tiesuo"
 
+	// 属性杀
+	CardShaFire    = "sha_fire"
+	CardShaThunder = "sha_thunder"
+
+	// 伤害类型
+	DamageTypeNormal  = "normal"
+	DamageTypeFire    = "fire"
+	DamageTypeThunder = "thunder"
+
+	// 朱雀羽扇
+	CardWeapon7 = "weapon_7"
+	// 雌雄双股剑
+	CardWeapon8 = "weapon_8"
+	// 贯石斧
+	CardWeapon9 = "weapon_9"
+
+	// 锦囊作用域
+	TrickScopeSingle = "single"
+	TrickScopeAoe    = "aoe"
+
 	ResponseModeCard       = "card"
 	ResponseModeWuxiekTrick = "wuxiek_trick"
 	ResponseModeWuxiekLebu  = "wuxiek_lebu"
 	ResponseModeWuxiekBingliang = "wuxiek_bingliang"
 	ResponseModeWuxiekShandian  = "wuxiek_shandian"
+	ResponseModeWuxiekGuose     = "wuxiek_guose"
 	ResponseModePeekDeck        = "peek_deck"
 	ResponseModeWuguPick        = "wugu_pick"
 	ResponseModeGuanYuFollow = "guanyu_follow"
 	ResponseModeQilinBow     = "qilin_bow"
+	ResponseModeWeapon8     = "weapon_8"
+	ResponseModeWeapon9     = "weapon_9"
+	ResponseModeGuoHe       = "guohe"
+	ResponseModeTanNang     = "tannang"
 
 	CardWeapon1    = "weapon_1"
 	CardWeapon2    = "weapon_2"

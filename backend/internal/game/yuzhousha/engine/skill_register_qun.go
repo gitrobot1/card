@@ -1,10 +1,35 @@
 package engine
 
 import (
+	"fmt"
+
 	"github.com/time/card/backend/internal/game/yuzhousha/skill"
 )
 
 func registerQunSkills() {
+	// 刘焉-图射
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: skill.IDTushe, Name: "图射", Kind: skill.KindPassive,
+			Desc: "当你使用非装备牌指定目标后，若你没有基本牌，则你可以摸X张牌（X为此牌指定的目标数）。",
+		},
+		CanActivate: tusheCanActivate,
+		Activate:    tusheActivate,
+	})
+	
+	// 刘焉-立牧
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: skill.IDLimu, Name: "立牧", Kind: skill.KindActive,
+			Desc: "出牌阶段，你可以将一张方块牌当【乐不思蜀】对自己使用，然后回复1点体力；你的判定区有牌时，你对攻击范围内的其他角色使用牌没有次数和距离限制。",
+		},
+		CanActivate: limuCanActivate,
+		Activate:    limuActivate,
+		CardPlaysAs: limuCardPlaysAs,
+		UnlimitedSha: limuUnlimitedSha,
+		TrickIgnoresDistance: limuTrickIgnoresDistance,
+	})
+	
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
 			ID: skill.IDShuangxiong, Name: "双雄", Kind: skill.KindActive,
@@ -51,6 +76,16 @@ func registerQunSkills() {
 			Desc: "主公技，其他群雄角色可以在你需要时给你一张【闪】。",
 			InactiveIn1v1: true,
 		},
+	})
+	
+	// 华佗-青囊
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: skill.IDQingnang, Name: "青囊", Kind: skill.KindActive,
+			Desc: "出牌阶段限一次，你可以弃置一张手牌，令一名角色回复1点体力。",
+		},
+		CanActivate: qingnangCanActivate,
+		Activate:    qingnangActivate,
 	})
 }
 
@@ -187,4 +222,58 @@ func guidaoAIActivate(r skill.Runtime, seat int) error {
 		}
 	}
 	return r.PassGuidao(seat)
+}
+
+func qingnangCanActivate(r skill.Runtime, seat int) bool {
+	if !r.HasSkill(seat, skill.IDQingnang) {
+		return false
+	}
+	// 出牌阶段才能激活
+	if r.Phase() != PhasePlaying || r.TurnStep() != StepPlay || r.CurrentTurn() != seat {
+		return false
+	}
+	// 本回合已使用过青囊，不能再次激活
+	if r.SkillCounter(seat, "qingnang_used") > 0 {
+		return false
+	}
+	// 检查是否有手牌
+	return r.PlayerHandCount(seat) > 0
+}
+
+func qingnangActivate(r skill.Runtime, seat int, req skill.ActivateReq) error {
+	if len(req.CardIDs) == 0 {
+		return ErrInvalidCard
+	}
+	// 弃置一张手牌
+	g := r.(*gameSkillRuntime).g
+	events := r.(*gameSkillRuntime).events
+	idx, _, ok := g.findCard(seat, req.CardIDs[0])
+	if !ok {
+		return ErrInvalidCard
+	}
+	discarded := g.removeHandCard(seat, idx, events)
+	g.DiscardPile = append(g.DiscardPile, discarded)
+	g.runCardsDiscardedHooks(seat, "cost", []Card{discarded}, events)
+	
+	// 令目标回复1点体力
+	target := req.TargetIndex
+	if target >= 0 && target < len(g.Players) {
+		p := &g.Players[target]
+		if p.HP < p.MaxHP {
+			p.HP++
+			*events = append(*events, GameEvent{
+				Type:        "skill_heal",
+				PlayerIndex: target,
+				TargetIndex: seat,
+				SkillID:     skill.IDQingnang,
+				Message:     fmt.Sprintf("%s 对 %s 使用【青囊】，回复1点体力", g.Players[seat].Name, g.Players[target].Name),
+			})
+		}
+	}
+	
+	// 标记本回合已使用过青囊
+	g.setSkillCounter(seat, "qingnang_used", 1)
+	g.appendSkillEvent(events, skill.IDQingnang, seat, target, g.Message)
+	g.resetTimer()
+	return nil
 }

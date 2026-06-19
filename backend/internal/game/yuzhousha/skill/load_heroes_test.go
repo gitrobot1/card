@@ -58,8 +58,8 @@ func TestParseHeroesJSONStandardPack(t *testing.T) {
 
 func TestLoadEmbeddedHeroesPickableSet(t *testing.T) {
 	loaded := PickableCharacters()
-	if len(loaded) != 34 {
-		t.Fatalf("pickable count: got %d want 34", len(loaded))
+	if len(loaded) != 35 {
+		t.Fatalf("pickable count: got %d want 35", len(loaded))
 	}
 
 	loadedSet := make(map[string]struct{}, len(loaded))
@@ -80,8 +80,8 @@ func TestLoadEmbeddedHeroesPickableSet(t *testing.T) {
 
 func TestLoadEmbeddedAllHeroesPickableCount(t *testing.T) {
 	loaded := PickableCharacters()
-	if len(loaded) != 34 {
-		t.Fatalf("pickable count: got %d want 34", len(loaded))
+	if len(loaded) != 35 {
+		t.Fatalf("pickable count: got %d want 35", len(loaded))
 	}
 	ids := map[string]bool{}
 	for _, c := range loaded {
@@ -99,8 +99,21 @@ func TestParseHeroesJSONSPAndShen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sp) != 1 || sp[0].def.ID != CharSpZhaoYun {
-		t.Fatalf("sp pack: %+v", sp)
+	if len(sp) != 2 {
+		t.Fatalf("sp pack: want 2 heroes, got %d: %+v", len(sp), sp)
+	}
+	foundSP := false
+	foundJie := false
+	for _, h := range sp {
+		if h.def.ID == CharSpZhaoYun {
+			foundSP = true
+		}
+		if h.def.ID == "jie_xu_sheng" {
+			foundJie = true
+		}
+	}
+	if !foundSP || !foundJie {
+		t.Fatalf("sp pack missing heroes: %+v", sp)
 	}
 	shen, err := ParseHeroesJSON(yzsdata.ShenHeroesJSON)
 	if err != nil {

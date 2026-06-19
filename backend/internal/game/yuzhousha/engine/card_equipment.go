@@ -4,6 +4,33 @@ package engine
 
 const counterChained = "chained"
 
+// removeEquipCard 从装备区移除牌
+func (g *Game) removeEquipCard(seat int, zone string, events *[]GameEvent) Card {
+	p := &g.Players[seat]
+	var card *Card
+	switch zone {
+	case EquipWeapon:
+		card = p.Weapon
+		p.Weapon = nil
+	case EquipArmor:
+		card = p.Armor
+		p.Armor = nil
+	case EquipPlusHorse:
+		card = p.PlusHorse
+		p.PlusHorse = nil
+	case EquipMinusHorse:
+		card = p.MinusHorse
+		p.MinusHorse = nil
+	default:
+		return Card{}
+	}
+	if card == nil {
+		return Card{}
+	}
+	g.syncCounts()
+	return *card
+}
+
 func (g *Game) hasVineArmor(seat int) bool {
 	p := &g.Players[seat]
 	return p.Armor != nil && p.Armor.Kind == CardArmorVine
@@ -18,8 +45,10 @@ func (g *Game) vineBlocksTrick(target int, kind string) bool {
 	if !g.hasVineArmor(target) {
 		return false
 	}
+	// 藤甲：南蛮入侵、万箭齐发无效（锁定技）
+	// 注意：普通杀无效的逻辑在 applyDamage 中处理，这里只处理锦囊牌
 	switch kind {
-	case CardGuoHe, CardTanNang, CardJueDou, CardNanMan, CardWanJian:
+	case CardNanMan, CardWanJian:
 		return true
 	default:
 		return false
@@ -61,13 +90,61 @@ func (g *Game) adjustDamageAmount(source, target, amount int, card Card, isFire,
 	if amount <= 0 {
 		amount = 1
 	}
-	if card.Kind == CardSha && g.hasWeaponKind(source, CardWeapon6) && len(g.Players[target].Hand) == 0 {
+	if isSha(card.Kind) && g.hasWeaponKind(source, CardWeapon6) && len(g.Players[target].Hand) == 0 {
 		amount++
 	}
-	if !ignoreArmor && g.hasVineArmor(target) && (isFire || card.Kind == CardSha) {
+	if !ignoreArmor && g.hasVineArmor(target) && (isFire || card.DamageType == DamageTypeFire) {
 		amount++
 	}
 	return amount
+}
+
+// isSha 判断是否为任意种类的杀（含属性杀）。
+func isSha(kind string) bool {
+	return kind == CardSha || kind == CardShaFire || kind == CardShaThunder
+}
+
+// convertCardToKind 将牌的 Kind 统一转为目标类型（用于技能变牌）
+func (g *Game) convertCardToKind(card Card, targetKind string) Card {
+	switch targetKind {
+	case CardSha:
+		card.Kind = CardSha
+		card.DamageType = DamageTypeNormal
+		card.Name = "杀"
+	case CardShan:
+		card.Kind = CardShan
+		card.Name = "闪"
+	case CardTao:
+		card.Kind = CardTao
+		card.Name = "桃"
+	case CardJiu:
+		card.Kind = CardJiu
+		card.Name = "酒"
+	case CardGuoHe:
+		card.Kind = CardGuoHe
+		card.Name = "过河拆桥"
+	case CardTanNang:
+		card.Kind = CardTanNang
+		card.Name = "顺手牵羊"
+	case CardJueDou:
+		card.Kind = CardJueDou
+		card.Name = "决斗"
+	case CardLeBu:
+		card.Kind = CardLeBu
+		card.Name = "乐不思蜀"
+	case CardWuxiek:
+		card.Kind = CardWuxiek
+		card.Name = "无懈可击"
+	case CardShaFire:
+		card.Kind = CardShaFire
+		card.DamageType = DamageTypeFire
+		card.Name = "火杀"
+	case CardShaThunder:
+		card.Kind = CardShaThunder
+		card.DamageType = DamageTypeThunder
+		card.Name = "雷杀"
+	}
+	return card
 }
 
 func (g *Game) spreadChainedFireDamage(source, primaryTarget, amount int, card Card, events *[]GameEvent) {
@@ -79,7 +156,7 @@ func (g *Game) spreadChainedFireDamage(source, primaryTarget, amount int, card C
 			continue
 		}
 		dmg := g.adjustDamageAmount(source, seat, amount, card, true, false)
-		g.applyDamage(source, seat, dmg, card, events)
+		g.applyDamageWithHook(source, seat, dmg, card, events)
 		*events = append(*events, GameEvent{
 			Type:        "trick_hit",
 			PlayerIndex: source,

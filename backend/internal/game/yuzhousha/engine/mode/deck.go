@@ -3,6 +3,8 @@ package mode
 // 牌种类（与 engine Card* 常量字符串一致，mode 包不依赖 engine）
 const (
 	DeckKindSha       = "sha"
+	DeckKindShaFire   = "sha_fire"
+	DeckKindShaThunder = "sha_thunder"
 	DeckKindShan      = "shan"
 	DeckKindWuxiek    = "wuxiek"
 	DeckKindTao       = "tao"
@@ -24,6 +26,9 @@ const (
 	DeckKindWeapon4   = "weapon_4"
 	DeckKindWeapon5   = "weapon_5"
 	DeckKindWeapon6   = "weapon_6"
+	DeckKindWeapon7   = "weapon_7"
+	DeckKindWeapon8   = "weapon_8"
+	DeckKindWeapon9   = "weapon_9"
 	DeckKindArmor     = "armor"
 	DeckKindArmorVine = "armor_vine"
 	DeckKindHuoGong   = "huogong"
@@ -53,12 +58,32 @@ type DeckProfile struct {
 	InitialHandSize int
 }
 
+// TEST_TRICKS: 临时测试牌堆——全是锦囊牌，方便测试无懈可击和群体锦囊
+func TestTrickDeckSpecs() []DeckSpec {
+	return []DeckSpec{
+		{DeckKindWuxiek, 8},
+		{DeckKindWuGu, 12},
+		{DeckKindGuohe, 4},
+		{DeckKindTanNang, 4},
+		{DeckKindJueDou, 4},
+		{DeckKindWuZhong, 4},
+		{DeckKindNanMan, 4},
+		{DeckKindWanJian, 4},
+		{DeckKindTaoYuan, 4},
+		{DeckKindLeBu, 4},
+		{DeckKindBingLiang, 4},
+		{DeckKindShanDian, 2},
+	}
+}
+
 // BasicDeckSpecs 当前全员默认牌堆（64 张，含 1 闪电）。
 func BasicDeckSpecs() []DeckSpec {
 	return []DeckSpec{
-		{DeckKindSha, 10},
+		{DeckKindSha, 5},
+		{DeckKindShaFire, 3},
+		{DeckKindShaThunder, 2},
 		{DeckKindShan, 4},
-		{DeckKindWuxiek, 3},
+		{DeckKindWuxiek, 4},
 		{DeckKindTao, 4},
 		{DeckKindJiu, 3},
 		{DeckKindGuohe, 2},
@@ -70,7 +95,7 @@ func BasicDeckSpecs() []DeckSpec {
 		{DeckKindLeBu, 2},
 		{DeckKindBingLiang, 2},
 		{DeckKindShanDian, 1},
-		{DeckKindWuGu, 2},
+		{DeckKindWuGu, 4},
 		{DeckKindTaoYuan, 2},
 		{DeckKindWeapon1, 1},
 		{DeckKindWeapon2, 1},
@@ -78,6 +103,9 @@ func BasicDeckSpecs() []DeckSpec {
 		{DeckKindWeapon4, 1},
 		{DeckKindWeapon5, 1},
 		{DeckKindWeapon6, 1},
+		{DeckKindWeapon7, 1},
+		{DeckKindWeapon8, 1},
+		{DeckKindWeapon9, 1},
 		{DeckKindArmor, 3},
 		{DeckKindArmorVine, 2},
 		{DeckKindHuoGong, 2},
@@ -117,7 +145,9 @@ func Identity5DeckSpecs() []DeckSpec {
 // Identity8DeckSpecs 八人身份局专用牌堆（90 张，无闪电；较 legacy 增基础牌与锦囊以支撑 8 人消耗）。
 func Identity8DeckSpecs() []DeckSpec {
 	return []DeckSpec{
-		{DeckKindSha, 18},
+		{DeckKindSha, 10},
+		{DeckKindShaFire, 5},
+		{DeckKindShaThunder, 3},
 		{DeckKindShan, 10},
 		{DeckKindWuxiek, 4},
 		{DeckKindTao, 7},
@@ -130,7 +160,7 @@ func Identity8DeckSpecs() []DeckSpec {
 		{DeckKindJueDou, 2},
 		{DeckKindLeBu, 3},
 		{DeckKindBingLiang, 3},
-		{DeckKindWuGu, 2},
+		{DeckKindWuGu, 4},
 		{DeckKindTaoYuan, 2},
 		{DeckKindWeapon1, 1},
 		{DeckKindWeapon2, 1},
@@ -138,6 +168,9 @@ func Identity8DeckSpecs() []DeckSpec {
 		{DeckKindWeapon4, 1},
 		{DeckKindWeapon5, 1},
 		{DeckKindWeapon6, 1},
+		{DeckKindWeapon7, 1},
+		{DeckKindWeapon8, 1},
+		{DeckKindWeapon9, 1},
 		{DeckKindArmor, 3},
 		{DeckKindArmorVine, 2},
 		{DeckKindHuoGong, 2},
@@ -192,17 +225,11 @@ var deckProfiles = map[string]DeckProfile{
 
 // DeckProfileFor 返回模式对应的牌堆配置；未知模式用 legacy（与改前 NewBasicDeck 一致）。
 func DeckProfileFor(modeID string) DeckProfile {
-	switch NormalizeID(modeID) {
-	case Solo3v3:
-		return deckProfiles[DeckProfileComp3v3]
-	case Solo3pDdz:
-		return deckProfiles[DeckProfileDdz3p]
-	case SoloIdentity5:
-		return deckProfiles[DeckProfileIdentity5]
-	case SoloIdentity8:
-		return deckProfiles[DeckProfileIdentity8]
-	default:
-		return deckProfiles[DeckProfileLegacy]
+	// TODO: 测试完成后恢复
+	return DeckProfile{
+		ID:              "test_tricks",
+		Specs:           TestTrickDeckSpecs(),
+		InitialHandSize: 6,
 	}
 }
 

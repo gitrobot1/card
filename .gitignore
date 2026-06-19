@@ -10,6 +10,8 @@ frontend/dist/
 frontend/dist-ssr/
 backend/bin/
 backend/tmp/
+backend/server
+server
 
 # =========================
 # Frontend tooling cache
@@ -36,12 +38,14 @@ frontend/config/app.config.json
 # Logs
 # =========================
 logs/
+**/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+backend/logs/
 
 # =========================
 # Test / coverage
@@ -67,6 +71,7 @@ frontend/.eslintcache
 # =========================
 .cursor/projects/
 .cursor/plans/
+.codebuddy/
 
 # =========================
 # Go binaries & profiling

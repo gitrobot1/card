@@ -126,6 +126,10 @@ func (g *Game) respondJijiangSha(ally int, cardID string, events *[]GameEvent) e
 		return ErrInvalidCard
 	}
 	played := g.removeHandCard(ally, idx, events)
+	// 变牌统一转为普通杀
+	if !isSha(played.Kind) {
+		played = g.convertCardToKind(played, CardSha)
+	}
 	g.DiscardPile = append(g.DiscardPile, played)
 
 	*events = append(*events, GameEvent{
@@ -147,6 +151,11 @@ func (g *Game) respondJijiangSha(ally int, cardID string, events *[]GameEvent) e
 }
 
 func (g *Game) finishJijiangUseSha(lord, target int, played Card, events *[]GameEvent) error {
+	// 朱雀羽扇：将普通杀转为火杀
+	if g.hasWeaponKind(lord, CardWeapon7) && played.DamageType == DamageTypeNormal {
+		played.DamageType = DamageTypeFire
+		played.Name = "火杀"
+	}
 	damage := g.shaBaseDamage(lord)
 	ignoreArmor := g.hasWeaponKind(lord, CardWeapon2)
 	g.Phase = PhaseResponse
@@ -229,6 +238,23 @@ func (g *Game) toggleWusheng(seat int, events *[]GameEvent) error {
 		g.Message = fmt.Sprintf("%s 发动【武圣】，可将红色牌当【杀】", g.Players[seat].Name)
 	}
 	g.appendSkillEvent(events, skill.IDWusheng, seat, -1, g.Message)
+	g.resetTimer()
+	return nil
+}
+
+func (g *Game) toggleQixi(seat int, events *[]GameEvent) error {
+	if !g.hasSkill(seat, skill.IDQixi) {
+		return ErrInvalidCard
+	}
+	active := g.getSkillCounter(seat, counterQixiActive) > 0
+	if active {
+		g.setSkillCounter(seat, counterQixiActive, 0)
+		g.Message = fmt.Sprintf("%s 取消【奇袭】", g.Players[seat].Name)
+	} else {
+		g.setSkillCounter(seat, counterQixiActive, 1)
+		g.Message = fmt.Sprintf("%s 发动【奇袭】，可将黑色牌当【过河拆桥】", g.Players[seat].Name)
+	}
+	g.appendSkillEvent(events, skill.IDQixi, seat, -1, g.Message)
 	g.resetTimer()
 	return nil
 }

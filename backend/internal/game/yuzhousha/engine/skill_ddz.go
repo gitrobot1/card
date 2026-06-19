@@ -48,6 +48,7 @@ func (g *Game) offerDdzJudgeCancelWindow(judgeSeat int, reason skill.JudgeReason
 		SavedPending:    saved,
 	}
 	g.Message = fmt.Sprintf("%s 可弃置两张手牌，取消此次判定", g.Players[g.LandlordSeat].Name)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "ddz_judge_cancel_offer",
@@ -79,6 +80,7 @@ func (g *Game) offerDdzTrickCancelWindow(seat int, resume string, events *[]Game
 	default:
 		g.Message = fmt.Sprintf("%s 可弃置两张手牌，取消此次判定", g.Players[g.LandlordSeat].Name)
 	}
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "ddz_judge_cancel_offer",

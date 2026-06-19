@@ -43,6 +43,7 @@ func (g *Game) offerGuidaoWindow(judgeSeat int, reason skill.JudgeReason, resume
 		SavedPending:    saved,
 	}
 	g.Message = fmt.Sprintf("%s 可对判定 %s 发动【鬼道】", g.Players[guidaoSeat].Name, card.Label)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	g.appendSkillEvent(events, skill.IDGuidao, guidaoSeat, judgeSeat, g.Message)
 	return true
@@ -155,7 +156,7 @@ func (g *Game) applyLeijiJudgeResult(judgeSeat int, card Card, events *[]GameEve
 
 	target := g.opponentOf(seat)
 	lightning := Card{Kind: CardShanDian, Name: "雷击"}
-	g.applyDamage(seat, target, 2, lightning, events)
+	g.applyDamageWithHook(seat, target, 2, lightning, events)
 	msg := fmt.Sprintf("%s 【雷击】判定黑色，%s 受到 2 点雷电伤害", g.Players[seat].Name, g.Players[target].Name)
 	g.appendSkillEvent(events, skill.IDLeiji, seat, target, msg)
 	*events = append(*events, GameEvent{
@@ -206,6 +207,10 @@ func (g *Game) finishShanDodgeSuccess(seat int, pending *PendingCombat, events *
 		g.Message = dodgeMsg
 		return g.finishLuanwu(pending.LuanwuOwner, events)
 	}
+	// 雌雄双股剑：杀被闪后也可能触发（标准规则是命中后，此处改为命中或被闪后均可）
+	// 标准规则：只有杀命中后才触发雌雄双股剑
+	// 此处按标准规则，在 finalizeDamageHit 中触发；若需被闪也触发，取消下行注释
+	// g.tryOfferChixiongAfterSha(source, seat, source, events)
 	g.Phase = PhasePlaying
 	g.TurnStep = StepPlay
 	g.CurrentTurn = source

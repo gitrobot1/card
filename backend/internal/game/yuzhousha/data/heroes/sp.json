@@ -6,7 +6,8 @@
       "name": "SP赵云",
       "max_hp": 4,
       "kingdom": "qun",
-      "skill_ids": ["chongzhen"],
+      "gender": "male",
+      "skill_ids": ["longdan", "chongzhen"],
       "accent_color": "#4a7c59"
     },
     {
@@ -14,6 +15,7 @@
       "name": "界徐盛",
       "max_hp": 4,
       "kingdom": "wu",
+      "gender": "male",
       "skill_ids": ["pojun"],
       "accent_color": "#1e4d7b"
     }

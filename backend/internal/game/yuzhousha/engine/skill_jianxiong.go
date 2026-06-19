@@ -45,6 +45,7 @@ func (g *Game) offerJianxiongWindow(a *DamageAftermath, events *[]GameEvent) boo
 		Card:         a.Card,
 	}
 	g.Message = fmt.Sprintf("%s 可发动【奸雄】获得 %s", g.Players[a.Target].Name, a.Card.Name)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	g.appendSkillEvent(events, skill.IDJianxiong, a.Target, a.Source, g.Message)
 	return true

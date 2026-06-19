@@ -11,8 +11,8 @@ func TestDeckProfileFor_LegacyHasShanDian(t *testing.T) {
 	if !p.HasKind(mode.DeckKindShanDian) {
 		t.Fatal("legacy deck should include shandian")
 	}
-	if p.TotalCards() != 64 {
-		t.Fatalf("legacy total=%d want 64", p.TotalCards())
+	if p.TotalCards() != 67 {
+		t.Fatalf("legacy total=%d want 67", p.TotalCards())
 	}
 }
 
@@ -21,8 +21,8 @@ func TestDeckProfileFor_3v3NoShanDian(t *testing.T) {
 	if p.HasKind(mode.DeckKindShanDian) {
 		t.Fatal("3v3 deck must not include shandian")
 	}
-	if p.TotalCards() != 63 {
-		t.Fatalf("3v3 total=%d want 63", p.TotalCards())
+	if p.TotalCards() != 66 {
+		t.Fatalf("3v3 total=%d want 66", p.TotalCards())
 	}
 	if p.ID != mode.DeckProfileComp3v3 {
 		t.Fatalf("profile id=%q want %q", p.ID, mode.DeckProfileComp3v3)
@@ -34,8 +34,8 @@ func TestDeckProfileFor_Identity8LargeDeck(t *testing.T) {
 	if p.HasKind(mode.DeckKindShanDian) {
 		t.Fatal("identity_8 deck must not include shandian")
 	}
-	if p.TotalCards() != 90 {
-		t.Fatalf("identity_8 total=%d want 90", p.TotalCards())
+	if p.TotalCards() != 93 {
+		t.Fatalf("identity_8 total=%d want 93", p.TotalCards())
 	}
 	if p.ID != mode.DeckProfileIdentity8 {
 		t.Fatalf("profile id=%q want %q", p.ID, mode.DeckProfileIdentity8)
@@ -48,11 +48,15 @@ func TestDeckProfileFor_Identity8LargeDeck(t *testing.T) {
 
 func TestDeckProfileFor_DdzExtraSha(t *testing.T) {
 	p := mode.DeckProfileFor(mode.Solo3pDdz)
-	if p.CountKind(mode.DeckKindSha) != 13 {
-		t.Fatalf("ddz sha=%d want 13", p.CountKind(mode.DeckKindSha))
+	// 普通杀 5+3=8，另加 火杀 3 雷杀 2，共 13 张杀
+	if p.CountKind(mode.DeckKindSha) != 8 {
+		t.Fatalf("ddz sha=%d want 8", p.CountKind(mode.DeckKindSha))
 	}
-	if p.TotalCards() != 67 {
-		t.Fatalf("ddz total=%d want 67", p.TotalCards())
+	if p.CountKind(mode.DeckKindShaFire) != 3 {
+		t.Fatalf("ddz sha_fire=%d want 3", p.CountKind(mode.DeckKindShaFire))
+	}
+	if p.TotalCards() != 70 {
+		t.Fatalf("ddz total=%d want 70", p.TotalCards())
 	}
 	if p.ID != mode.DeckProfileDdz3p {
 		t.Fatalf("profile id=%q want %q", p.ID, mode.DeckProfileDdz3p)
@@ -68,14 +72,15 @@ func TestDeckProfileFor_Identity5TunedKeepsShanDian(t *testing.T) {
 	if !p.HasKind(mode.DeckKindShanDian) {
 		t.Fatal("identity_5 should keep shandian for now")
 	}
-	if p.CountKind(mode.DeckKindSha) != 12 {
-		t.Fatalf("identity_5 sha=%d want 12", p.CountKind(mode.DeckKindSha))
+	// 普通杀 5+2=7，另加 火杀 3 雷杀 2，共 12 张杀
+	if p.CountKind(mode.DeckKindSha) != 7 {
+		t.Fatalf("identity_5 sha=%d want 7", p.CountKind(mode.DeckKindSha))
 	}
 	if p.CountKind(mode.DeckKindTao) != 5 {
 		t.Fatalf("identity_5 tao=%d want 5", p.CountKind(mode.DeckKindTao))
 	}
-	if p.TotalCards() != 67 {
-		t.Fatalf("identity_5 total=%d want 67", p.TotalCards())
+	if p.TotalCards() != 70 {
+		t.Fatalf("identity_5 total=%d want 70", p.TotalCards())
 	}
 	if p.ID != mode.DeckProfileIdentity5 {
 		t.Fatalf("profile id=%q want %q", p.ID, mode.DeckProfileIdentity5)
@@ -84,7 +89,7 @@ func TestDeckProfileFor_Identity5TunedKeepsShanDian(t *testing.T) {
 
 func TestDeckProfileFor_UnknownUsesLegacy(t *testing.T) {
 	p := mode.DeckProfileFor("not-a-mode")
-	if p.TotalCards() != 64 {
-		t.Fatalf("unknown mode total=%d want 64", p.TotalCards())
+	if p.TotalCards() != 67 {
+		t.Fatalf("unknown mode total=%d want 67", p.TotalCards())
 	}
 }

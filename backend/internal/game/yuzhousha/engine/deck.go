@@ -13,6 +13,10 @@ func cardName(kind string) string {
 	switch kind {
 	case CardSha:
 		return "杀"
+	case CardShaFire:
+		return "火杀"
+	case CardShaThunder:
+		return "雷杀"
 	case CardShan:
 		return "闪"
 	case CardTao:
@@ -55,6 +59,12 @@ func cardName(kind string) string {
 		return "麒麟弓"
 	case CardWeapon6:
 		return "古锭刀"
+	case CardWeapon7:
+		return "朱雀羽扇"
+	case CardWeapon8:
+		return "雌雄双股剑"
+	case CardWeapon9:
+		return "贯石斧"
 	case CardArmor:
 		return "八卦阵"
 	case CardArmorVine:
@@ -82,6 +92,33 @@ func NewDeckForMode(modeID string) []Card {
 	return buildDeckFromProfile(mode.DeckProfileFor(modeID))
 }
 
+// trickScope 返回锦囊的作用域。
+func trickScope(kind string) string {
+	switch kind {
+	case CardNanMan, CardWanJian:
+		return TrickScopeAoe
+	case CardGuoHe, CardTanNang, CardJueDou, CardLeBu, CardBingLiang, CardShanDian,
+		CardWuGu, CardTaoYuan, CardWuZhong, CardWuxiek, CardHuoGong, CardTieSuo:
+		return TrickScopeSingle
+	default:
+		return ""
+	}
+}
+
+// damageType 返回杀牌的伤害类型。
+func damageType(kind string) string {
+	switch kind {
+	case CardShaFire:
+		return DamageTypeFire
+	case CardShaThunder:
+		return DamageTypeThunder
+	case CardSha:
+		return DamageTypeNormal
+	default:
+		return ""
+	}
+}
+
 func buildDeckFromProfile(profile mode.DeckProfile) []Card {
 	specs := profile.Specs
 	kinds := make([]string, 0, profile.TotalCards())
@@ -96,12 +133,14 @@ func buildDeckFromProfile(profile mode.DeckProfile) []Card {
 	for i, kind := range kinds {
 		pc := suitPool[i%len(suitPool)]
 		deck = append(deck, Card{
-			ID:    fmt.Sprintf("%s-%d", kind, i+1),
-			Kind:  kind,
-			Suit:  string(pc.Suit),
-			Rank:  int(pc.Rank),
-			Label: pc.Label,
-			Name:  cardName(kind),
+			ID:         fmt.Sprintf("%s-%d", kind, i+1),
+			Kind:       kind,
+			Suit:       string(pc.Suit),
+			Rank:       int(pc.Rank),
+			Label:      pc.Label,
+			Name:       cardName(kind),
+			TrickScope: trickScope(kind),
+			DamageType: damageType(kind),
 		})
 	}
 	return deck

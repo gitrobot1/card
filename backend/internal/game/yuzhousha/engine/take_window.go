@@ -165,7 +165,7 @@ func (g *Game) validateTakeActor(actor int) error {
 		return ErrWrongPhase
 	}
 	if g.Pending.WindowKind != WindowKindTake && g.Pending.ResponseMode != ResponseModeSkillFankui &&
-		g.Pending.ResponseMode != ResponseModeSkillTuxi && g.Pending.ResponseMode != ResponseModeSkillQixi &&
+		g.Pending.ResponseMode != ResponseModeSkillTuxi &&
 		g.Pending.ResponseMode != ResponseModeSkillPojun {
 		return ErrWrongPhase
 	}
@@ -284,7 +284,7 @@ func (g *Game) TakeOne(actor int, zone ZoneID, cardID string, events *[]GameEven
 		switch g.Pending.ResponseMode {
 		case ResponseModeSkillPojun:
 			g.Message = fmt.Sprintf("%s 继续发动【破军】", g.Players[actorSeat].Name)
-		case ResponseModeSkillFankui, ResponseModeSkillTuxi, ResponseModeSkillQixi:
+		case ResponseModeSkillFankui, ResponseModeSkillTuxi:
 			if tw.cfg.SkillEventLabel != "" {
 				g.Message = fmt.Sprintf("%s 可继续发动【%s】", g.Players[actorSeat].Name, tw.cfg.SkillEventLabel)
 			} else {

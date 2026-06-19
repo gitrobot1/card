@@ -63,6 +63,7 @@ import {
   pendingSuppressPlaySubmit,
   type PendingContext,
 } from './pendingRegistry'
+import { isMyPendingActor } from './pending/helpers'
 
 const YZS_CARD_WIDTH = 64
 
@@ -130,16 +131,8 @@ const seatAt = (seat: number) => state.value?.players[seat]
 const isFinished = computed(() => state.value?.phase === 'finished')
 const isResponse = computed(() => state.value?.phase === 'response')
 const isMyTurn = computed(() => state.value?.current_turn === mySeat.value)
-const isMyResponse = computed(
-  () =>
-    isResponse.value &&
-    (state.value?.pending?.target_index === mySeat.value ||
-      (state.value?.pending?.response_mode === 'skill_pojun' &&
-        state.value?.pending?.source_index === mySeat.value) ||
-      (state.value?.pending?.response_mode === 'dying_rescue' &&
-        state.value?.pending?.source_index === mySeat.value) ||
-      (state.value?.pending?.response_mode === 'wugu_pick' &&
-        state.value?.pending?.wugu_pick_seat === mySeat.value)),
+const isMyResponse = computed(() =>
+  isMyPendingActor(state.value, mySeat.value),
 )
 const isMyPrepare = computed(
   () =>
@@ -158,7 +151,7 @@ const isPeekDeck = computed(
   () =>
     isResponse.value &&
     state.value?.pending?.response_mode === 'peek_deck' &&
-    state.value?.pending?.target_index === mySeat.value,
+    state.value?.pending?.actor_seat === mySeat.value,
 )
 const peekDeckSkillId = computed(() => state.value?.pending?.skill_id ?? '')
 const isMyPlay = computed(
@@ -177,14 +170,14 @@ const canUsePeekDeckUI = computed(
   () => isPeekDeck.value && !loading.value && !isDealing.value,
 )
 
-const canInteract = computed(
-  () =>
-    !loading.value &&
-    !isDealing.value &&
-    !isAnimating.value &&
-    !isFinished.value &&
-    (isMyResponse.value || isMyPlay.value || isMyDiscard.value || isMyPrepare.value || isMyDraw.value || isPeekDeck.value || isJijiHeal.value),
-)
+const canInteract = computed(() => {
+  // AOE/桃园：非目标玩家可以出无懈介入
+  const aoeAux = state.value?.phase === 'response' && state.value?.pending?.allow_wuxiek === true && 
+    state.value?.pending?.response_mode !== 'wuxiek_trick' && hasWuxiekInHand.value
+  const result = !loading.value && !isDealing.value && !isAnimating.value && !isFinished.value &&
+    (isMyResponse.value || isMyPlay.value || isMyDiscard.value || isMyPrepare.value || isMyDraw.value || isPeekDeck.value || isJijiHeal.value || aoeAux)
+  return result
+})
 
 const peekDeckTopIds = ref<string[]>([])
 const peekDeckBottomIds = ref<string[]>([])
@@ -199,6 +192,7 @@ function isKongchengProtected(player = opponent.value) {
 }
 
 const myHand = computed(() => displayedHand.value)
+const hasWuxiekInHand = computed(() => myHand.value.some((c) => c.kind === 'wuxiek'))
 
 const discardNeeded = computed(() => {
   if (!isMyDiscard.value) return 0
@@ -241,7 +235,7 @@ function isDiamondCard(card: YzsCard | null | undefined) {
 
 function cardPlaysAsSha(card: YzsCard | null | undefined) {
   if (!card) return false
-  if (card.kind === 'sha') return true
+  if (card.kind === 'sha' || card.kind === 'sha_fire' || card.kind === 'sha_thunder') return true
   if (hasMySkill('longdan') && card.kind === 'shan') return true
   if (hasMySkill('wusheng') && isRedCard(card)) {
     if (isMyPlay.value && !isMyResponse.value) {
@@ -249,6 +243,8 @@ function cardPlaysAsSha(card: YzsCard | null | undefined) {
     }
     return true
   }
+  // 龙魂：方块当火杀
+  if (hasMySkill('longhun') && card.suit === 'D') return true
   return false
 }
 
@@ -257,6 +253,8 @@ function cardPlaysAsShan(card: YzsCard | null | undefined) {
   if (card.kind === 'shan') return true
   if (hasMySkill('longdan') && card.kind === 'sha') return true
   if (hasMySkill('qingguo') && isBlackCard(card)) return true
+  // 龙魂：梅花当闪
+  if (hasMySkill('longhun') && card.suit === 'C') return true
   return false
 }
 
@@ -268,6 +266,16 @@ function cardPlaysAsTao(card: YzsCard | null | undefined) {
       return state.value?.current_turn !== mySeat.value
     }
   }
+  // 龙魂：红桃当桃
+  if (hasMySkill('longhun') && card.suit === 'H') return true
+  return false
+}
+
+// cardPlaysAsWuxiek 龙魂：黑桃当无懈可击
+function cardPlaysAsWuxiek(card: YzsCard | null | undefined) {
+  if (!card) return false
+  if (card.kind === 'wuxiek') return true
+  if (hasMySkill('longhun') && card.suit === 'S') return true
   return false
 }
 
@@ -318,6 +326,7 @@ const guoseMode = ref(false)
 const shuangxiongMode = ref(false)
 const shuangxiongSelectedId = ref('')
 const guoseSelectedId = ref('')
+const guoseTarget = ref(-1)
 const liuliSelectedId = ref('')
 const wushengMode = ref(false)
 const ganglieDiscardIds = ref<string[]>([])
@@ -376,9 +385,6 @@ const isQixiTake = computed(
 const isPojun = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_pojun',
 )
-const isPojunDiscard = computed(
-  () => isResponse.value && state.value?.pending?.response_mode === 'skill_pojun_discard',
-)
 const isYinghunChoice = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_yinghun',
 )
@@ -409,20 +415,22 @@ const isDyingRescue = computed(
 const isLuanwu = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_luanwu',
 )
+const isGuoHeTake = computed(
+  () => isResponse.value && state.value?.pending?.response_mode === 'guohe',
+)
+const isTanNangTake = computed(
+  () => isResponse.value && state.value?.pending?.response_mode === 'tannang',
+)
+const isTakeWindow = computed(
+  () => isGuoHeTake.value || isTanNangTake.value,
+)
+const takeWindowTargetOptions = computed(() => {
+  if (!isTakeWindow.value) return []
+  const takenSeat = state.value?.pending?.subject_seat ?? -1
+  if (takenSeat < 0) return []
+  return takeableOptionsForPlayer(takenSeat)
+})
 const isSkillOnlyResponse = computed(() => pendingIsSkillOnly(state.value))
-
-const fankuiSourceSeat = computed(() =>
-  isFankui.value ? (state.value?.pending?.source_index ?? opponentSeat.value) : opponentSeat.value,
-)
-const tuxiSourceSeat = computed(() =>
-  isTuxiTake.value ? (state.value?.pending?.source_index ?? opponentSeat.value) : opponentSeat.value,
-)
-const qixiSourceSeat = computed(() =>
-  isQixiTake.value ? (state.value?.pending?.source_index ?? opponentSeat.value) : opponentSeat.value,
-)
-const pojunVictimSeat = computed(() =>
-  isPojun.value ? (state.value?.pending?.target_index ?? opponentSeat.value) : opponentSeat.value,
-)
 
 const qilinHorseOptions = computed(() => {
   if (!isQilinBow.value) return []
@@ -434,7 +442,16 @@ const qilinHorseOptions = computed(() => {
   return options
 })
 
-const selectedCard = computed(() => myHand.value.find((c) => c.id === selectedId.value) ?? null)
+const selectedCard = computed(() => {
+  const c = myHand.value.find((c) => c.id === selectedId.value)
+  if (c) return c
+  // 变牌模式下装备区也可被选中（武圣/奇袭/国色/双雄）
+  if (wushengMode.value || qixiMode.value || guoseMode.value || shuangxiongMode.value) {
+    return equippedCards(myPlayer.value).find((c) => c.id === selectedId.value) ?? null
+  }
+  // 五谷丰登/观星等：从 revealed_cards 中查找
+  return state.value?.pending?.revealed_cards?.find((c) => c.id === selectedId.value) ?? null
+})
 const selfTargetKinds = new Set([
   'tao',
   'taoyuan',
@@ -451,6 +468,9 @@ const selfTargetKinds = new Set([
   'weapon_4',
   'weapon_5',
   'weapon_6',
+  'weapon_7',
+  'weapon_8',
+  'weapon_9',
   'armor',
   'armor_vine',
   'plus_horse',
@@ -496,6 +516,8 @@ const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu'
 function needsOpponentTarget(card: YzsCard | null | undefined) {
   if (!card) return false
   if (cardPlaysAsSha(card)) return true
+  // 奇袭模式下，所有黑色牌都当过河拆桥用，需要对对手目标
+  if (qixiMode.value && isBlackCard(card)) return true
   return opponentTargetKinds.has(card.kind)
 }
 
@@ -544,7 +566,6 @@ const targeting = useYzsTargeting({
   isTuxiTake,
   isQixiTake,
   isPojun,
-  isPojunDiscard,
   selectedCard,
   canPlaySha,
   cardPlaysAsSha,
@@ -552,10 +573,6 @@ const targeting = useYzsTargeting({
   equipTagLabel,
   isKongchengProtected,
   attackRangeOf,
-  fankuiSourceSeat,
-  tuxiSourceSeat,
-  qixiSourceSeat,
-  pojunVictimSeat,
 })
 
 const {
@@ -597,6 +614,7 @@ function makePendingContext(): PendingContext | null {
     isMyResponse: isMyResponse.value,
     canUsePeekDeckUI: canUsePeekDeckUI.value,
     selectedId,
+    selectedDiscardIds,
     selectedTargetZone,
     selectedTargetCardId,
     selectedQilinZone,
@@ -669,7 +687,9 @@ function canPlayCard(card: YzsCard | null | undefined) {
       return fanjianSelectedId.value !== ''
     }
     if (qixiMode.value) {
-      return qixiSelectedId.value !== ''
+      // 奇袭激活后走普通出牌路径：需要选牌 + 选目标
+      if (!card || !isBlackCard(card)) return false
+      return shaTarget.value != null
     }
     if (guoseMode.value) {
       return guoseSelectedId.value !== ''
@@ -686,6 +706,8 @@ function canPlayCard(card: YzsCard | null | undefined) {
     if (card.kind === 'jiu') return !myPlayer.value?.drunk
     if (needsOpponentTarget(card)) {
       if (!canTargetOpponentWith(card) || shaTarget.value == null) return false
+      // 过河拆桥/顺手牵羊：具体选牌在 TakeWindow 弹窗中处理，出牌阶段只需选目标
+      if (card.kind === 'guohe' || card.kind === 'tannang') return true
       if (selectedCardNeedsTargetCard(card)) return selectedTargetZone.value !== ''
       return true
     }
@@ -702,7 +724,10 @@ const showActionButton = computed(
   () =>
     !isDealing.value &&
     !isFinished.value &&
-    (isMyResponse.value || isMyPlay.value || isMyDiscard.value || isMyPrepare.value || isMyDraw.value || isPeekDeck.value || isJijiHeal.value),
+    (isMyResponse.value || isMyPlay.value || isMyDiscard.value || isMyPrepare.value || isMyDraw.value || isPeekDeck.value || isJijiHeal.value ||
+     // AOE/桃园阶段：非目标玩家也可以出无懈可击
+     (state.value?.phase === 'response' && state.value?.pending?.allow_wuxiek === true &&
+      state.value?.pending?.response_mode !== 'wuxiek_trick')),
 )
 
 const canSubmitPeekDeck = computed(() => {
@@ -738,6 +763,8 @@ const canSubmitCancel = computed(() => {
   if (!isMyResponse.value || loading.value || isAnimating.value) return false
   const ctx = makePendingContext()
   if (!ctx) return true
+  // 五谷丰登选牌阶段：非选牌者不能取消
+  if (isWuguPick.value && state.value?.pending?.actor_seat !== mySeat.value) return false
   return pendingAllowsCancel(ctx) ?? true
 })
 
@@ -768,7 +795,7 @@ const canSubmitTuxi = computed(() => {
 
 const canSubmitQixi = computed(() => isQixiTake.value && pendingSkillSubmit('qixi'))
 const canSubmitPojun = computed(() => {
-  if (!isPojun.value && !isPojunDiscard.value) return false
+  if (!isPojun.value) return false
   const ctx = makePendingContext()
   if (!ctx) return false
   return pendingCanSubmitSkill(ctx, 'pojun') ?? false
@@ -891,12 +918,10 @@ function showSeatSkillPanels(seat: number) {
     takeableTargetOptions().length > 0 &&
     (shaTarget.value === seat ||
       (!hasTeamMode.value && seat === opponentSeat.value && shaTarget.value == null))
+  const p = state.value?.pending
   return (
-    (isQilinBow.value && (state.value?.pending?.effect_target ?? opponentSeat.value) === seat) ||
-    (isFankui.value && fankuiSourceSeat.value === seat) ||
-    (isTuxiTake.value && tuxiSourceSeat.value === seat) ||
-    (isQixiTake.value && qixiSourceSeat.value === seat) ||
-    (isPojun.value && pojunVictimSeat.value === seat) ||
+    (isQilinBow.value && (p?.effect_target ?? opponentSeat.value) === seat) ||
+    (p?.subject_seat != null && p.subject_seat === seat) ||
     takeableHere
   )
 }
@@ -904,16 +929,7 @@ function showSeatSkillPanels(seat: number) {
 function showSeatTimer(seat: number) {
   if (isDealing.value || isFinished.value) return false
   if (isResponse.value) {
-    if (state.value?.pending?.response_mode === 'wugu_pick') {
-      return state.value?.pending?.wugu_pick_seat === seat
-    }
-    if (state.value?.pending?.response_mode === 'peek_deck') {
-      return state.value?.pending?.target_index === seat
-    }
-    if (state.value?.pending?.response_mode === 'skill_ganglie_choice') {
-      return state.value?.pending?.target_index === seat
-    }
-    return state.value?.pending?.target_index === seat
+    return state.value?.pending?.actor_seat === seat
   }
   if (isMyPrepare.value && seat === mySeat.value) return true
   if (isMyDiscard.value && seat === mySeat.value) return true
@@ -966,6 +982,7 @@ function clearQixiMode() {
 function clearGuoseMode() {
   guoseMode.value = false
   guoseSelectedId.value = ''
+  guoseTarget.value = -1
 }
 
 function clearShuangxiongMode() {
@@ -990,13 +1007,28 @@ function clearTargeting() {
   selectedQilinZone.value = ''
   hitFlashSeat.value = null
   blockFlashSeat.value = null
-  clearSkillSelectModes()
-  clearWushengMode()
+  // 不清除变牌模式（武圣/奇袭），用户取消选牌后仍可继续用技能
+  // clearSkillSelectModes()
+  // clearWushengMode()
 }
 
 
+const wushengModeInitialized = ref(false)
+const qixiModeInitialized = ref(false)
+
 function syncWushengFromState() {
-  wushengMode.value = (myPlayer.value?.skill_counters?.wusheng_active ?? 0) > 0
+  // 只在首次加载时从后端同步，后续由前端自己管理状态
+  if (!wushengModeInitialized.value) {
+    wushengMode.value = (myPlayer.value?.skill_counters?.wusheng_active ?? 0) > 0
+    wushengModeInitialized.value = true
+  }
+}
+
+function syncQixiFromState() {
+  if (!qixiModeInitialized.value) {
+    qixiMode.value = (myPlayer.value?.skill_counters?.qixi_active ?? 0) > 0
+    qixiModeInitialized.value = true
+  }
 }
 
 const animations = useYzsAnimations({
@@ -1023,6 +1055,7 @@ const animations = useYzsAnimations({
   selectedDiscardIds,
   syncWeaponSkillTargeting,
   syncWushengFromState,
+  syncQixiFromState,
   clearTargeting,
 })
 
@@ -1148,7 +1181,16 @@ function toggleDiscardSelection(id: string) {
 
 function selectCard(id: string) {
   if (!canInteract.value) return
-  const card = myHand.value.find((c) => c.id === id)
+  // 从手牌或装备区查找卡牌（武圣/奇袭/国色等变牌模式下可用装备区牌）
+  let card = myHand.value.find((c) => c.id === id)
+  if (!card) {
+    const equips = equippedCards(myPlayer.value)
+    card = equips.find((c: YzsCard) => c.id === id)
+  }
+  // 五谷丰登/观星等：从 revealed_cards 中查找
+  if (!card) {
+    card = state.value?.pending?.revealed_cards?.find((c) => c.id === id)
+  }
   if (!card) return
 
   if (isMyDiscard.value) {
@@ -1189,8 +1231,20 @@ function selectCard(id: string) {
   }
 
   if (qixiMode.value && isMyPlay.value) {
-    if (!isBlackCard(card)) return
-    qixiSelectedId.value = qixiSelectedId.value === id ? '' : id
+    // 奇袭激活后，黑色牌视为过河拆桥，走普通出牌路径（选牌→选目标→打出）
+    if (selectedId.value === id) {
+      selectedId.value = ''
+      // 取消选中时只清 target，不清奇袭模式
+      shaTarget.value = null
+      selectedTargetZone.value = ''
+      selectedTargetCardId.value = ''
+      return
+    }
+    selectedId.value = id
+    // 选牌时只清 target，不清奇袭模式（让用户重新选目标）
+    shaTarget.value = null
+    selectedTargetZone.value = ''
+    selectedTargetCardId.value = ''
     return
   }
 
@@ -1275,6 +1329,14 @@ async function submitCancelWusheng() {
 
 async function submitSkill(skillId: string) {
   if (!state.value || loading.value) return
+
+  // 过河拆桥/顺手牵羊 TakeWindow：走 pending handler
+  if (skillId === '' && isTakeWindow.value) {
+    const ctx = makePendingContext()
+    if (ctx && (await pendingSubmitSkill(ctx, ''))) return
+    return
+  }
+
   if (skillId === 'rende') {
     if (rendeSelectedIds.value.length === 0 || shaTarget.value == null) return
     await act(() =>
@@ -1318,17 +1380,17 @@ async function submitSkill(skillId: string) {
     return
   }
   if (skillId === 'qixi') {
+    // 响应阶段（TakeWindow 选牌）：通过 pending handler 处理
     if (isQixiTake.value) {
       const ctx = makePendingContext()
       if (ctx && (await pendingSubmitSkill(ctx, 'qixi'))) return
-    } else if (qixiSelectedId.value !== '') {
-      await act(() =>
-        useYuzhoushaSkill(state.value!.id, 'qixi', {
-          cardIds: [qixiSelectedId.value],
-        }),
-      )
-      clearQixiMode()
     }
+    return
+  }
+  // 空 skillId：过河拆桥/顺手牵羊的 TakeWindow 选牌，走 pending handler
+  if (skillId === '' && isMyResponse.value) {
+    const ctx = makePendingContext()
+    if (ctx && (await pendingSubmitSkill(ctx, ''))) return
     return
   }
   if (skillId === 'fankui') {
@@ -1449,10 +1511,10 @@ async function submitFanjianSuit(suit: string) {
   await pendingSubmitAction(ctx, `fanjian_suit:${suit}`)
 }
 
-async function submitYinghunOption(option: 'draw_both' | 'draw_two_discard') {
+async function submitYinghunOption(option: 'opp_draw_x_discard_1' | 'opp_draw_1_discard_x') {
   const ctx = makePendingContext()
   if (!ctx) return
-  const action = option === 'draw_two_discard' ? 'yinghun_draw_two_discard' : 'yinghun_draw_both'
+  const action = option === 'opp_draw_1_discard_x' ? 'yinghun_opp_draw_1_discard_x' : 'yinghun_opp_draw_x_discard_1'
   await pendingSubmitAction(ctx, action)
 }
 
@@ -1490,7 +1552,9 @@ async function submitGanglieDiscard() {
 function isSkillActivatable(skill: YzsSkillMeta) {
   if (skillBlockedInMode(skill, state.value?.mode)) return false
   if (skill.id === 'longdan' || skill.id === 'paoxiao' || skill.id === 'kongcheng') return false
-  if (skill.id === 'wusheng' && wushengMode.value && (isMyPlay.value || isMyResponse.value)) return false
+  // 武圣/奇袭 可随时 toggle（激活后可取消）
+  if (skill.id === 'wusheng' && isMyPlay.value) return true
+  if (skill.id === 'qixi' && isMyPlay.value) return true
   const ctx = makePendingContext()
   if (ctx && isMyResponse.value) {
     const handled = pendingCanSubmitSkill(ctx, skill.id)
@@ -1500,30 +1564,34 @@ function isSkillActivatable(skill: YzsSkillMeta) {
   return activatableSkillIds.value.has(skill.id)
 }
 
-function onCharacterSkillClick(skill: YzsSkillMeta) {
+async function onCharacterSkillClick(skill: YzsSkillMeta) {
   if (skillBlockedInMode(skill, state.value?.mode)) return
   if (skill.id === 'rende') {
-    activateSkill('rende')
+    await activateSkill('rende')
     return
   }
   if (skill.id === 'zhiheng') {
-    activateSkill('zhiheng')
+    await activateSkill('zhiheng')
     return
   }
   if (skill.id === 'jieyin') {
-    activateSkill('jieyin')
+    await activateSkill('jieyin')
     return
   }
   if (skill.id === 'fanjian') {
-    activateSkill('fanjian')
+    await activateSkill('fanjian')
+    return
+  }
+  if (skill.id === 'wusheng') {
+    await activateSkill('wusheng')
     return
   }
   if (skill.id === 'qixi') {
-    activateSkill('qixi')
+    await activateSkill('qixi')
     return
   }
   if (skill.id === 'guose') {
-    activateSkill('guose')
+    await activateSkill('guose')
     return
   }
   if (skill.id === 'shuangxiong') {
@@ -1531,7 +1599,7 @@ function onCharacterSkillClick(skill: YzsSkillMeta) {
       void submitSkill('shuangxiong')
       return
     }
-    activateSkill('shuangxiong')
+    await activateSkill('shuangxiong')
     return
   }
   if (skill.id === 'hunzi' && isMyPrepare.value) {
@@ -1550,7 +1618,7 @@ function onCharacterSkillClick(skill: YzsSkillMeta) {
     void submitSkill('tuxi')
     return
   }
-  if (skill.id === 'pojun' && (isPojun.value || isPojunDiscard.value)) {
+  if (skill.id === 'pojun' && isPojun.value) {
     void submitSkill('pojun')
     return
   }
@@ -1583,7 +1651,7 @@ function onCharacterSkillClick(skill: YzsSkillMeta) {
   }
 }
 
-function activateSkill(skillId: string) {
+async function activateSkill(skillId: string) {
   if (skillId === 'rende') {
     rendeMode.value = true
     rendeSelectedIds.value = []
@@ -1627,7 +1695,7 @@ function activateSkill(skillId: string) {
     return
   }
   if (skillId === 'qixi') {
-    qixiMode.value = true
+    qixiMode.value = !qixiMode.value
     qixiSelectedId.value = ''
     selectedId.value = ''
     clearRendeMode()
@@ -1636,6 +1704,9 @@ function activateSkill(skillId: string) {
     clearFanjianMode()
     clearGuoseMode()
     clearWushengMode()
+    clearShuangxiongMode()
+    // 等待后端 toggle 奇袭状态完成（确保出牌时 counter 已生效）
+    await act(() => useYuzhoushaSkill(state.value!.id, 'qixi'))
     return
   }
   if (skillId === 'guose') {
@@ -1649,6 +1720,20 @@ function activateSkill(skillId: string) {
     clearQixiMode()
     clearShuangxiongMode()
     clearWushengMode()
+    return
+  }
+  if (skillId === 'wusheng' && isMyPlay.value) {
+    wushengMode.value = !wushengMode.value
+    selectedId.value = ''
+    clearRendeMode()
+    clearZhihengMode()
+    clearJieyinMode()
+    clearFanjianMode()
+    clearQixiMode()
+    clearGuoseMode()
+    clearShuangxiongMode()
+    // 等待后端 toggle 武圣状态完成
+    await act(() => useYuzhoushaSkill(state.value!.id, 'wusheng'))
     return
   }
   if (skillId === 'shuangxiong' && isMyPlay.value) {
@@ -1757,6 +1842,16 @@ async function submitPlayCard() {
     return
   }
 
+  // AOE/桃园/五谷阶段：非目标玩家出无懈可击介入
+  if (!isMyResponse.value && state.value?.phase === 'response' && state.value?.pending?.allow_wuxiek === true) {
+    const card = selectedCard.value
+    if (card && card.kind === 'wuxiek') {
+      await act(() => respondYuzhoushaCard(state.value!.id, card.id))
+      return
+    }
+    return
+  }
+
   if (isMyResponse.value) {
     const ctx = makePendingContext()
     if (ctx && (await pendingSubmitPlay(ctx))) return
@@ -1804,9 +1899,21 @@ async function submitPlayCard() {
       await submitSkill('fanjian')
       return
     }
-    if (qixiMode.value && qixiSelectedId.value !== '') {
-      await submitSkill('qixi')
-      return
+    if (qixiMode.value && selectedCard.value && shaTarget.value != null) {
+      const card = selectedCard.value
+      if (isBlackCard(card)) {
+        // 黑色牌视为过河拆桥
+        await act(() =>
+          playYuzhoushaCard(state.value!.id, card.id, {
+            targetIndex: shaTarget.value!,
+            targetZone: selectedTargetZone.value || undefined,
+            targetCardId: selectedTargetCardId.value || undefined,
+          }),
+        )
+        clearQixiMode()
+        return
+      }
+      // 非黑色牌：不走奇袭逻辑，继续往下走普通出牌（杀/闪等）
     }
     if (guoseMode.value && guoseSelectedId.value !== '') {
       await submitSkill('guose')
@@ -1855,7 +1962,8 @@ async function submitEndTurn() {
 }
 
 async function submitCancelResponse() {
-  if (!state.value || !canSubmitCancel.value) return
+  if (!state.value) return
+  if (loading.value || isAnimating.value) return
   selectedId.value = ''
   await act(() => passYuzhoushaResponse(state.value!.id))
 }
@@ -1980,7 +2088,6 @@ onMounted(() => {
     equippedCards,
     fanjianMode,
     fanjianSelectedId,
-    fankuiSourceSeat,
     fankuiTargetOptions,
     flashSeatBlocked,
     flashSeatHit,
@@ -2024,7 +2131,6 @@ onMounted(() => {
     isMyTurn,
     isPeekDeck,
     isPojun,
-    isPojunDiscard,
     isQilinBow,
     isQixiTake,
     isRedCard,
@@ -2077,11 +2183,9 @@ onMounted(() => {
     pickTuxiTarget,
     playAreaRef,
     pojunTargetOptions,
-    pojunVictimSeat,
     qilinHorseOptions,
     qixiMode,
     qixiSelectedId,
-    qixiSourceSeat,
     qixiTargetOptions,
     removeJudgeCardFromPlayer,
     removeKnownCardFromPlayer,
@@ -2139,8 +2243,13 @@ onMounted(() => {
     syncDisplayFromState,
     syncWeaponSkillTargeting,
     syncWushengFromState,
+    syncQixiFromState,
     tableActionHint,
     tableWrapRef,
+    isGuoHeTake,
+    isTanNangTake,
+    isTakeWindow,
+    takeWindowTargetOptions,
     takeableOptionsForPlayer,
     takeableTargetOptions,
     teammateSeat,
@@ -2148,7 +2257,6 @@ onMounted(() => {
     toggleDiscardSelection,
     trickStaysInJudge,
     turnDeadline,
-    tuxiSourceSeat,
     tuxiTargetOptions,
     weaponRange,
     wushengMode,

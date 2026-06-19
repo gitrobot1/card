@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import SeatIndicator from '../doudizhu/SeatIndicator.vue'
 import { useYzsGameInject } from '../../composables/yuzhousha/useYzsGame'
 import { isIdentityMode } from '../../constants/yzsModes'
+import { suitColor, suitSymbol } from '../../constants/games'
 
 const props = withDefaults(
   defineProps<{
@@ -21,7 +22,6 @@ const {
   seatPanelClass,
   isSeatTargetable,
   onTargetSeat,
-  seatHandCount,
   equippedCards,
   equipTagTitle,
   equipTagLabel,
@@ -31,15 +31,12 @@ const {
   qilinHorseOptions,
   selectedQilinZone,
   isFankui,
-  fankuiSourceSeat,
   fankuiTargetOptions,
   pickFankuiTarget,
   isTuxiTake,
-  tuxiSourceSeat,
   tuxiTargetOptions,
   pickTuxiTarget,
   isQixiTake,
-  qixiSourceSeat,
   qixiTargetOptions,
   isMyPlay,
   selectedCardNeedsTargetCard,
@@ -49,10 +46,12 @@ const {
   pickOpponentCardTarget,
   showSeatTimer,
   secondsLeft,
+  weaponRange,
 } = useYzsGameInject()
 
 const player = computed(() => seatAt(props.seat))
 const isIdentityModeActive = computed(() => isIdentityMode(state.value?.mode))
+const takenSeat = computed(() => state.value?.pending?.subject_seat ?? -1)
 
 function identityLabel(identity?: string) {
   switch (identity) {
@@ -102,55 +101,95 @@ const identityBadgeClass = computed(() => {
 const isProtectSeat = computed(
   () => !isIdentityModeActive.value && (props.isTeammate || props.seatRole === 'protect'),
 )
+
 </script>
 
 <template>
   <div class="ddz__seat-stack" :class="stackClass">
-    <button
-      type="button"
-      class="ddz__player ddz__player--compact ddz__seat-anchor yzs__opponent-seat"
-      :class="seatPanelClass(seat, isTeammate, seatRole)"
+    <!-- 竖长角色卡片（左右布局：左侧血量竖排，右侧装备+技能） -->
+    <div
+      class="yzs__hero-card"
+      :class="[
+        `yzs__hero-card--${placement}`,
+        seatPanelClass(seat, isTeammate, seatRole),
+        { 'yzs__hero-card--targetable': isSeatTargetable(seat) },
+      ]"
       :data-seat="seat"
-      :disabled="isProtectSeat || !isSeatTargetable(seat)"
-      @click="onTargetSeat(seat)"
+      @click="isSeatTargetable(seat) && onTargetSeat(seat)"
     >
-      <span
-        class="ddz__badge ddz__badge--role"
-        :class="[
-          identityBadgeClass,
-          {
-            'ddz__badge--ally': isProtectSeat,
-            'ddz__badge--mark': !isIdentityModeActive && (seatRole === 'mark' || seatRole === 'farmer'),
-          },
-        ]"
-      >
-        {{ roleBadge }}
-      </span>
-      <span>{{ player?.name }}</span>
-      <span class="yzs__hero-name">{{ player?.character.name }}</span>
-      <span class="yzs__hp">♥ {{ player?.hp }}/{{ player?.max_hp }}</span>
-      <span class="ddz__count">{{ seatHandCount(seat) }} 张</span>
-      <span v-if="player?.drunk" class="yzs__equip-tag yzs__equip-tag--buff">酒</span>
-    </button>
-    <div v-if="equippedCards(player).length" class="yzs__equip-row">
-      <span
-        v-for="equip in equippedCards(player)"
-        :key="equip.id"
-        class="yzs__equip-tag"
-        :title="equipTagTitle(equip)"
-      >
-        {{ equipTagLabel(equip) }}
-      </span>
+
+      <!-- 左侧：血量竖排 + 手牌数（右下角，手牌数在最底部） -->
+      <div class="yzs__hero-left">
+        <div class="yzs__hero-hp-col">
+          <span v-for="i in (player?.max_hp ?? 0)" :key="i" class="yzs__hp-dot" :class="{ 'yzs__hp-dot--lost': i > (player?.hp ?? 0) }" />
+        </div>
+        <span v-if="player" class="yzs__hero-hand-tag">{{ player.hand_count ?? 0 }}</span>
+      </div>
+
+      <!-- 右侧：武将名 + 装备区 + 判定区 + 标记 -->
+      <div class="yzs__hero-right">
+        <!-- 武将名（居中） -->
+        <div class="yzs__hero-name-btn yzs__hero-name-btn--self">
+          <span>{{ player?.character.name }}</span>
+        </div>
+
+        <!-- 装备区（4行固定占位） -->
+        <div class="yzs__hero-equips">
+          <div class="yzs__equip-line" :class="{ 'yzs__equip-line--filled': !!player?.weapon }" :title="player?.weapon ? equipTagTitle(player.weapon) : '武器'">
+            <template v-if="player?.weapon">
+              <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(player.weapon.suit)}`">{{ suitSymbol(player.weapon.suit) }}</span>
+              <span class="yzs__equip-name">{{ equipTagLabel(player.weapon) }}</span>
+              <span class="yzs__equip-range">{{ weaponRange(player.weapon.kind) }}</span>
+            </template>
+            <template v-else>
+              <span class="yzs__equip-placeholder">武器</span>
+            </template>
+          </div>
+          <div class="yzs__equip-line" :class="{ 'yzs__equip-line--filled': !!player?.armor }" :title="player?.armor ? equipTagTitle(player.armor) : '防具'">
+            <template v-if="player?.armor">
+              <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(player.armor.suit)}`">{{ suitSymbol(player.armor.suit) }}</span>
+              <span class="yzs__equip-name">{{ equipTagLabel(player.armor) }}</span>
+            </template>
+            <template v-else>
+              <span class="yzs__equip-placeholder">防具</span>
+            </template>
+          </div>
+          <div class="yzs__equip-line" :class="{ 'yzs__equip-line--filled': !!player?.plus_horse }" :title="player?.plus_horse ? equipTagTitle(player.plus_horse) : '+1马'">
+            <template v-if="player?.plus_horse">
+              <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(player.plus_horse.suit)}`">{{ suitSymbol(player.plus_horse.suit) }}</span>
+              <span class="yzs__equip-name">+1马</span>
+            </template>
+            <template v-else>
+              <span class="yzs__equip-placeholder">+1马</span>
+            </template>
+          </div>
+          <div class="yzs__equip-line" :class="{ 'yzs__equip-line--filled': !!player?.minus_horse }" :title="player?.minus_horse ? equipTagTitle(player.minus_horse) : '-1马'">
+            <template v-if="player?.minus_horse">
+              <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(player.minus_horse.suit)}`">{{ suitSymbol(player.minus_horse.suit) }}</span>
+              <span class="yzs__equip-name">-1马</span>
+            </template>
+            <template v-else>
+              <span class="yzs__equip-placeholder">-1马</span>
+            </template>
+          </div>
+        </div>
+
+        <!-- 判定区 -->
+        <div v-if="judgeAreaCards(player).length" class="yzs__hero-judge">
+          <div v-for="judge in judgeAreaCards(player)" :key="judge.id" class="yzs__equip-line yzs__equip-line--judge">
+            <span class="yzs__equip-name">{{ judge.name }}</span>
+          </div>
+        </div>
+
+        <!-- 标记（酒/营等） -->
+        <div v-if="player?.drunk || player?.skill_counters?.pojun_gain_pending" class="yzs__hero-marks">
+          <span v-if="player?.drunk" class="yzs__equip-tag yzs__equip-tag--buff">酒</span>
+          <span v-if="player?.skill_counters?.pojun_gain_pending" class="yzs__equip-tag yzs__equip-tag--mark">营</span>
+        </div>
+      </div>
     </div>
-    <div v-if="judgeAreaCards(player).length" class="yzs__equip-row">
-      <span
-        v-for="judge in judgeAreaCards(player)"
-        :key="judge.id"
-        class="yzs__equip-tag yzs__equip-tag--judge"
-      >
-        {{ judge.name }}
-      </span>
-    </div>
+
+    <!-- 可选目标/技能面板 -->
     <template v-if="showSeatSkillPanels(seat)">
       <div v-if="isQilinBow && qilinHorseOptions.length" class="yzs__target-card-row">
         <button
@@ -165,7 +204,7 @@ const isProtectSeat = computed(
         </button>
       </div>
       <div
-        v-if="isFankui && fankuiSourceSeat === seat && fankuiTargetOptions.length"
+        v-if="isFankui && takenSeat === seat && fankuiTargetOptions.length"
         class="yzs__target-card-row"
       >
         <button
@@ -183,7 +222,7 @@ const isProtectSeat = computed(
         </button>
       </div>
       <div
-        v-if="isTuxiTake && tuxiSourceSeat === seat && tuxiTargetOptions.length"
+        v-if="isTuxiTake && takenSeat === seat && tuxiTargetOptions.length"
         class="yzs__target-card-row"
       >
         <button
@@ -201,7 +240,7 @@ const isProtectSeat = computed(
         </button>
       </div>
       <div
-        v-if="isQixiTake && qixiSourceSeat === seat && qixiTargetOptions.length"
+        v-if="isQixiTake && takenSeat === seat && qixiTargetOptions.length"
         class="yzs__target-card-row"
       >
         <button

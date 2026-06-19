@@ -38,6 +38,7 @@ type HeroPublic struct {
 	Name          string            `json:"name"`
 	MaxHP         int               `json:"max_hp"`
 	Kingdom       string            `json:"kingdom,omitempty"`
+	Gender        string            `json:"gender,omitempty"` // male | female
 	SkillIDs      []string          `json:"skill_ids,omitempty"`
 	Skills        []SkillMeta       `json:"skills,omitempty"`
 	AccentColor   string            `json:"accent_color,omitempty"`
@@ -163,6 +164,7 @@ func buildHeroPublic(def skill.CharacterDef, modeID string) HeroPublic {
 		Name:          c.Name,
 		MaxHP:         c.MaxHP,
 		Kingdom:       c.Kingdom,
+		Gender:        c.Gender,
 		SkillIDs:      c.SkillIDs,
 		Skills:        c.Skills,
 		AccentColor:   display.AccentColor,

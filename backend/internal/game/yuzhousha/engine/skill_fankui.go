@@ -158,7 +158,7 @@ func (g *Game) applyShandianJudgeResult(seat int, judgeCard Card, events *[]Game
 		}
 		p := &g.Players[seat]
 		source := g.opponentOf(seat)
-		g.applyDamage(source, seat, 3, lightning, events)
+		g.applyDamageWithHook(source, seat, 3, lightning, events)
 		*events = append(*events, GameEvent{
 			Type:        "trick_hit",
 			PlayerIndex: source,

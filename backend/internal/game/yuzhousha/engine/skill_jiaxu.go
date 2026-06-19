@@ -67,6 +67,7 @@ func (g *Game) ActivateLuanwu(seat int, events *[]GameEvent) error {
 		g.Players[seat].Name, g.Players[opp].Name, g.Players[seat].Name)
 	g.Message = msg
 	g.appendSkillEvent(events, skill.IDLuanwu, seat, opp, msg)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "skill_luanwu",
@@ -100,6 +101,17 @@ func (g *Game) playShaLuanwu(seat int, cardID string, targetIndex, owner int, ev
 	}
 
 	played := g.removeHandCard(seat, idx, events)
+	// 变牌统一转为普通杀
+	if !isSha(played.Kind) {
+		played = g.convertCardToKind(played, CardSha)
+	}
+
+	// 朱雀羽扇：将普通杀转为火杀
+	if g.hasWeaponKind(seat, CardWeapon7) && played.DamageType == DamageTypeNormal {
+		played.DamageType = DamageTypeFire
+		played.Name = "火杀"
+	}
+
 	g.DiscardPile = append(g.DiscardPile, played)
 	g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
 	damage := g.shaBaseDamage(seat)
@@ -143,7 +155,7 @@ func (g *Game) passLuanwu(seat int, events *[]GameEvent) error {
 	}
 	owner := g.Pending.SourceIndex
 	g.Pending = nil
-	g.applyDamage(owner, seat, 1, Card{Kind: CardJueDou, Name: "乱武"}, events)
+	g.applyDamageWithHook(owner, seat, 1, Card{Kind: CardJueDou, Name: "乱武"}, events)
 	msg := fmt.Sprintf("%s 未出【杀】，受到【乱武】1 点伤害", g.Players[seat].Name)
 	*events = append(*events, GameEvent{
 		Type:        "skill_luanwu_damage",

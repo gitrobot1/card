@@ -38,8 +38,25 @@ func TestSmoke_ShenZhaoYun_JuejingDrawBonus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 绝境：进入濒死状态时摸一张牌
+	// 设 HP=1，手牌清空
 	g.Players[0].HP = 1
-	if got := g.DrawCountForTest(0); got != engine.DrawPerTurn+2 {
-		t.Fatalf("juejing draw=%d want %d", got, engine.DrawPerTurn+2)
+	g.Players[0].Hand = nil
+	g.SyncCounts()
+
+	// 受到1点伤害，进入濒死状态（HP -> 0）
+	var events []engine.GameEvent
+	g.ApplyDamageForTest(0, 0, 1, "", "", &events)
+
+	// 检查绝境事件是否产生（进入濒死时摸一张牌）
+	hasJuejingEvent := false
+	for _, ev := range events {
+		if ev.SkillID == "juejing" {
+			hasJuejingEvent = true
+			break
+		}
+	}
+	if !hasJuejingEvent {
+		t.Fatal("expected juejing skill event when entering dying")
 	}
 }

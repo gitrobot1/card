@@ -23,7 +23,8 @@ defineProps<{
     :class="{
       'ddz__seat-indicator--left': placement === 'left',
       'ddz__seat-indicator--right': placement === 'right',
-      'ddz__seat-indicator--top': !placement || placement === 'top',
+      'ddz__seat-indicator--top': placement === 'top',
+      'ddz__seat-indicator--bottom': placement === 'bottom',
     }"
   >
     <UnoSeatDiceBadge v-if="diceBadge" :label="diceBadge" />

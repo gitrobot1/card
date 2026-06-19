@@ -69,10 +69,6 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     equipTagLabel,
     isKongchengProtected,
     attackRangeOf,
-    fankuiSourceSeat,
-    tuxiSourceSeat,
-    qixiSourceSeat,
-    pojunVictimSeat,
   } = deps
 
   const hasTeamMode = computed(
@@ -127,10 +123,6 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     const player = state.value?.players[seat]
     if (!player) return []
     const options: { zone: string; cardId: string; label: string }[] = []
-    const handCount = seat === mySeat.value ? myHand.value.length : (player.hand_count ?? 0)
-    if (handCount > 0) {
-      options.push({ zone: 'hand', cardId: '', label: `手牌 ${handCount} 张` })
-    }
     for (const equip of equippedCards(player)) {
       options.push({ zone: equipSlotOf(equip), cardId: equip.id, label: equipTagLabel(equip) })
     }
@@ -145,18 +137,20 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     return takeableOptionsForPlayer(seat)
   }
 
+  // P5: 统一用 subject_seat 获取被操作座位
+  const takenSeat = computed(() => state.value?.pending?.subject_seat ?? -1)
   const fankuiTargetOptions = computed(() =>
-    isFankui.value ? takeableOptionsForPlayer(fankuiSourceSeat.value) : [],
+    isFankui.value ? takeableOptionsForPlayer(takenSeat.value) : [],
   )
   const tuxiTargetOptions = computed(() =>
-    isTuxiTake.value ? takeableOptionsForPlayer(tuxiSourceSeat.value) : [],
+    isTuxiTake.value ? takeableOptionsForPlayer(takenSeat.value) : [],
   )
   const qixiTargetOptions = computed(() => {
     if (!isQixiTake.value) return []
-    return takeableOptionsForPlayer(qixiSourceSeat.value).filter((o) => o.zone === 'hand')
+    return takeableOptionsForPlayer(takenSeat.value).filter((o) => o.zone === 'hand')
   })
   const pojunTargetOptions = computed(() =>
-    isPojun.value ? takeableOptionsForPlayer(pojunVictimSeat.value) : [],
+    isPojun.value ? takeableOptionsForPlayer(takenSeat.value) : [],
   )
 
   function selectedCardNeedsTargetCard(card = selectedCard.value) {
@@ -173,8 +167,11 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     }
     if (!needsOpponentTarget(card)) return false
     if (card.kind === 'juedou' && isKongchengProtected(target)) return false
-    if ((card.kind === 'guohe' || card.kind === 'tannang') && takeableOptionsForPlayer(seat).length === 0) {
-      return false
+    if (card.kind === 'guohe' || card.kind === 'tannang') {
+      const t = seatAt(seat)
+      if (t && (t.hand_count ?? 0) === 0 && equippedCards(t).length === 0 && judgeAreaCards(t).length === 0) {
+        return false
+      }
     }
     if (card.kind === 'bingliang' && distanceToSeat(seat) > 1) return false
     return true

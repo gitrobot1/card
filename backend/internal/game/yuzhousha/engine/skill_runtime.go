@@ -14,11 +14,13 @@ const (
 	counterLuoyiActive         = "luoyi_active"
 	counterDrawChoicePending   = "draw_choice_pending"
 	counterTuxiDrawSkip        = "tuxi_draw_skip"
+	counterQuhuUsed            = "quhu_used"
 
 	ResponseModeSkillJijiang   = "skill_jijiang"
 	ResponseModeSkillRende     = "skill_rende"
 	ResponseModeSkillGuicai    = "skill_guicai"
 	ResponseModeSkillFankui    = "skill_fankui"
+	ResponseModeSkillPojunDiscard = "skill_pojun_discard"
 )
 
 type (
@@ -82,6 +84,8 @@ const (
 	SkillJueqing     = skill.IDJueqing
 	SkillShangshi    = skill.IDShangshi
 	SkillPojun       = skill.IDPojun
+	SkillTushe       = skill.IDTushe
+	SkillLimu         = skill.IDLimu
 
 	CharLiuBei       = skill.CharLiuBei
 	CharGuanYu       = skill.CharGuanYu
@@ -207,6 +211,29 @@ func (r *gameSkillRuntime) HandPlaysAs(seat int, asKind string) bool {
 	}
 	return false
 }
+
+// HasBlackCard 检查玩家是否有黑色牌（手牌或装备区）
+func (r *gameSkillRuntime) HasBlackCard(seat int) bool {
+	// 检查手牌
+	for _, c := range r.g.Players[seat].Hand {
+		if skill.IsBlackSuit(c.Suit) {
+			return true
+		}
+	}
+	// 检查装备区
+	for _, card := range []*Card{
+		r.g.Players[seat].Weapon,
+		r.g.Players[seat].Armor,
+		r.g.Players[seat].PlusHorse,
+		r.g.Players[seat].MinusHorse,
+	} {
+		if card != nil && skill.IsBlackSuit(card.Suit) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *gameSkillRuntime) AlivePlayerCount() int { return r.g.alivePlayerCount() }
 func (r *gameSkillRuntime) DrawPileCount() int  { return len(r.g.DrawPile) }
 func (r *gameSkillRuntime) StartPeekDeck(seat int, skillID string) error {
@@ -225,6 +252,10 @@ func (r *gameSkillRuntime) StartJijiangForResponse(lord int) error {
 
 func (r *gameSkillRuntime) ToggleWusheng(seat int) error {
 	return r.g.toggleWusheng(seat, r.events)
+}
+
+func (r *gameSkillRuntime) ToggleQixi(seat int) error {
+	return r.g.toggleQixi(seat, r.events)
 }
 
 func (g *Game) playerSkillIDs(seat int) []string {
@@ -292,15 +323,16 @@ func (g *Game) resetPlayPhaseSkillCounters(seat int) {
 	delete(p.SkillCounters, counterWushengActive)
 	delete(p.SkillCounters, counterLuoyiActive)
 	delete(p.SkillCounters, counterDrawChoicePending)
-	delete(p.SkillCounters, counterTuxiDrawSkip)
 	delete(p.SkillCounters, counterZhihengUsed)
 	delete(p.SkillCounters, counterJieyinUsed)
 	delete(p.SkillCounters, counterFanjianUsed)
-	delete(p.SkillCounters, counterQixiUsed)
+	delete(p.SkillCounters, counterQixiActive)
 	delete(p.SkillCounters, counterYinghunUsed)
-	delete(p.SkillCounters, counterGuoseUsed)
 	delete(p.SkillCounters, counterShuangxiongActive)
 	delete(p.SkillCounters, counterShuangxiongRefRed)
+	// 突袭相关计数器
+	delete(p.SkillCounters, "tuxi_selected")
+	delete(p.SkillCounters, "tuxi_max")
 }
 
 func (g *Game) setSkillCounter(seat int, key string, value int) {
@@ -364,6 +396,20 @@ func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) erro
 		if g.Pending.WindowKind == WindowKindTake && g.takeWindow != nil {
 			if req.SkillID != "" && req.SkillID != g.Pending.SkillID {
 				return ErrWrongPhase
+			}
+			// 破军批量选牌：一次性提交多张
+			if g.Pending.ResponseMode == ResponseModeSkillPojun && len(req.CardIDs) > 0 {
+				for _, cardID := range req.CardIDs {
+					if g.takeWindow == nil {
+						break
+					}
+					// 自动检测牌所在的 zone
+					zone := g.findCardZone(g.Pending.SubjectSeat, cardID)
+					if err := g.TakeOne(seat, zone, cardID, events); err != nil {
+						return err
+					}
+				}
+				return nil
 			}
 			zone := req.TargetZone
 			if zone == "" {
@@ -475,14 +521,6 @@ func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) erro
 				return ErrWrongPhase
 			}
 			return g.PojunPlace(seat, req.TargetZone, req.TargetCardID, events)
-		case ResponseModeSkillPojunDiscard:
-			if req.SkillID != SkillPojun {
-				return ErrWrongPhase
-			}
-			if len(req.CardIDs) == 0 {
-				return ErrInvalidCard
-			}
-			return g.PojunDiscardCamp(seat, req.CardIDs[0], events)
 		}
 	}
 	if g.Phase == PhaseResponse {
@@ -543,13 +581,6 @@ func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) erro
 			}
 			return g.ApplyTianxiang(seat, req.CardIDs[0], events)
 		}
-		if g.Pending != nil && g.Pending.ResponseMode == ResponseModeSkillQixi && g.Pending.TargetIndex == seat {
-			cardID := req.TargetCardID
-			if cardID == "" && len(req.CardIDs) > 0 {
-				cardID = req.CardIDs[0]
-			}
-			return g.QixiTakeFrom(seat, cardID, events)
-		}
 		if g.Pending != nil && g.Pending.ResponseMode == ResponseModeSkillYinghun && g.Pending.TargetIndex == seat {
 			discard := ""
 			if len(req.CardIDs) > 0 {
@@ -561,7 +592,7 @@ func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) erro
 			if len(req.CardIDs) == 0 {
 				return ErrInvalidCard
 			}
-			return g.YinghunDiscard(seat, req.CardIDs[0], events)
+			return g.YinghunDiscard(seat, req.CardIDs, events)
 		}
 		if g.Pending != nil && g.Pending.ResponseMode == ResponseModeSkillLiuli && g.Pending.TargetIndex == seat {
 			if req.SkillID != SkillLiuli {
@@ -686,6 +717,7 @@ func buildCharacter(charID string) Character {
 		Name:          def.Name,
 		MaxHP:         def.MaxHP,
 		Kingdom:       def.Kingdom,
+		Gender:        def.Gender,
 		SkillIDs:      append([]string(nil), def.SkillIDs...),
 		Skills:        skill.MetasForCharacter(charID),
 		DefaultSkinID: display.SkinID,
@@ -703,4 +735,36 @@ func validateCharacterIDStatic(id string) error {
 
 func RandomAICharacter(excludeID string) string {
 	return skill.RandomPickableCharacter(excludeID)
+}
+
+// PlayerHandCards 获取玩家的手牌
+func (r *gameSkillRuntime) PlayerHandCards(seat int) []skill.CardView {
+	if seat < 0 || seat >= len(r.g.Players) {
+		return nil
+	}
+	
+	// 将 []Card 转换为 []skill.CardView
+	cards := r.g.Players[seat].Hand
+	result := make([]skill.CardView, len(cards))
+	for i, card := range cards {
+		result[i] = skill.CardView{
+			ID:   card.ID,
+			Kind: card.Kind,
+			Suit: card.Suit,
+			Rank: card.Rank,
+			Name: card.Name,
+			Label: card.Label,
+		}
+	}
+	return result
+}
+
+// UseLonghunCards 使用龙魂转化的牌
+func (r *gameSkillRuntime) UseLonghunCards(seat int, cardIDs []string, asKind string, useTwoCards, isRed, isBlack bool) error {
+	return r.g.useLonghunCards(seat, cardIDs, asKind, useTwoCards, isRed, isBlack, r.events)
+}
+
+// ResponseLonghunCards 打出龙魂转化的牌
+func (r *gameSkillRuntime) ResponseLonghunCards(seat int, cardIDs []string, asKind string, useTwoCards, isRed, isBlack bool) error {
+	return r.g.responseLonghunCards(seat, cardIDs, asKind, useTwoCards, isRed, isBlack, r.events)
 }

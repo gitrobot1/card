@@ -66,6 +66,7 @@ func (g *Game) offerGuicaiWindow(judgeSeat int, reason skill.JudgeReason, resume
 		SavedPending:   saved,
 	}
 	g.Message = fmt.Sprintf("%s 可对判定 %s 发动【鬼才】", g.Players[guicaiSeat].Name, card.Label)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	g.appendSkillEvent(events, skill.IDGuicai, guicaiSeat, judgeSeat, g.Message)
 	return true

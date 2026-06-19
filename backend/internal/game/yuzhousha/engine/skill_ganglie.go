@@ -25,6 +25,7 @@ func (g *Game) offerGanglieWindow(a *DamageAftermath, events *[]GameEvent) bool 
 		GanglieIndex: a.GanglieLeft,
 	}
 	g.Message = fmt.Sprintf("%s 可发动【刚烈】进行判定", g.Players[a.Target].Name)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	g.appendSkillEvent(events, skill.IDGanglie, a.Target, a.Source, g.Message)
 	return true
@@ -84,6 +85,7 @@ func (g *Game) applyGanglieJudgeResult(owner int, judgeCard Card, events *[]Game
 		GanglieOwner: owner,
 	}
 	g.Message = fmt.Sprintf("%s 的【刚烈】生效，%s 需弃2张手牌或受到1点伤害", g.Players[owner].Name, g.Players[source].Name)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	g.appendSkillEvent(events, skill.IDGanglie, owner, source, msg)
 	return nil
@@ -95,7 +97,7 @@ func (g *Game) GanglieTakeDamage(source int, events *[]GameEvent) error {
 	}
 	owner := g.Pending.GanglieOwner
 	g.Pending = nil
-	g.applyDamage(owner, source, 1, Card{Name: "刚烈"}, events)
+	g.applyDamageWithHook(owner, source, 1, Card{Name: "刚烈"}, events)
 	msg := fmt.Sprintf("%s 受到【刚烈】1 点伤害", g.Players[source].Name)
 	*events = append(*events, GameEvent{
 		Type: "ganglie_damage", PlayerIndex: owner, TargetIndex: source, Damage: 1, Message: msg,

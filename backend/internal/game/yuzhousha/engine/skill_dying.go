@@ -38,6 +38,7 @@ func (g *Game) startDyingWindow(victim int, ctx DyingContext, events *[]GameEven
 	victimName := g.Players[victim].Name
 	askName := g.Players[victim].Name
 	g.Message = fmt.Sprintf("%s 进入濒死，%s 是否出【桃】", victimName, askName)
+	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "dying_start",
@@ -266,7 +267,32 @@ func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 	g.dyingContext = nil
 	g.Pending = nil
 	if victim >= 0 && victim < len(g.Players) {
+		// HOOK: 阵亡时（亡语，牌还在）
+		if !g.isJueqingHarm(killer) {
+			g.runSkillHooks(events, skill.HookCall{
+				Kind: skill.HookOnDeath,
+				Death: &skill.DeathCtx{
+					Victim: victim,
+					Killer: killer,
+					Reason: "damage",
+				},
+			})
+		}
+
 		g.scatterPlayerCardsOnDeath(victim, events)
+
+		// HOOK: 阵亡后（牌已弃）
+		if !g.isJueqingHarm(killer) {
+			g.runSkillHooks(events, skill.HookCall{
+				Kind: skill.HookAfterDeath,
+				Death: &skill.DeathCtx{
+					Victim: victim,
+					Killer: killer,
+					Reason: "damage",
+				},
+			})
+		}
+
 		*events = append(*events, GameEvent{
 			Type:        "dying_death",
 			PlayerIndex: victim,
