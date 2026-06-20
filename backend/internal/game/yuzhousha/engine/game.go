@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/time/card/backend/internal/game/yuzhousha/engine/mode"
@@ -196,9 +197,16 @@ func (g *Game) findCard(seat int, cardID string) (int, Card, bool) {
 	return -1, Card{}, false
 }
 
-// findCardInHandOrEquip 在手牌和装备区中查找牌
+// findCardInHandOrEquip 在手牌和装备区中查找牌。
+// 如果 cardID 匹配失败，会尝试用 expectedKind 在手牌中找第一张同类型牌（容错集智等触发摸牌导致前端ID不同步）。
 func (g *Game) findCardInHandOrEquip(seat int, cardID string) (zone string, idx int, card Card, ok bool) {
-	// 先查找手牌
+	return g.findCardInHandOrEquipKind(seat, cardID, "")
+}
+
+// findCardInHandOrEquipKind 在手牌和装备区中查找牌，expectedKind 用于容错匹配。
+// 前端 cardID 可能因状态不同步而过时，因此优先按 kind 容错匹配。
+func (g *Game) findCardInHandOrEquipKind(seat int, cardID string, expectedKind string) (zone string, idx int, card Card, ok bool) {
+	// 先按 ID 精确查找手牌
 	if idx, card, ok := g.findCard(seat, cardID); ok {
 		return string(ZoneHand), idx, card, true
 	}
@@ -214,6 +222,25 @@ func (g *Game) findCardInHandOrEquip(seat int, cardID string) (zone string, idx 
 	} {
 		if equip.card != nil && equip.card.ID == cardID {
 			return equip.zone, -1, *equip.card, true
+		}
+	}
+	// 容错：按 expectedKind 在手牌中找第一张同类型牌
+	if expectedKind != "" {
+		for i, c := range g.Players[seat].Hand {
+			if c.Kind == expectedKind || g.cardPlaysAs(seat, c, expectedKind) {
+				Logf("findCardFallback: seat=%d cardID=%s not found, using hand[%d]=%s kind=%s", seat, cardID, i, c.ID, c.Kind)
+				return string(ZoneHand), i, c, true
+			}
+		}
+	}
+	// 终极容错：从 cardID 中解析 kind（格式如 "wuxiek-3"），按 kind 查找
+	if idx := strings.Index(cardID, "-"); idx > 0 {
+		kind := cardID[:idx]
+		for i, c := range g.Players[seat].Hand {
+			if c.Kind == kind || g.cardPlaysAs(seat, c, kind) {
+				Logf("findCardFallback: seat=%d cardID=%s parsed kind=%s, using hand[%d]=%s", seat, cardID, kind, i, c.ID)
+				return string(ZoneHand), i, c, true
+			}
 		}
 	}
 	return "", -1, Card{}, false
@@ -330,6 +357,9 @@ func (g *Game) ApplyHumanTimeout(events *[]GameEvent) error {
 	if g.Phase == PhaseResponse {
 		if g.Pending != nil && g.Pending.ResponseMode == ResponseModePeekDeck {
 			return g.autoFinishPeekDeck(seat, events)
+		}
+		if g.Pending != nil && g.Pending.ResponseMode == ResponseModeWuguPick {
+			return g.autoPickWuguCard(seat, events)
 		}
 		if g.Pending != nil && g.Pending.TieqiPending && g.Pending.SourceIndex == seat {
 			return g.SkipTieqi(seat, events)

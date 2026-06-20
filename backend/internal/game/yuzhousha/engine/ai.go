@@ -254,19 +254,6 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			_ = g.PassResponse(seat, events)
 			return true
 		}
-		// AOE/桃园阶段：所有AI考虑出无懈可击介入（不区分目标是否为AI）
-		if pending.AllowWuxiek && pending.ResponseMode == "" && pending.TargetIndex >= 0 {
-			for s := range g.Players {
-				if s == pending.TargetIndex || !g.Players[s].IsAI || g.Players[s].HP <= 0 {
-					continue
-				}
-				if idx := firstCardKind(g.Players[s].Hand, CardWuxiek); idx >= 0 {
-					Logf("AI aoe/taoyuan: seat=%d plays wuxiek", s)
-					_ = g.RespondWuxiek(s, g.Players[s].Hand[idx].ID, events)
-					return true
-				}
-			}
-		}
 		// 用 ActorSeat 获取当前响应者（支持反无懈窗口 TargetIndex=-1 的情况）
 		seat := g.PendingActorSeat()
 		if seat < 0 || seat >= len(g.Players) {
@@ -301,8 +288,13 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 		}
 		if pending.ResponseMode == ResponseModeWuxiekTrick || pending.ResponseMode == ResponseModeWuxiekLebu ||
 			pending.ResponseMode == ResponseModeWuxiekBingliang || pending.ResponseMode == ResponseModeWuxiekShandian {
-			// AI 自动决定（在 advanceToNextWuxiekResponder 中已处理）
-			return true
+			// 推进到下一个响应者（一次只处理一个AI）
+			g.advanceToNextWuxiekResponder(events)
+			// 如果 Pending 还在且还是无懈模式，说明还有AI需要处理
+			return g.Pending != nil && (g.Pending.ResponseMode == ResponseModeWuxiekTrick ||
+				g.Pending.ResponseMode == ResponseModeWuxiekLebu ||
+				g.Pending.ResponseMode == ResponseModeWuxiekBingliang ||
+				g.Pending.ResponseMode == ResponseModeWuxiekShandian)
 		}
 		if pending.ResponseMode == ResponseModeDdzJudgeCancel {
 			if len(g.Players[seat].Hand) >= 2 {

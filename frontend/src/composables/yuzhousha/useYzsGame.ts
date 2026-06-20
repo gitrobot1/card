@@ -172,10 +172,11 @@ const canUsePeekDeckUI = computed(
 
 const canInteract = computed(() => {
   // AOE/桃园：非目标玩家可以出无懈介入
+  const isWuxiekPhase = state.value?.phase === 'response' && state.value?.pending?.response_mode === 'wuxiek_trick'
   const aoeAux = state.value?.phase === 'response' && state.value?.pending?.allow_wuxiek === true && 
     state.value?.pending?.response_mode !== 'wuxiek_trick' && hasWuxiekInHand.value
   const result = !loading.value && !isDealing.value && !isAnimating.value && !isFinished.value &&
-    (isMyResponse.value || isMyPlay.value || isMyDiscard.value || isMyPrepare.value || isMyDraw.value || isPeekDeck.value || isJijiHeal.value || aoeAux)
+    (isMyResponse.value || isMyPlay.value || isMyDiscard.value || isMyPrepare.value || isMyDraw.value || isPeekDeck.value || isJijiHeal.value || aoeAux || (isWuxiekPhase && hasWuxiekInHand.value))
   return result
 })
 
@@ -311,6 +312,61 @@ const isQilinBow = computed(
 const isWuguPick = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'wugu_pick',
 )
+/** 五谷丰登已选牌追踪：cardId -> 选牌者名字 */
+const wuguPickedCards = ref<Record<string, string>>({})
+/** 五谷丰登框是否可见（含延迟消失） */
+const isWuguBoardVisible = ref(false)
+
+/** 五谷丰登是否正在流程中（不含延迟） */
+const isWuguActive = computed(
+  () => isResponse.value && (state.value?.pending?.response_mode === 'wugu_pick' || state.value?.pending?.response_mode === 'wuxiek_trick') && (state.value?.pending?.revealed_cards?.length ?? 0) > 0,
+)
+
+let wuguHideTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 五谷丰登初始亮牌列表（pending 清空后仍然保留用于展示） */
+const wuguRevealedAllCache = ref<YzsCard[]>([])
+
+// 监听 state 变化追踪五谷选牌
+watch(
+  () => [state.value?.pending?.response_mode, state.value?.events?.length ?? 0] as const,
+  ([newMode, _len], [oldMode]) => {
+    const s = state.value
+    if (!s) return
+
+    // 新五谷开始（wuxiek_trick 或 wugu_pick）：清空记录，显示框
+    if ((newMode === 'wuxiek_trick' || newMode === 'wugu_pick') && 
+        oldMode !== 'wuxiek_trick' && oldMode !== 'wugu_pick') {
+      if (wuguHideTimer) { clearTimeout(wuguHideTimer); wuguHideTimer = null }
+      wuguPickedCards.value = {}
+      // 缓存初始亮牌列表
+      if (s.pending?.wugu_revealed_all?.length) {
+        wuguRevealedAllCache.value = [...s.pending.wugu_revealed_all]
+      }
+      isWuguBoardVisible.value = true
+    }
+
+    // 追踪 wugu_pick 事件（必须在结束检测之前，确保最后选牌也被记录）
+    const events = s.events ?? []
+    for (const e of events) {
+      if (e.type === 'wugu_pick' && e.card?.id && e.player_index != null) {
+        const pickerName = s.players.find((p) => p.index === e.player_index)?.name ?? `玩家${e.player_index}`
+        wuguPickedCards.value = { ...wuguPickedCards.value, [e.card.id]: pickerName }
+      }
+    }
+
+    // 五谷结束：延迟1秒后隐藏框，确保最后选牌结果可见
+    if ((oldMode === 'wugu_pick' || oldMode === 'wuxiek_trick') && newMode !== 'wugu_pick' && newMode !== 'wuxiek_trick') {
+      if (wuguHideTimer) clearTimeout(wuguHideTimer)
+      wuguHideTimer = setTimeout(() => {
+        wuguPickedCards.value = {}
+        wuguRevealedAllCache.value = []
+        isWuguBoardVisible.value = false
+      }, 1000)
+    }
+  },
+)
+
 const selectedQilinZone = ref('')
 const rendeMode = ref(false)
 const rendeSelectedIds = ref<string[]>([])
@@ -727,7 +783,9 @@ const showActionButton = computed(
     (isMyResponse.value || isMyPlay.value || isMyDiscard.value || isMyPrepare.value || isMyDraw.value || isPeekDeck.value || isJijiHeal.value ||
      // AOE/桃园阶段：非目标玩家也可以出无懈可击
      (state.value?.phase === 'response' && state.value?.pending?.allow_wuxiek === true &&
-      state.value?.pending?.response_mode !== 'wuxiek_trick')),
+      state.value?.pending?.response_mode !== 'wuxiek_trick') ||
+     // 无懈窗口阶段：任何人可出无懈
+     (state.value?.phase === 'response' && state.value?.pending?.response_mode === 'wuxiek_trick' && hasWuxiekInHand.value)),
 )
 
 const canSubmitPeekDeck = computed(() => {
@@ -874,7 +932,11 @@ const { centerHint } = useYzsHints({
   isYinghunChoice,
   isYinghunDiscard,
   isWuxiekOffer,
-  isWuguPick,
+    isWuguPick,
+    isWuguActive,
+    isWuguBoardVisible,
+    wuguPickedCards,
+    wuguRevealedAllCache,
   discardNeeded,
   activatableSkillIds,
   myCharacterSkills,
@@ -1843,7 +1905,7 @@ async function submitPlayCard() {
   }
 
   // AOE/桃园/五谷阶段：非目标玩家出无懈可击介入
-  if (!isMyResponse.value && state.value?.phase === 'response' && state.value?.pending?.allow_wuxiek === true) {
+  if (!isMyResponse.value && state.value?.phase === 'response' && (state.value?.pending?.allow_wuxiek === true || state.value?.pending?.response_mode === 'wuxiek_trick')) {
     const card = selectedCard.value
     if (card && card.kind === 'wuxiek') {
       await act(() => respondYuzhoushaCard(state.value!.id, card.id))
@@ -2140,8 +2202,12 @@ onMounted(() => {
     isSkillOnlyResponse,
     isTianxiangOffer,
     isTuxiTake,
-    isWuguPick,
-    isWuxiekOffer,
+  isWuguPick,
+  isWuguActive,
+  isWuguBoardVisible,
+  wuguPickedCards,
+  wuguRevealedAllCache,
+  isWuxiekOffer,
     isYijiGive,
     isYijiOffer,
     isYinghunChoice,

@@ -30,6 +30,9 @@ const {
   peekDeckCard,
   peekDeckBottomIds,
   isWuguPick,
+  isWuguBoardVisible,
+  wuguPickedCards,
+  wuguRevealedAllCache,
   selectedId,
   canInteract,
   selectCard,
@@ -121,21 +124,37 @@ const {
               </div>
             </div>
           </div>
+          <!-- 五谷丰登亮牌展示框 -->
           <div
-            v-else-if="state?.pending?.revealed_cards?.length"
-            class="yzs__wugu-pick"
+            v-else-if="isWuguBoardVisible && wuguRevealedAllCache.length"
+            class="yzs__wugu-board"
           >
-            <button
-              v-for="card in state.pending.revealed_cards"
-              :key="card.id"
-              type="button"
-              class="yzs__wugu-pick-btn"
-              :class="{ 'yzs__wugu-pick-btn--selected': selectedId === card.id }"
-              :disabled="!canInteract || !isWuguPick"
-              @click="isWuguPick ? selectCard(card.id) : undefined"
-            >
-              <YzsCardView :card="card" :selected="selectedId === card.id" />
-            </button>
+            <div class="yzs__wugu-board-cards">
+              <div
+                v-for="card in wuguRevealedAllCache"
+                :key="card.id"
+                class="yzs__wugu-card-wrapper"
+                :class="{
+                  'yzs__wugu-card-wrapper--picked': !!wuguPickedCards[card.id],
+                }"
+              >
+                <button
+                  type="button"
+                  class="yzs__wugu-card-slot"
+                  :class="{
+                    'yzs__wugu-card-slot--selected': selectedId === card.id && isWuguPick,
+                  }"
+                  :disabled="!isWuguPick || !!wuguPickedCards[card.id]"
+                  @click="isWuguPick && !wuguPickedCards[card.id] ? selectCard(card.id) : undefined"
+                >
+                  <YzsCardView
+                    :card="card"
+                    :selected="selectedId === card.id && isWuguPick"
+                  />
+                </button>
+                <span class="yzs__wugu-picker-name">{{ wuguPickedCards[card.id] || '' }}</span>
+              </div>
+            </div>
           </div>
           <div v-if="displayedTableCards.length" class="yzs__last-play">
             <YzsStackedCards :cards="displayedTableCards" :max-width="520" />

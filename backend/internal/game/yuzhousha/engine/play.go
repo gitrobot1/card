@@ -402,7 +402,9 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 		return g.placeShandian(seat, played, events)
 	case CardWuGu:
 		return g.resolveWugu(seat, events)
-	case CardGuoHe, CardTanNang, CardJueDou, CardWuZhong, CardTaoYuan:
+	case CardTaoYuan:
+		return g.resolveTaoYuan(seat, events)
+	case CardGuoHe, CardTanNang, CardJueDou, CardWuZhong:
 		effectTarget := targetSpec.SeatIndex
 		if effectTarget < 0 || effectTarget >= len(g.Players) {
 			effectTarget = target
@@ -414,9 +416,9 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 		}
 		return g.startWuxiekTrickWindow(seat, responder, effectTarget, played, targetSpec, events)
 	case CardNanMan:
-		return g.startAoeTrick(seat, played, CardSha, events)
+		return g.resolveNanMan(seat, events)
 	case CardWanJian:
-		return g.startAoeTrick(seat, played, CardShan, events)
+		return g.resolveWanJian(seat, events)
 	case CardHuoGong:
 		return g.playHuoGong(seat, played, target, events)
 	case CardTieSuo:
@@ -489,72 +491,38 @@ func (g *Game) startWuxiekTrickWindow(source, responder, effectTarget int, trick
 	return nil
 }
 
-// advanceToNextWuxiekResponder 推进到队列中的下一个响应者（循环处理所有AI，避免递归栈溢出）
+// advanceToNextWuxiekResponder 推进到队列中的下一个响应者（每次只处理当前队列头的人）
+// 如果是AI就处理并返回，如果是人类就停下等待。由 RunAIActionStep 外层循环驱动多步。
 func (g *Game) advanceToNextWuxiekResponder(events *[]GameEvent) {
-	const maxIter = 100
-	// 记录队列起始座位，用于判断是否已走完一圈
-	queueStart := -1
-	if g.Pending != nil && len(g.Pending.ResponseQueue) > 0 {
-		queueStart = g.Pending.ResponseQueue[0]
+	if g.Pending == nil {
+		return
 	}
-	for iter := 0; iter < maxIter; iter++ {
-		if g.Pending == nil {
-			return
-		}
-		if len(g.Pending.ResponseQueue) == 0 {
-			g.finalizeWuxiekChain(events)
-			return
-		}
-		idx := g.Pending.ResponseIndex
-		if idx >= len(g.Pending.ResponseQueue) {
-			idx = 0
-		}
-		nextSeat := g.Pending.ResponseQueue[idx]
-		g.Pending.ActorSeat = nextSeat
-		g.Pending.SubjectSeat = nextSeat
+	if len(g.Pending.ResponseQueue) == 0 {
+		g.finalizeWuxiekChain(events)
+		return
+	}
+	idx := g.Pending.ResponseIndex
+	if idx >= len(g.Pending.ResponseQueue) {
+		idx = 0
+	}
+	nextSeat := g.Pending.ResponseQueue[idx]
+	g.Pending.ActorSeat = nextSeat
+	g.Pending.SubjectSeat = nextSeat
 
-		// 如果是人类玩家，退出循环等待人类操作
-		if !g.Players[nextSeat].IsAI {
-			// 设置提示消息
-			g.setWuxiekMessage()
+	// 如果是人类玩家，停下等待人类操作
+	if !g.Players[nextSeat].IsAI {
+		g.setWuxiekMessage()
+		return
+	}
+	// AI 自动决定：有 wuxiek 就出，没有就跳过
+	for _, card := range g.Players[nextSeat].Hand {
+		if card.Kind == CardWuxiek {
+			_ = g.RespondWuxiek(nextSeat, card.ID, events)
 			return
 		}
-		// AI 自动决定：有 wuxiek 就出，没有就跳过
-		inChain := false
-		for _, entry := range g.Pending.WuxiekChain {
-			if entry.Seat == nextSeat {
-				inChain = true
-				break
-			}
-		}
-		acted := false
-		if !inChain {
-			for _, card := range g.Players[nextSeat].Hand {
-				if card.Kind == CardWuxiek {
-					_ = g.RespondWuxiek(nextSeat, card.ID, events)
-					acted = true
-					break
-				}
-			}
-		}
-		if !acted {
-			// 跳过，推进队列。检查是否已回到队列起点（走完一圈）。
-			g.Pending.ResponseIndex++
-			if g.Pending.ResponseIndex >= len(g.Pending.ResponseQueue) {
-				g.Pending.ResponseIndex = 0
-			}
-			// 如果队列中只有一个人，或者已经回到队列起点，终止
-			if len(g.Pending.ResponseQueue) == 1 || g.Pending.ResponseQueue[g.Pending.ResponseIndex] == queueStart {
-				g.finalizeWuxiekChain(events)
-				return
-			}
-			continue
-		}
-		// AI 出了 wuxiek，队列已重建，重新记录队列起点
-		if g.Pending != nil && len(g.Pending.ResponseQueue) > 0 {
-			queueStart = g.Pending.ResponseQueue[0]
-		}
 	}
+	// AI 没有无懈，跳过，推进队列
+	g.advanceWuxiekQueueAfterPass(nextSeat, events)
 }
 
 // autoAIWuxiekRespond AI 自动决定是否出无懈可击
@@ -608,8 +576,6 @@ func (g *Game) continueTrickAfterWuxiekPass(events *[]GameEvent) error {
 		err = g.resolveTanNang(source, target, spec, events)
 	case CardJueDou:
 		err = g.startCardResponse(source, target, pending.Card, CardSha, fmt.Sprintf("%s 对 %s 发起【决斗】，%s 需出杀", g.Players[source].Name, g.Players[target].Name, g.Players[target].Name), events)
-	case CardTaoYuan:
-		g.resolveTaoYuan(source, events)
 	case CardWuZhong:
 		g.Message = fmt.Sprintf("%s 使用【无中生有】，摸两张牌", g.Players[source].Name)
 		*events = append(*events, GameEvent{Type: "trick_effect", PlayerIndex: source, TargetIndex: source, Message: g.Message})
@@ -777,6 +743,30 @@ func (g *Game) setWuxiekMessage() {
 		if len(chain) == 0 {
 			targetDesc = fmt.Sprintf("%s 的选牌", pickerName)
 		}
+	case CardTaoYuan:
+		effectName := ""
+		if g.Pending.EffectTarget >= 0 && g.Pending.EffectTarget < len(g.Players) {
+			effectName = g.Players[g.Pending.EffectTarget].Name
+		}
+		if len(chain) == 0 {
+			targetDesc = fmt.Sprintf("%s 回复体力", effectName)
+		}
+	case CardNanMan:
+		effectName := ""
+		if g.Pending.EffectTarget >= 0 && g.Pending.EffectTarget < len(g.Players) {
+			effectName = g.Players[g.Pending.EffectTarget].Name
+		}
+		if len(chain) == 0 {
+			targetDesc = fmt.Sprintf("%s 受到的【南蛮入侵】", effectName)
+		}
+	case CardWanJian:
+		effectName := ""
+		if g.Pending.EffectTarget >= 0 && g.Pending.EffectTarget < len(g.Players) {
+			effectName = g.Players[g.Pending.EffectTarget].Name
+		}
+		if len(chain) == 0 {
+			targetDesc = fmt.Sprintf("%s 受到的【万箭齐发】", effectName)
+		}
 	default:
 		// 普通锦囊：显示为 "XX 的【锦囊名】"
 		if len(chain) == 0 {
@@ -846,12 +836,13 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 
 	// 保存 AOE 队列信息和五谷状态（在清空 Pending 之前）
 	aoeQueue := g.Pending.AoeQueue
-	aoeRequiredKind := g.Pending.RequiredKind
-	isAoe := trick.Kind == CardNanMan || trick.Kind == CardWanJian
+	isWanJian := trick.Kind == CardWanJian
+	isNanMan := trick.Kind == CardNanMan
 	isTaoYuan := trick.Kind == CardTaoYuan
 	isWuGu := trick.Kind == CardWuGu
 	wuguPicker := g.Pending.WuguPickSeat
 	wuguRevealed := append([]Card(nil), g.Pending.RevealedCards...)
+	wuguRevealedAll := append([]Card(nil), g.Pending.WuguRevealedAll...)
 
 	g.Pending = nil
 	g.Phase = PhasePlaying
@@ -859,9 +850,9 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 	g.CurrentTurn = source
 
 	if chainLen%2 == 1 {
-		// 奇数张无懈可击 → 锦囊被抵消（或AOE/五谷/桃园玩家跳过）
-		if isAoe {
-			g.Message = fmt.Sprintf("【无懈可击】抵消了【%s】的效果，%s 无需出牌", trick.Name, g.Players[effectTarget].Name)
+		// 奇数张无懈可击 → 锦囊被抵消（或万箭/南蛮/桃园/五谷玩家跳过）
+		if isWanJian {
+			g.Message = fmt.Sprintf("【无懈可击】阻止了 %s 受到的【万箭齐发】", g.Players[effectTarget].Name)
 			*events = append(*events, GameEvent{
 				Type:        "trick_cancelled",
 				PlayerIndex: effectTarget,
@@ -869,7 +860,19 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 				Card:        &trick,
 				Message:     g.Message,
 			})
-			g.continueAoeAfterTarget(source, trick, aoeRequiredKind, aoeQueue, events)
+			g.continueWanJianAfterTarget(source, aoeQueue, events)
+			return
+		}
+		if isNanMan {
+			g.Message = fmt.Sprintf("【无懈可击】阻止了 %s 受到的【南蛮入侵】", g.Players[effectTarget].Name)
+			*events = append(*events, GameEvent{
+				Type:        "trick_cancelled",
+				PlayerIndex: effectTarget,
+				TargetIndex: effectTarget,
+				Card:        &trick,
+				Message:     g.Message,
+			})
+			g.continueNanManAfterTarget(source, aoeQueue, events)
 			return
 		}
 		if isTaoYuan {
@@ -893,17 +896,60 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 				g.finishWugu(source, events)
 				return
 			}
-			g.startWuguPickFor(source, next, wuguRevealed, events)
+			g.startWuguPickForWithAll(source, next, wuguRevealed, wuguRevealedAll, events)
 			return
 		}
 		g.Message = fmt.Sprintf("【%s】被【无懈可击】抵消", trick.Name)
 		g.resetTimer()
 		return
 	}
-	// 偶数张（含0）→ 锦囊生效（或AOE/五谷/桃园玩家继续）
-	if isAoe {
-		rest := append([]int(nil), aoeQueue...)
-		_ = g.startAoeResponse(source, effectTarget, trick, aoeRequiredKind, rest, events)
+	// 偶数张（含0）→ 锦囊生效（或万箭/南蛮/桃园/五谷玩家继续）
+	if isWanJian {
+		card := Card{Kind: CardWanJian, Name: "万箭齐发"}
+		msg := fmt.Sprintf("【万箭齐发】：%s 需出【闪】", g.Players[effectTarget].Name)
+		g.Phase = PhaseResponse
+		g.Pending = &PendingCombat{
+			SourceIndex:  source,
+			TargetIndex:  effectTarget,
+			ReturnIndex:  source,
+			Card:         card,
+			RequiredKind: CardShan,
+			Damage:       1,
+			AoeQueue:     aoeQueue,
+		}
+		g.Message = msg
+		g.resetTimer()
+		*events = append(*events, GameEvent{
+			Type:        "trick_response",
+			PlayerIndex: source,
+			TargetIndex: effectTarget,
+			Message:     msg,
+		})
+		return
+	}
+	if isNanMan {
+		// 无懈通过：虚拟电脑对 target 使用决斗，target 需出杀，不出杀则扣血
+		// 用 startCardResponse 进入出杀阶段，rest 保存剩余队列，通过后继续下一个
+		card := Card{Kind: CardNanMan, Name: "南蛮入侵"}
+		msg := fmt.Sprintf("【南蛮入侵】：%s 需出【杀】", g.Players[effectTarget].Name)
+		g.Phase = PhaseResponse
+		g.Pending = &PendingCombat{
+			SourceIndex:  source,
+			TargetIndex:  effectTarget,
+			ReturnIndex:  source,
+			Card:         card,
+			RequiredKind: CardSha,
+			Damage:       1,
+			AoeQueue:     aoeQueue,
+		}
+		g.Message = msg
+		g.resetTimer()
+		*events = append(*events, GameEvent{
+			Type:        "trick_response",
+			PlayerIndex: source,
+			TargetIndex: effectTarget,
+			Message:     msg,
+		})
 		return
 	}
 	if isTaoYuan {
@@ -922,7 +968,7 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 	}
 	if isWuGu {
 		// 无懈通过（偶数链），picker 直接选牌
-		g.wuguPickPass(wuguPicker, wuguRevealed, source, events)
+		g.wuguPickPass(wuguPicker, wuguRevealed, wuguRevealedAll, source, events)
 		return
 	}
 	n := len(g.Players)
@@ -945,8 +991,6 @@ func (g *Game) continueTrickAfterWuxiekPassDirect(source, target int, trick Card
 		_ = g.resolveTanNang(source, target, spec, events)
 	case CardJueDou:
 		_ = g.startCardResponse(source, target, trick, CardSha, fmt.Sprintf("%s 对 %s 发起【决斗】，%s 需出杀", g.Players[source].Name, g.Players[target].Name, g.Players[target].Name), events)
-	case CardTaoYuan:
-		g.resolveTaoYuan(source, events)
 	case CardWuZhong:
 		g.Message = fmt.Sprintf("%s 使用【无中生有】，摸两张牌", g.Players[source].Name)
 		*events = append(*events, GameEvent{Type: "trick_effect", PlayerIndex: source, TargetIndex: source, Message: g.Message})
@@ -1258,7 +1302,7 @@ func tannangTakeComplete(g *Game, events *[]GameEvent) error {
 	return nil
 }
 
-func (g *Game) resolveTaoYuan(seat int, events *[]GameEvent) {
+func (g *Game) resolveTaoYuan(seat int, events *[]GameEvent) error {
 	// 构建需要回复的玩家队列（从使用者开始，跳过满血玩家）
 	queue := make([]int, 0, len(g.Players))
 	n := len(g.Players)
@@ -1270,32 +1314,215 @@ func (g *Game) resolveTaoYuan(seat int, events *[]GameEvent) {
 	}
 	if len(queue) == 0 {
 		g.Message = fmt.Sprintf("%s 使用【桃园结义】，无人需要回复", g.Players[seat].Name)
-		return
+		return nil
 	}
-	g.Message = fmt.Sprintf("%s 使用【桃园结义】", g.Players[seat].Name)
+	// 宣告：发事件让前端显示，和五谷亮牌一样
+	g.Message = fmt.Sprintf("%s 使用【桃园结义】，依次回复体力", g.Players[seat].Name)
 	*events = append(*events, GameEvent{
-		Type:        "play_trick",
+		Type:        "taoyuan_announce",
 		PlayerIndex: seat,
 		TargetIndex: seat,
 		Message:     g.Message,
 	})
-	// 开始第一个人的回复（带无懈可击窗口）
+	// 直接开始第一个人的回复（带无懈可击窗口），和五谷 startWuguPickFor 一样
 	g.startTaoYuanHeal(seat, queue[0], queue[1:], events)
+	return nil
+}
+
+// resolveNanMan 南蛮入侵：宣告 → 逐人无懈窗口 → 无懈通过则进入决斗
+func (g *Game) resolveNanMan(source int, events *[]GameEvent) error {
+	// 构建受影响玩家队列（从使用者下家开始，过滤藤甲）
+	allQueue := g.aoeResponderQueue(source)
+	queue := g.filterAoeQueue(allQueue, CardNanMan)
+	if len(queue) == 0 {
+		g.Message = fmt.Sprintf("%s 使用【南蛮入侵】，无人受影响", g.Players[source].Name)
+		return nil
+	}
+	// 宣告：发事件让前端显示
+	g.Message = fmt.Sprintf("%s 使用【南蛮入侵】", g.Players[source].Name)
+	*events = append(*events, GameEvent{
+		Type:        "nanman_announce",
+		PlayerIndex: source,
+		TargetIndex: source,
+		Message:     g.Message,
+	})
+	// 直接开始第一个人的无懈窗口（和五谷/桃园一样）
+	g.startNanManJueDou(source, queue[0], queue[1:], events)
+	return nil
+}
+
+// startNanManJueDou 对单个目标发起南蛮决斗无懈窗口
+// 虚拟电脑对 target 使用决斗，target 第一个被询问是否无懈，然后是其他人
+func (g *Game) startNanManJueDou(source, target int, rest []int, events *[]GameEvent) {
+	trick := Card{Kind: CardNanMan, Name: "南蛮入侵"}
+	// 构建无懈响应队列：target 第一个，然后从 target 下家开始轮询
+	allQueue := g.createResponseQueue((target + 1) % len(g.Players))
+	queue := make([]int, 0, len(allQueue)+1)
+	queue = append(queue, target) // target 第一个
+	for _, s := range allQueue {
+		if s != target {
+			queue = append(queue, s)
+		}
+	}
+	g.Phase = PhaseResponse
+	g.Pending = &PendingCombat{
+		SourceIndex:   source,
+		TargetIndex:   -1,
+		ReturnIndex:   source,
+		EffectTarget:  target,
+		Card:          trick,
+		ResponseMode:  ResponseModeWuxiekTrick,
+		AoeQueue:      rest,
+		ResponseQueue: queue,
+		ResponseIndex: 0,
+		WuxiekChain:   nil,
+	}
+	g.advanceToNextWuxiekResponder(events)
+	g.resetTimer()
+	*events = append(*events, GameEvent{
+		Type:        "wuxiek_offer",
+		PlayerIndex: source,
+		TargetIndex: target,
+		Card:        &trick,
+		Message:     g.Message,
+	})
+}
+
+// continueNanManAfterTarget 南蛮入侵：当前目标处理完毕，继续下一个
+func (g *Game) continueNanManAfterTarget(source int, rest []int, events *[]GameEvent) {
+	if len(rest) == 0 {
+		g.Phase = PhasePlaying
+		g.TurnStep = StepPlay
+		g.CurrentTurn = source
+		g.Message = fmt.Sprintf("%s 继续出牌", g.Players[source].Name)
+		g.resetTimer()
+		return
+	}
+	next := rest[0]
+	newRest := append([]int(nil), rest[1:]...)
+	g.startNanManJueDou(source, next, newRest, events)
+}
+
+// resolveWanJian 万箭齐发：宣告 → 逐人无懈窗口 → 无懈通过则需出闪
+func (g *Game) resolveWanJian(source int, events *[]GameEvent) error {
+	allQueue := g.aoeResponderQueue(source)
+	queue := g.filterAoeQueue(allQueue, CardWanJian)
+	if len(queue) == 0 {
+		g.Message = fmt.Sprintf("%s 使用【万箭齐发】，无人受影响", g.Players[source].Name)
+		return nil
+	}
+	g.Message = fmt.Sprintf("%s 使用【万箭齐发】", g.Players[source].Name)
+	*events = append(*events, GameEvent{
+		Type:        "wanjian_announce",
+		PlayerIndex: source,
+		TargetIndex: source,
+		Message:     g.Message,
+	})
+	g.startWanJianShan(source, queue[0], queue[1:], events)
+	return nil
+}
+
+func (g *Game) startWanJianShan(source, target int, rest []int, events *[]GameEvent) {
+	trick := Card{Kind: CardWanJian, Name: "万箭齐发"}
+	allQueue := g.createResponseQueue((target + 1) % len(g.Players))
+	queue := make([]int, 0, len(allQueue)+1)
+	queue = append(queue, target)
+	for _, s := range allQueue {
+		if s != target {
+			queue = append(queue, s)
+		}
+	}
+	g.Phase = PhaseResponse
+	g.Pending = &PendingCombat{
+		SourceIndex:   source,
+		TargetIndex:   -1,
+		ReturnIndex:   source,
+		EffectTarget:  target,
+		Card:          trick,
+		ResponseMode:  ResponseModeWuxiekTrick,
+		AoeQueue:      rest,
+		ResponseQueue: queue,
+		ResponseIndex: 0,
+		WuxiekChain:   nil,
+	}
+	g.advanceToNextWuxiekResponder(events)
+	g.resetTimer()
+	*events = append(*events, GameEvent{
+		Type:        "wuxiek_offer",
+		PlayerIndex: source,
+		TargetIndex: target,
+		Card:        &trick,
+		Message:     g.Message,
+	})
+}
+
+func (g *Game) continueWanJianAfterTarget(source int, rest []int, events *[]GameEvent) {
+	if len(rest) == 0 {
+		g.Phase = PhasePlaying
+		g.TurnStep = StepPlay
+		g.CurrentTurn = source
+		g.Message = fmt.Sprintf("%s 继续出牌", g.Players[source].Name)
+		g.resetTimer()
+		return
+	}
+	next := rest[0]
+	newRest := append([]int(nil), rest[1:]...)
+	g.startWanJianShan(source, next, newRest, events)
+}
+
+// restorePendingAfterDying 濒死结算结束后恢复之前保存的 Pending
+func (g *Game) restorePendingAfterDying(saved *PendingCombat, events *[]GameEvent) bool {
+	if saved == nil {
+		return false
+	}
+	source := saved.SourceIndex
+	queue := saved.AoeQueue
+	switch {
+	case saved.Card.Kind == CardNanMan:
+		g.continueNanManAfterTarget(source, queue, events)
+		return true
+	case saved.Card.Kind == CardWanJian:
+		g.continueWanJianAfterTarget(source, queue, events)
+		return true
+	case saved.ResponseMode == ResponseModeWuguPick:
+		// 五谷丰登选牌被濒死中断，恢复选牌流程
+		g.Pending = saved
+		g.Phase = PhaseResponse
+		g.resetTimer()
+		return true
+	default:
+		// 恢复通用 Pending
+		g.Pending = saved
+		g.Phase = PhaseResponse
+		g.resetTimer()
+		return true
+	}
 }
 
 func (g *Game) startTaoYuanHeal(source, target int, rest []int, events *[]GameEvent) {
+	trick := Card{Kind: CardTaoYuan, Name: "桃园结义"}
+	// 构建无懈响应队列：从 target 的下一个玩家开始，轮询所有存活玩家，排除 target（回复者本人）
+	allQueue := g.createResponseQueue((target + 1) % len(g.Players))
+	queue := make([]int, 0, len(allQueue))
+	for _, s := range allQueue {
+		if s != target {
+			queue = append(queue, s)
+		}
+	}
 	g.Phase = PhaseResponse
 	g.Pending = &PendingCombat{
-		SourceIndex:     source,
-		TargetIndex:     target,
-		ReturnIndex:     source,
-		Card:            Card{Kind: CardTaoYuan, Name: "桃园结义"},
-		ResponseMode:    "",
-		AllowWuxiek:     true,
-		AoeQueue:        rest,
-		TaoYuanQueue:    true,
+		SourceIndex:   source,
+		TargetIndex:   -1,
+		ReturnIndex:   source,
+		EffectTarget:  target,
+		Card:          trick,
+		ResponseMode:  ResponseModeWuxiekTrick,
+		AoeQueue:      rest,
+		ResponseQueue: queue,
+		ResponseIndex: 0,
+		WuxiekChain:   nil,
 	}
-	g.Message = fmt.Sprintf("【桃园结义】：%s 回复 1 点体力？可出【无懈可击】阻止", g.Players[target].Name)
+	g.advanceToNextWuxiekResponder(events)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "taoyuan_offer",
@@ -1307,17 +1534,23 @@ func (g *Game) startTaoYuanHeal(source, target int, rest []int, events *[]GameEv
 
 // continueTaoYuanAfterTarget 桃园结义：当前目标处理完毕，继续下一个
 func (g *Game) continueTaoYuanAfterTarget(source int, rest []int, events *[]GameEvent) {
-	if len(rest) == 0 {
-		g.Phase = PhasePlaying
-		g.TurnStep = StepPlay
-		g.CurrentTurn = source
-		g.Message = fmt.Sprintf("%s 继续出牌", g.Players[source].Name)
-		g.resetTimer()
-		return
+	// 跳过满血玩家
+	for len(rest) > 0 {
+		next := rest[0]
+		if g.Players[next].HP < g.Players[next].MaxHP {
+			newRest := append([]int(nil), rest[1:]...)
+			g.startTaoYuanHeal(source, next, newRest, events)
+			return
+		}
+		// 满血跳过
+		rest = rest[1:]
 	}
-	next := rest[0]
-	newRest := append([]int(nil), rest[1:]...)
-	g.startTaoYuanHeal(source, next, newRest, events)
+	// 无人需要回复
+	g.Phase = PhasePlaying
+	g.TurnStep = StepPlay
+	g.CurrentTurn = source
+	g.Message = fmt.Sprintf("%s 继续出牌", g.Players[source].Name)
+	g.resetTimer()
 }
 
 func (g *Game) startCardResponse(seat, target int, card Card, requiredKind string, message string, events *[]GameEvent) error {

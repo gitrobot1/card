@@ -25,12 +25,18 @@ func (g *Game) RespondCard(seat int, cardID string, events *[]GameEvent) error {
 	}
 
 	// 支持手牌和装备区变牌
-	zone, handIdx, cardObj, ok := g.findCardInHandOrEquip(seat, cardID)
+	fallbackKind := g.Pending.RequiredKind
+	if fallbackKind == "" && g.Pending.ResponseMode == ResponseModeWuxiekTrick {
+		fallbackKind = CardWuxiek
+	}
+	Logf("RespondCard: seat=%d cardID=%s fallbackKind=%s pendingMode=%s", seat, cardID, fallbackKind, g.Pending.ResponseMode)
+	zone, handIdx, cardObj, ok := g.findCardInHandOrEquipKind(seat, cardID, fallbackKind)
 	if !ok {
+		Logf("RespondCard: card not found seat=%d cardID=%s", seat, cardID)
 		return ErrInvalidCard
 	}
 	if cardObj.Kind == CardWuxiek {
-		return g.RespondWuxiek(seat, cardID, events)
+		return g.respondWuxiekWithCard(seat, cardObj, handIdx, zone, events)
 	}
 
 	pending := g.Pending
@@ -113,6 +119,15 @@ func (g *Game) resolvePendingDodgeSuccess(seat int, pending *PendingCombat, even
 		if g.offerLeijiAfterShan(seat, pending, events) {
 			return nil
 		}
+		// 南蛮/万箭用新的逐人流程
+		if pending.Card.Kind == CardNanMan {
+			g.continueNanManAfterTarget(pending.SourceIndex, queue, events)
+			return nil
+		}
+		if pending.Card.Kind == CardWanJian {
+			g.continueWanJianAfterTarget(pending.SourceIndex, queue, events)
+			return nil
+		}
 		return g.continueAoeAfterTarget(pending.SourceIndex, pending.Card, required, queue, events)
 	}
 	// 贯石斧：杀被闪抵消后， attacker 可弃两张牌令杀命中
@@ -168,17 +183,31 @@ func (g *Game) TryBaguaJudge(seat int, events *[]GameEvent) error {
 }
 
 func (g *Game) RespondWuxiek(seat int, cardID string, events *[]GameEvent) error {
+	// 容错：按 cardID 查找，找不到时用手牌中第一张无懈可击
+	idx, cardObj, ok := g.findCard(seat, cardID)
+	if !ok || cardObj.Kind != CardWuxiek {
+		for i, c := range g.Players[seat].Hand {
+			if c.Kind == CardWuxiek {
+				idx = i
+				cardObj = c
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return ErrInvalidCard
+		}
+	}
+	return g.respondWuxiekWithCard(seat, cardObj, idx, string(ZoneHand), events)
+}
+
+// respondWuxiekWithCard 用已找到的牌打出无懈可击
+func (g *Game) respondWuxiekWithCard(seat int, cardObj Card, handIdx int, zone string, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return ErrGameOver
 	}
 	if g.Phase != PhaseResponse || g.Pending == nil {
 		return ErrNoPendingCombat
-	}
-	// 不能对自己的无懈可击出无懈可击
-	for _, entry := range g.Pending.WuxiekChain {
-		if entry.Seat == seat {
-			return ErrInvalidCard
-		}
 	}
 	if !g.CanRespondWuxiek(seat) {
 		return ErrNotYourTurn
@@ -187,10 +216,8 @@ func (g *Game) RespondWuxiek(seat int, cardID string, events *[]GameEvent) error
 	pending := *g.Pending
 	switch pending.ResponseMode {
 	case ResponseModeWuxiekTrick, ResponseModeWuxiekLebu, ResponseModeWuxiekBingliang, ResponseModeWuxiekShandian, ResponseModeWuxiekGuose:
-		// allowed
 	case ResponseModeWeapon8:
-		// 雌雄双股剑：目标打出一张手牌弃置
-		return g.resolveChixiongDiscard(seat, cardID, events)
+		return g.resolveChixiongDiscard(seat, cardObj.ID, events)
 	case "":
 		if !pending.AllowWuxiek {
 			return ErrInvalidCard
@@ -199,17 +226,15 @@ func (g *Game) RespondWuxiek(seat int, cardID string, events *[]GameEvent) error
 		return ErrInvalidCard
 	}
 
-	idx, cardObj, ok := g.findCard(seat, cardID)
-	if !ok || cardObj.Kind != CardWuxiek {
-		return ErrInvalidCard
+	var played Card
+	if zone == string(ZoneHand) || zone == "" {
+		played = g.removeHandCard(seat, handIdx, events)
+	} else {
+		played = g.removeEquipCard(seat, zone, events)
+		g.notifyEquipLost(seat, played, "skill", events)
 	}
-
-	played := g.removeHandCard(seat, idx, events)
 	g.DiscardPile = append(g.DiscardPile, played)
-	// 打出无懈可击（锦囊牌），触发集智等技能
 	g.notifyInstantTrickUsed(seat, CardWuxiek, events)
-	// 无懈可击的飞线目标：指向被打的那张牌的使用者
-	// 如果链中有记录，指向链中最后一个人；否则指向锦囊使用者
 	wuxiekTarget := pending.SourceIndex
 	if len(g.Pending.WuxiekChain) > 0 {
 		wuxiekTarget = g.Pending.WuxiekChain[len(g.Pending.WuxiekChain)-1].Seat
@@ -222,55 +247,48 @@ func (g *Game) RespondWuxiek(seat int, cardID string, events *[]GameEvent) error
 		Message:     fmt.Sprintf("%s 打出【无懈可击】", g.Players[seat].Name),
 	})
 
-	// 处理判定前的无懈可击
-	if pending.ResponseMode == ResponseModeWuxiekLebu || 
-	   pending.ResponseMode == ResponseModeWuxiekBingliang || 
-	   pending.ResponseMode == ResponseModeWuxiekShandian ||
-	   pending.ResponseMode == ResponseModeWuxiekGuose {
+	if pending.ResponseMode == ResponseModeWuxiekLebu ||
+		pending.ResponseMode == ResponseModeWuxiekBingliang ||
+		pending.ResponseMode == ResponseModeWuxiekShandian ||
+		pending.ResponseMode == ResponseModeWuxiekGuose {
 		return g.handleJudgeWuxiekResponse(seat, pending, events)
 	}
-	
+
 	if pending.AllowWuxiek && (pending.ResponseMode == "" || pending.ResponseMode == ResponseModeWuguPick) {
-		Logf("RespondWuxiek: entering chain prevMode=%s seat=%d(%s)", pending.ResponseMode, seat, g.Players[seat].Name)
-		// AOE/五谷无懈：进入无懈链模式，链结束后决定该玩家是否跳过
 		prevMode := pending.ResponseMode
 		g.Pending.ResponseMode = ResponseModeWuxiekTrick
-		g.Pending.TargetIndex = -1 // 无懈链期间任何人都可以反无懈
+		g.Pending.TargetIndex = -1
 		if prevMode == ResponseModeWuguPick {
-			g.Pending.EffectTarget = pending.WuguPickSeat // 保存五谷当前选牌者
-			g.Pending.SavedPending = &pending             // 保存完整状态以便恢复
+			g.Pending.EffectTarget = pending.WuguPickSeat
+			g.Pending.SavedPending = &pending
 		} else {
-			g.Pending.EffectTarget = pending.TargetIndex // 保存AOE当前目标
+			g.Pending.EffectTarget = pending.TargetIndex
 		}
 		g.Pending.WuxiekChain = append(g.Pending.WuxiekChain, WuxiekEntry{Seat: seat, Card: played})
-		// 重建队列：从打出无懈可击者的下家开始，轮询所有存活玩家，排除刚打出无懈可击的人
-		newQueue := make([]int, 0, len(g.Players))
-		for i := 0; i < len(g.Players); i++ {
-			s := (seat + i) % len(g.Players)
-			if s != seat && g.Players[s].HP > 0 {
-				newQueue = append(newQueue, s)
-			}
-		}
-		g.Pending.ResponseQueue = newQueue
-		g.Pending.ResponseIndex = 0
+		g.rebuildWuxiekQueue(seat)
 		g.advanceToNextWuxiekResponder(events)
 		return nil
 	}
 
-	// 锦囊无懈：加入无懈链，重建完整队列（从打出者的下家开始，所有人包括锦囊使用者都可以反无懈可击）
 	g.Pending.WuxiekChain = append(g.Pending.WuxiekChain, WuxiekEntry{Seat: seat, Card: played})
-	// 重建队列：从打出无懈可击者的下家开始，轮询所有存活玩家，排除刚打出无懈可击的人
+	g.rebuildWuxiekQueue(seat)
+	g.advanceToNextWuxiekResponder(events)
+	return nil
+}
+
+// rebuildWuxiekQueue 重建无懈可击响应队列。
+// 从刚出无懈者的下家开始，排除刚出无懈的人（他刚出完），但包含链中其他人。
+func (g *Game) rebuildWuxiekQueue(fromSeat int) {
 	newQueue := make([]int, 0, len(g.Players))
 	for i := 0; i < len(g.Players); i++ {
-		s := (seat + i) % len(g.Players)
-		if s != seat && g.Players[s].HP > 0 {
+		s := (fromSeat + i) % len(g.Players)
+		// 只排除刚出无懈的人，链中其他人可以再出（如果手牌还有无懈可击）
+		if s != fromSeat && g.Players[s].HP > 0 {
 			newQueue = append(newQueue, s)
 		}
 	}
 	g.Pending.ResponseQueue = newQueue
 	g.Pending.ResponseIndex = 0
-	g.advanceToNextWuxiekResponder(events)
-	return nil
 }
 
 // handleJudgeWuxiekResponse 处理判定前无懈可击的响应
@@ -557,28 +575,11 @@ func (g *Game) RespondDiscardCards(seat int, cardIDs []string, events *[]GameEve
 
 func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 	pending := *g.Pending
-	// 桃园结义：不出无懈可击 → 该玩家回复
-	if pending.TaoYuanQueue {
-		g.Pending = nil
-		if g.Players[pending.TargetIndex].HP < g.Players[pending.TargetIndex].MaxHP {
-			g.Players[pending.TargetIndex].HP++
-			*events = append(*events, GameEvent{
-				Type:        "trick_heal",
-				PlayerIndex: pending.SourceIndex,
-				TargetIndex: pending.TargetIndex,
-				Heal:        1,
-				Message:     fmt.Sprintf("%s 回复 1 点体力", g.Players[pending.TargetIndex].Name),
-			})
-		}
-		g.continueTaoYuanAfterTarget(pending.SourceIndex, pending.AoeQueue, events)
-		return nil
-	}
 	if len(pending.AoeQueue) >= 0 && (pending.Card.Kind == CardNanMan || pending.Card.Kind == CardWanJian) {
 		required := pending.RequiredKind
 		if required == "" {
 			required = CardShan
 		}
-		g.Pending = nil
 		damage := pending.Damage
 		if damage <= 0 {
 			damage = 1
@@ -593,8 +594,24 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 		})
 		if g.Players[pending.TargetIndex].HP <= 0 {
 			if g.afterDamageApplied(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, DamageResume{}, events) {
+				// 濒死阶段启动，startDyingWindow 已保存当前 Pending 到 SavedPending
+				// 不要清空 Pending，等濒死结束恢复
 				return nil
 			}
+			if g.IsFinished() {
+				g.Pending = nil
+				return nil
+			}
+		}
+		g.Pending = nil
+		// 南蛮/万箭用新的逐人流程
+		if pending.Card.Kind == CardNanMan {
+			g.continueNanManAfterTarget(pending.SourceIndex, pending.AoeQueue, events)
+			return nil
+		}
+		if pending.Card.Kind == CardWanJian {
+			g.continueWanJianAfterTarget(pending.SourceIndex, pending.AoeQueue, events)
+			return nil
 		}
 		return g.continueAoeAfterTarget(pending.SourceIndex, pending.Card, required, pending.AoeQueue, events)
 	}

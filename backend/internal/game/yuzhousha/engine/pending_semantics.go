@@ -120,10 +120,6 @@ func (g *Game) CanRespondSeat(seat int) bool {
 	if g.Pending == nil {
 		return false
 	}
-	// AOE无懈窗口：任何人都可以出无懈可击
-	if g.Pending.AllowWuxiek && g.Pending.TaoYuanQueue {
-		return true
-	}
 	if g.Pending.TargetIndex == -1 {
 		return seat >= 0 && seat < len(g.Players)
 	}
@@ -134,10 +130,6 @@ func (g *Game) CanRespondSeat(seat int) bool {
 func (g *Game) CanRespondWuxiek(seat int) bool {
 	if g.Pending == nil {
 		return false
-	}
-	// 桃园结义：任何人都可以出无懈可击
-	if g.Pending.AllowWuxiek && g.Pending.TaoYuanQueue {
-		return seat >= 0 && seat < len(g.Players)
 	}
 	// 无懈链期间：任何人都可以出无懈可击
 	if g.Pending.ResponseMode == ResponseModeWuxiekTrick {

@@ -3482,7 +3482,7 @@ body {
 .yzs__action-float {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--ddz-bottom-height) + 6px);
+  bottom: calc(var(--ddz-bottom-height) - 20px);
   transform: translateX(-50%);
   z-index: 12;
   display: flex;
@@ -3536,30 +3536,106 @@ body {
   place-items: center;
 }
 
-.yzs__wugu-pick {
+/* ===== 五谷丰登亮牌展示框 ===== */
+.yzs__wugu-board {
+  position: relative;
+  width: min(580px, 96vw);
+  padding: 16px 14px 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  border: 2px solid #c9a44b;
+  box-shadow:
+    0 0 20px rgba(201, 164, 75, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  pointer-events: auto;
+}
+
+.yzs__wugu-board::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 164, 75, 0.2);
+  pointer-events: none;
+}
+
+.yzs__wugu-board-title {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #c9a44b;
+  letter-spacing: 0.15em;
+  margin-bottom: 10px;
+  text-shadow: 0 0 8px rgba(201, 164, 75, 0.4);
+}
+
+.yzs__wugu-board-cards {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   justify-content: center;
-  pointer-events: auto;
 }
 
-.yzs__wugu-pick-btn {
+.yzs__wugu-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.yzs__wugu-card-wrapper--picked .yzs__wugu-card-slot {
+  opacity: 0.9;
+  filter: grayscale(0.1);
+}
+
+.yzs__wugu-card-slot {
+  position: relative;
   padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
   border-radius: 8px;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s, filter 0.2s;
 }
 
-.yzs__wugu-pick-btn--selected {
+.yzs__wugu-card-slot:not(:disabled):hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 16px rgba(201, 164, 75, 0.35);
+}
+
+.yzs__wugu-card-slot--selected {
   outline: 2px solid var(--accent, #f0c040);
-  outline-offset: 2px;
+  outline-offset: 3px;
+  transform: translateY(-2px);
 }
 
-.yzs__wugu-pick-btn:disabled {
+.yzs__wugu-card-slot:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+}
+
+.yzs__wugu-picker-name {
+  display: inline-block;
+  background: rgba(0, 0, 0, 0.75);
+  color: #c9a44b;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  min-height: 20px;
+  min-width: 1px;
+  line-height: 20px;
+  visibility: hidden;
+}
+
+.yzs__wugu-picker-name:not(:empty) {
+  visibility: visible;
+}
+
+.yzs__card--dimmed {
+  opacity: 0.5;
 }
 
 .yzs__peek-deck {

@@ -76,42 +76,48 @@ func (g *Game) resolveWugu(source int, events *[]GameEvent) error {
 // startWuguPickFor 对 picker 开启选牌锦囊的无懈窗口，通过后进入选牌
 // 五谷丰登本身不可无懈，但每个玩家的"单体选牌锦囊"可以被无懈抵消
 func (g *Game) startWuguPickFor(source, picker int, revealed []Card, events *[]GameEvent) {
+	revealedCopy := make([]Card, len(revealed))
+	copy(revealedCopy, revealed)
+	g.startWuguPickForWithAll(source, picker, revealed, revealedCopy, events)
+}
+
+// startWuguPickForWithAll 同 startWuguPickFor，但接受独立的初始完整亮牌列表
+func (g *Game) startWuguPickForWithAll(source, picker int, revealed []Card, revealedAll []Card, events *[]GameEvent) {
 	if len(revealed) == 0 {
 		g.finishWugu(source, events)
 		return
 	}
 	revealedCopy := make([]Card, len(revealed))
 	copy(revealedCopy, revealed)
+	revealedAllCopy := make([]Card, len(revealedAll))
+	copy(revealedAllCopy, revealedAll)
 	trick := Card{Kind: CardWuGu, Name: "五谷丰登"}
 	spec := PlayTarget{SeatIndex: picker}
-	// 复用标准无懈窗口：任何人可以对 picker 的"选牌锦囊"出无懈可击
-	// responder 是 picker 的下家（五谷使用者 source 可以在反无懈链中出无懈）
 	g.Phase = PhaseResponse
 	allQueue := g.createResponseQueue((picker + 1) % len(g.Players))
 	queue := make([]int, 0, len(allQueue))
 	for _, s := range allQueue {
-		// 排除 picker 自己（不能无懈自己对自己的选牌锦囊）
 		if s != picker {
 			queue = append(queue, s)
 		}
 	}
 	g.Pending = &PendingCombat{
-		SourceIndex:   source,
-		TargetIndex:   -1,
-		ReturnIndex:   source,
-		EffectTarget:  picker,
-		Card:          trick,
-		ResponseMode:  ResponseModeWuxiekTrick,
-		TargetZone:    spec.Zone,
-		TargetCardID:  spec.CardID,
-		ResponseQueue: queue,
-		ResponseIndex: 0,
-		WuxiekChain:   nil,
-		RevealedCards: revealedCopy,
-		WuguPickSeat:  picker,
+		SourceIndex:    source,
+		TargetIndex:    -1,
+		ReturnIndex:    source,
+		EffectTarget:   picker,
+		Card:           trick,
+		ResponseMode:   ResponseModeWuxiekTrick,
+		TargetZone:     spec.Zone,
+		TargetCardID:   spec.CardID,
+		ResponseQueue:  queue,
+		ResponseIndex:  0,
+		WuxiekChain:    nil,
+		RevealedCards:  revealedCopy,
+		WuguRevealedAll: revealedAllCopy, // 初始完整亮牌（框展示用，始终不变）
+		WuguPickSeat:   picker,
 	}
 	g.advanceToNextWuxiekResponder(events)
-	// 提示由 advanceToNextWuxiekResponder 中设置
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "wuxiek_offer",
@@ -123,7 +129,7 @@ func (g *Game) startWuguPickFor(source, picker int, revealed []Card, events *[]G
 }
 
 // wuguPickPass 无懈通过，让 picker 选牌
-func (g *Game) wuguPickPass(picker int, revealed []Card, source int, events *[]GameEvent) {
+func (g *Game) wuguPickPass(picker int, revealed []Card, revealedAll []Card, source int, events *[]GameEvent) {
 	if len(revealed) == 0 {
 		g.finishWugu(source, events)
 		return
@@ -135,8 +141,9 @@ func (g *Game) wuguPickPass(picker int, revealed []Card, source int, events *[]G
 		ReturnIndex:   source,
 		Card:          Card{Kind: CardWuGu, Name: "五谷丰登"},
 		ResponseMode:  ResponseModeWuguPick,
-		RevealedCards: revealed,
-		WuguPickSeat:  picker,
+		RevealedCards:  revealed,
+		WuguRevealedAll: revealedAll,
+		WuguPickSeat:   picker,
 	}
 	if picker == g.HumanPlayer {
 		g.Message = "请选择【五谷丰登】中的一张牌"
@@ -218,8 +225,8 @@ func (g *Game) advanceWuguPick(events *[]GameEvent) error {
 		return g.finishWugu(pending.SourceIndex, events)
 	}
 	Logf("advanceWuguPick: %d -> %d (enter wuxiek for next picker)", pending.WuguPickSeat, next)
-	// 进入下一个人的选牌无懈窗口
-	g.startWuguPickFor(pending.SourceIndex, next, pending.RevealedCards, events)
+	// 进入下一个人的选牌无懈窗口，保留初始完整亮牌列表
+	g.startWuguPickForWithAll(pending.SourceIndex, next, pending.RevealedCards, pending.WuguRevealedAll, events)
 	return nil
 }
 

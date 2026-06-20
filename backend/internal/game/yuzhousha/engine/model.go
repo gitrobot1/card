@@ -111,8 +111,9 @@ type PendingCombat struct {
 	ResponsesNeeded int  `json:"responses_needed,omitempty"`
 	BaguaUsed     bool   `json:"bagua_used,omitempty"`
 	IgnoreArmor   bool   `json:"ignore_armor,omitempty"`
-	RevealedCards []Card `json:"revealed_cards,omitempty"`
-	WuguPickSeat  int    `json:"wugu_pick_seat,omitempty"`
+	RevealedCards    []Card `json:"revealed_cards,omitempty"`
+	WuguRevealedAll  []Card `json:"wugu_revealed_all,omitempty"` // 五谷初始亮牌完整列表（框展示用，不变）
+	WuguPickSeat     int    `json:"wugu_pick_seat,omitempty"`
 	SkillID       string `json:"skill_id,omitempty"`
 	JijiangLord   int    `json:"jijiang_lord,omitempty"`
 	JijiangUse    bool   `json:"jijiang_use,omitempty"`

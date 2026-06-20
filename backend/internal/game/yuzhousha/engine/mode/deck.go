@@ -58,21 +58,11 @@ type DeckProfile struct {
 	InitialHandSize int
 }
 
-// TEST_TRICKS: 临时测试牌堆——全是锦囊牌，方便测试无懈可击和群体锦囊
+// TEST_TRICKS: 临时测试牌堆——只有无懈可击和南蛮入侵，方便测试
 func TestTrickDeckSpecs() []DeckSpec {
 	return []DeckSpec{
-		{DeckKindWuxiek, 8},
-		{DeckKindWuGu, 12},
-		{DeckKindGuohe, 4},
-		{DeckKindTanNang, 4},
-		{DeckKindJueDou, 4},
-		{DeckKindWuZhong, 4},
-		{DeckKindNanMan, 4},
-		{DeckKindWanJian, 4},
-		{DeckKindTaoYuan, 4},
-		{DeckKindLeBu, 4},
-		{DeckKindBingLiang, 4},
-		{DeckKindShanDian, 2},
+		{DeckKindWuxiek, 20},
+		{DeckKindWanJian, 40},
 	}
 }
 

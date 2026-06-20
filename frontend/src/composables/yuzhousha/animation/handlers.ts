@@ -25,8 +25,8 @@ async function flyBoltIfTargeted(ctx: EventReplayContext) {
 
   await tick()
 
-  // AOE 锦囊（南蛮/万箭/桃园结义）：飞线指向所有存活玩家
-  if (event.type === 'play_trick' && (event.card?.kind === 'nanman' || event.card?.kind === 'wanjian' || event.card?.kind === 'taoyuan')) {
+  // 万箭齐发：飞线指向所有存活玩家
+  if (event.type === 'play_trick' && event.card?.kind === 'wanjian') {
     const players = ctx.state.value?.players ?? []
     for (let i = 0; i < players.length; i++) {
       if (players[i].hp > 0 && i !== source) {
@@ -370,11 +370,9 @@ const wuguPickHandler: EventReplayHandler = {
   types: ['wugu_pick'],
   match: (e) => e.type === 'wugu_pick' && e.player_index != null && !!e.card,
   async replay(ctx) {
-    const { event, state, mySeat, appendDrawnCards, sleep } = ctx
+    const { event, state, sleep } = ctx
     if (!state.value) return
-    if (event.player_index === mySeat) {
-      appendDrawnCards([event.card!])
-    }
+    // 五谷选牌不飞动画，只在框内变灰。仅更新手牌数。
     state.value = {
       ...state.value,
       players: state.value.players.map((p) =>

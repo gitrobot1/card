@@ -26,6 +26,12 @@ func (g *Game) startDyingWindow(victim int, ctx DyingContext, events *[]GameEven
 	}
 	ctx.Victim = victim
 	g.dyingContext = &ctx
+	// 保存当前 Pending（如果有），濒死结束后恢复
+	var saved *PendingCombat
+	if g.Pending != nil {
+		cp := *g.Pending
+		saved = &cp
+	}
 	g.Phase = PhaseResponse
 	g.Pending = &PendingCombat{
 		ResponseMode: ResponseModeDying,
@@ -34,6 +40,7 @@ func (g *Game) startDyingWindow(victim int, ctx DyingContext, events *[]GameEven
 		EffectTarget: victim,
 		ReturnIndex:  victim,
 		RequiredKind: CardTao,
+		SavedPending:  saved,
 	}
 	victimName := g.Players[victim].Name
 	askName := g.Players[victim].Name
@@ -188,9 +195,11 @@ func (g *Game) nextDyingAskSeat(current, victim int) (next int, roundDone bool) 
 func (g *Game) resolveDyingSaved(events *[]GameEvent) error {
 	ctx := g.dyingContext
 	g.dyingContext = nil
+	saved := g.Pending.SavedPending // 濒死前保存的 Pending
 	g.Pending = nil
 	if ctx == nil {
 		g.Phase = PhasePlaying
+		g.restorePendingAfterDying(saved, events)
 		return nil
 	}
 	victim := ctx.Victim
@@ -207,6 +216,10 @@ func (g *Game) resolveDyingSaved(events *[]GameEvent) error {
 	}
 	if ctx.Resume.LeijiResumeShan {
 		return g.finishShanDodgeSuccess(ctx.Resume.LeijiShanSeat, ctx.Resume.LeijiSaved, events, "")
+	}
+	// 恢复濒死前保存的 Pending
+	if g.restorePendingAfterDying(saved, events) {
+		return nil
 	}
 	g.Phase = PhasePlaying
 	g.TurnStep = StepPlay
@@ -265,6 +278,7 @@ func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 		killer = ctx.Killer
 	}
 	g.dyingContext = nil
+	saved := g.Pending.SavedPending // 濒死前保存的 Pending
 	g.Pending = nil
 	if victim >= 0 && victim < len(g.Players) {
 		// HOOK: 阵亡时（亡语，牌还在）
@@ -327,6 +341,7 @@ func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 		}
 		g.Message = fmt.Sprintf("%s 阵亡，对局继续", g.Players[victim].Name)
 		g.resetTimer()
+		g.restorePendingAfterDying(saved, events)
 		return nil
 	}
 	if g.isIdentity() {
@@ -340,6 +355,7 @@ func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 		}
 		g.Message = fmt.Sprintf("%s 阵亡，对局继续", g.Players[victim].Name)
 		g.resetTimer()
+		g.restorePendingAfterDying(saved, events)
 		return nil
 	}
 	if g.is2v2() {
@@ -350,8 +366,30 @@ func (g *Game) resolveDyingDeath(events *[]GameEvent) error {
 		}
 		g.Message = fmt.Sprintf("%s 阵亡，对局继续", g.Players[victim].Name)
 		g.resetTimer()
+		g.restorePendingAfterDying(saved, events)
 		return nil
 	}
-	g.finishGame(killer, events)
+	// 通用处理：恢复之前保存的 Pending，继续对局
+	g.Phase = PhasePlaying
+	if g.AliveHP(g.CurrentTurn) <= 0 {
+		g.CurrentTurn = g.nextTurnSeat(g.CurrentTurn)
+		g.beginTurn(events)
+	}
+	// 检查是否只剩一个玩家存活
+	aliveCount := 0
+	lastAlive := 0
+	for i, p := range g.Players {
+		if p.HP > 0 {
+			aliveCount++
+			lastAlive = i
+		}
+	}
+	if aliveCount <= 1 {
+		g.finishGame(lastAlive, events)
+		return nil
+	}
+	g.Message = fmt.Sprintf("%s 阵亡，对局继续", g.Players[victim].Name)
+	g.resetTimer()
+	g.restorePendingAfterDying(saved, events)
 	return nil
 }

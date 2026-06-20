@@ -573,7 +573,7 @@ const {
           :disabled="!canSubmitPlay"
           @click="submitPlayCard"
         >
-          出牌
+          {{ isWuguPick ? '选牌' : '出牌' }}
         </button>
         <button
           v-if="canSubmitBagua"
