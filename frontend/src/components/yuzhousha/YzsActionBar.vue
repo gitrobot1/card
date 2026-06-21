@@ -83,7 +83,10 @@ const {
   submitSkill,
   submitTuxiSkip,
   submitYinghunDiscard,
-  submitYinghunOption
+  submitYinghunOption,
+  tiesuoMode,
+  tiesuoTargets,
+  submitTiesuoRecast
 } = useYzsGameInject()
 </script>
 
@@ -606,13 +609,22 @@ const {
         乱武
       </button>
       <button
+        v-if="tiesuoMode"
+        type="button"
+        class="ddz__btn"
+        :disabled="loading || isAnimating"
+        @click="submitTiesuoRecast"
+      >
+        重铸
+      </button>
+      <button
         type="button"
         class="ddz__btn"
         :class="{ 'ddz__btn--primary': canSubmitPlay }"
         :disabled="!canSubmitPlay"
         @click="submitPlayCard"
       >
-        出牌
+        出牌<span v-if="tiesuoMode" class="yzs__discard-count">（{{ tiesuoTargets.length }}/2）</span>
       </button>
       <button
         type="button"

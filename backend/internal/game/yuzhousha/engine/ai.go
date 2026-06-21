@@ -1,22 +1,16 @@
 package engine
 
 import (
-	"time"
-
 	"github.com/time/card/backend/internal/game/yuzhousha/skill"
 )
 
 const maxAIActionsPerBurst = 500
-
-// AIDelay AI每次行动之间的延迟，让前端有时间渲染动画
-const AIDelay = 2 * time.Second
 
 func RunAIActions(g *Game, events *[]GameEvent) {
 	for i := 0; !g.IsFinished() && RunAIActionStep(g, events); i++ {
 		if i >= maxAIActionsPerBurst {
 			break
 		}
-		time.Sleep(AIDelay)
 	}
 }
 
@@ -138,6 +132,7 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			return true
 		}
 		if pending.ResponseMode == ResponseModeSkillGanglieChoice {
+			// 刚烈choice：伤害来源（TargetIndex）选择弃2牌或扣1血
 			seat := pending.TargetIndex
 			if !g.Players[seat].IsAI {
 				return false
@@ -371,6 +366,21 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			_ = g.resolveHuoGongFail(seat, events)
 			return true
 		}
+		if pending.ResponseMode == ResponseModeSkillFankui {
+			seat := pending.TargetIndex
+			if !g.Players[seat].IsAI {
+				return false
+			}
+			// AI 从来源拿牌：手牌优先 → 装备随机 → 判定区随机
+			source := pending.SourceIndex
+			zone, cardID := aiPickTakeTarget(g, source)
+			if zone != "" {
+				_ = g.FankuiTakeFrom(seat, zone, cardID, events)
+			} else {
+				_ = g.PassFankui(seat, events)
+			}
+			return true
+		}
 		required := pending.RequiredKind
 		if required == "" {
 			required = CardShan
@@ -500,8 +510,26 @@ func runAIPlayPhase(g *Game, seat int, events *[]GameEvent) bool {
 			continue
 		}
 		playTarget := PlayTarget{SeatIndex: target, Zone: "hand"}
-		if kind == CardShanDian || kind == CardWuGu || kind == CardTieSuo {
+		if kind == CardShanDian || kind == CardWuGu {
 			playTarget = PlayTarget{SeatIndex: seat}
+		}
+		if kind == CardTieSuo {
+			// AI 铁索连环策略：优先横置两名敌方；若不足则横置一名；否则重铸
+			enemies := g.enemiesOf(seat)
+			unchainedEnemies := make([]int, 0, len(enemies))
+			for _, e := range enemies {
+				if !g.isChained(e) && g.Players[e].HP > 0 {
+					unchainedEnemies = append(unchainedEnemies, e)
+				}
+			}
+			if len(unchainedEnemies) >= 2 {
+				playTarget = PlayTarget{SeatIndex: unchainedEnemies[0], SecondSeatIndex: unchainedEnemies[1]}
+			} else if len(unchainedEnemies) == 1 {
+				playTarget = PlayTarget{SeatIndex: unchainedEnemies[0]}
+			} else {
+				// 没有可横置的敌方，重铸
+				playTarget = PlayTarget{SeatIndex: seat, Zone: "recast"}
+			}
 		}
 		if err := g.playTrick(seat, p.Hand[idx].ID, playTarget, events); err == nil {
 			return true
@@ -614,18 +642,28 @@ func firstEquipCardFor(g *Game, seat int, asKind string) Card {
 }
 
 func shouldAIWuxiekTrick(g *Game, seat int, pending *PendingCombat) bool {
-	switch pending.Card.Kind {
-	case CardGuoHe, CardTanNang, CardJueDou:
-		return true
-	case CardTaoYuan:
-		return g.Players[seat].HP < g.Players[seat].MaxHP
-	case CardWuZhong:
-		return true
-	default:
-		return pending.ResponseMode == ResponseModeWuxiekLebu ||
-			pending.ResponseMode == ResponseModeWuxiekBingliang ||
-			pending.ResponseMode == ResponseModeWuxiekShandian
+	// 判断 AI(seat) 是否该对当前锦囊出无懈可击：
+	// 只在锦囊目标是自己或队友时才出，不浪费在敌方目标上。
+	target := pending.EffectTarget
+	if target >= 0 && target < len(g.Players) {
+		if target == seat {
+			return true
+		}
+		if g.isAlly(seat, target) {
+			return true
+		}
 	}
+	// 铁索连环双目标：检查第二个目标
+	secondTarget := pending.SecondTargetIndex
+	if secondTarget > 0 && secondTarget < len(g.Players) {
+		if secondTarget == seat {
+			return true
+		}
+		if g.isAlly(seat, secondTarget) {
+			return true
+		}
+	}
+	return false
 }
 
 func shouldAIDyingRescue(g *Game, rescuer, victim int) bool {

@@ -58,11 +58,13 @@ type DeckProfile struct {
 	InitialHandSize int
 }
 
-// TEST_TRICKS: 临时测试牌堆——只有无懈可击和南蛮入侵，方便测试
+// TEST_TRICKS: 临时测试牌堆——只有火杀、雷杀、酒和铁索连环，方便测试
 func TestTrickDeckSpecs() []DeckSpec {
 	return []DeckSpec{
-		{DeckKindWuxiek, 20},
-		{DeckKindWanJian, 40},
+		{DeckKindShaFire, 15},
+		{DeckKindShaThunder, 15},
+		{DeckKindJiu, 15},
+		{DeckKindTieSuo, 15},
 	}
 }
 

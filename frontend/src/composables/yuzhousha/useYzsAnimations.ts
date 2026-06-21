@@ -3,6 +3,7 @@ import {
   animateYzsDrawBatch,
   animateYzsDiscardBatch,
   animateYzsShaFlyBolt,
+  animateYzsHitSlash,
 } from './useYzsPlayAnimation'
 import type { YuzhoushaState, YzsCard, YzsEvent, YzsPlayer } from '../../types/yuzhousha'
 import {
@@ -251,6 +252,10 @@ async function replayEvent(event: YzsEvent) {
     centerMessage.value = event.message!
   }
 
+  async function runHitSlash(seat: number) {
+    await animateYzsHitSlash(seat, tableWrapRef.value)
+  }
+
   const ctx: EventReplayContext = {
     event,
     state,
@@ -262,12 +267,14 @@ async function replayEvent(event: YzsEvent) {
     drawAreaRef,
     playAreaRef,
     handAreaRef,
+    tableWrapRef,
     appendDrawnCards,
     setTableCard,
     sleep,
     flashSeatHit,
     flashSeatBlocked,
     runShaFlyBolt,
+    runHitSlash,
     nextTick,
   }
   await replayRegisteredEvent(ctx)
@@ -287,10 +294,22 @@ async function applyState(next: YuzhoushaState) {
   const skipReplay =
     next.pending?.response_mode === 'peek_deck' || next.turn_step === 'prepare'
 
-  // 先把最终 state 设上（events 暂时保留用于 replay），
-  // 确保 TakeWindow / 选牌框等能立刻看到正确的 hand_count 等数据，
-  // 不会因为事件 replay 期间的中间态显示错误。
-  state.value = { ...next }
+  // 先把最终 state 设上，但保留旧 HP（hitHandler 震动后再更新 HP）
+  // 避免先掉血再震动的视觉错误
+  const oldState = state.value
+  if (oldState && events.some((e) => e.type === 'sha_hit' || e.type === 'trick_hit')) {
+    state.value = {
+      ...next,
+      players: next.players.map((np) => {
+        const op = oldState.players[np.index]
+        if (!op || op.hp === np.hp) return np
+        // 保留旧 HP，等 hitHandler 震动后再更新
+        return { ...np, hp: op.hp }
+      }),
+    }
+  } else {
+    state.value = { ...next }
+  }
 
   if (events.length === 0 || skipReplay) {
     state.value = { ...next, events: [] }
@@ -317,7 +336,18 @@ async function applyState(next: YuzhoushaState) {
       await replayEvent(events[i])
       i++
     }
-    state.value = { ...next, events: [] }
+    // 保留 hitHandler 中已更新的 HP（震动后才掉血）
+    const currentPlayers = state.value?.players
+    state.value = {
+      ...next,
+      events: [],
+      players: currentPlayers
+        ? next.players.map((np) => {
+            const cp = currentPlayers[np.index]
+            return cp ? { ...np, hp: cp.hp } : np
+          })
+        : next.players,
+    }
     syncDisplayFromState(next)
   } finally {
     isAnimating.value = false

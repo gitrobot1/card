@@ -476,9 +476,7 @@ func (g *Game) applyDamage(source, target, amount int, damageCard Card, events *
 
 	oldHP := p.HP
 	p.HP -= finalAmount
-	if p.HP < 0 {
-		p.HP = 0
-	}
+	// 不钳制 HP 到 0，保留负值以支持多桃濒死（HP=-1 需要 2 桃等）
 	newHP := p.HP
 	delta := newHP - oldHP
 

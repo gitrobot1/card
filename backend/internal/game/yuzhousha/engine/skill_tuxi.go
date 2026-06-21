@@ -2,6 +2,8 @@ package engine
 
 import (
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/time/card/backend/internal/game/yuzhousha/skill"
 )
@@ -211,23 +213,49 @@ func (g *Game) finishTuxi(seat int, events *[]GameEvent) error {
 
 func aiPickTakeTarget(g *Game, target int) (zone, cardID string) {
 	p := &g.Players[target]
-	if p.Weapon != nil {
-		return EquipWeapon, p.Weapon.ID
-	}
-	if p.Armor != nil {
-		return EquipArmor, p.Armor.ID
-	}
-	if p.MinusHorse != nil {
-		return EquipMinusHorse, p.MinusHorse.ID
-	}
-	if p.PlusHorse != nil {
-		return EquipPlusHorse, p.PlusHorse.ID
-	}
+
+	// 优先级：手牌区（随机） → 装备区（随机） → 判定区（随机）
+	// 手牌区
 	if len(p.Hand) > 0 {
 		return "hand", ""
 	}
+	// 装备区：随机选一个非空槽位
+	equips := make([]struct {
+		zone string
+		card *Card
+	}, 0, 4)
+	if p.Weapon != nil {
+		equips = append(equips, struct {
+			zone string
+			card *Card
+		}{EquipWeapon, p.Weapon})
+	}
+	if p.Armor != nil {
+		equips = append(equips, struct {
+			zone string
+			card *Card
+		}{EquipArmor, p.Armor})
+	}
+	if p.MinusHorse != nil {
+		equips = append(equips, struct {
+			zone string
+			card *Card
+		}{EquipMinusHorse, p.MinusHorse})
+	}
+	if p.PlusHorse != nil {
+		equips = append(equips, struct {
+			zone string
+			card *Card
+		}{EquipPlusHorse, p.PlusHorse})
+	}
+	if len(equips) > 0 {
+		idx := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(equips))
+		return equips[idx].zone, equips[idx].card.ID
+	}
+	// 判定区
 	if len(p.JudgeArea) > 0 {
-		return "judge", p.JudgeArea[0].ID
+		idx := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(p.JudgeArea))
+		return "judge", p.JudgeArea[idx].ID
 	}
 	return "", ""
 }

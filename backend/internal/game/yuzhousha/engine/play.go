@@ -309,8 +309,8 @@ func (g *Game) playTrick(seat int, cardID string, targetSpec PlayTarget, events 
 	if !ok {
 		return ErrInvalidCard
 	}
-	// 铁索连环重铸（target 是自己）
-	if cardObj.Kind == CardTieSuo && targetSpec.SeatIndex == seat {
+	// 铁索连环重铸（前端用 targetZone='recast' 标记）
+	if cardObj.Kind == CardTieSuo && targetSpec.Zone == "recast" {
 		played := g.removeHandCard(seat, idx, events)
 		g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
 		*events = append(*events, GameEvent{
@@ -404,7 +404,7 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 		return g.resolveWugu(seat, events)
 	case CardTaoYuan:
 		return g.resolveTaoYuan(seat, events)
-	case CardGuoHe, CardTanNang, CardJueDou, CardWuZhong:
+	case CardGuoHe, CardTanNang, CardJueDou, CardWuZhong, CardHuoGong:
 		effectTarget := targetSpec.SeatIndex
 		if effectTarget < 0 || effectTarget >= len(g.Players) {
 			effectTarget = target
@@ -419,11 +419,9 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 		return g.resolveNanMan(seat, events)
 	case CardWanJian:
 		return g.resolveWanJian(seat, events)
-	case CardHuoGong:
-		return g.playHuoGong(seat, played, target, events)
 	case CardTieSuo:
-		g.notifyBecameTarget(target, seat, played, events)
-		return g.resolveTieSuoChain(seat, target, played, events)
+		// 铁索连环：类似南蛮入侵/桃园结义，逐人无懈窗口
+		return g.resolveTieSuoAOE(seat, targetSpec, played, events)
 	default:
 		return ErrInvalidCard
 	}
@@ -514,19 +512,26 @@ func (g *Game) advanceToNextWuxiekResponder(events *[]GameEvent) {
 		g.setWuxiekMessage()
 		return
 	}
-	// AI 自动决定：有 wuxiek 就出，没有就跳过
-	for _, card := range g.Players[nextSeat].Hand {
-		if card.Kind == CardWuxiek {
-			_ = g.RespondWuxiek(nextSeat, card.ID, events)
-			return
+	// AI 自动决定：该出无懈且有牌才出，否则跳过
+	if shouldAIWuxiekTrick(g, nextSeat, g.Pending) {
+		for _, card := range g.Players[nextSeat].Hand {
+			if card.Kind == CardWuxiek {
+				_ = g.RespondWuxiek(nextSeat, card.ID, events)
+				return
+			}
 		}
 	}
-	// AI 没有无懈，跳过，推进队列
+	// AI 没有无懈（或不该出），跳过，推进队列
 	g.advanceWuxiekQueueAfterPass(nextSeat, events)
 }
 
 // autoAIWuxiekRespond AI 自动决定是否出无懈可击
 func (g *Game) autoAIWuxiekRespond(seat int, events *[]GameEvent) {
+	// 判断该不该出无懈（目标是自己或队友）
+	if !shouldAIWuxiekTrick(g, seat, g.Pending) {
+		g.advanceWuxiekQueueAfterPass(seat, events)
+		return
+	}
 	// 检查 AI 是否有无懈可击（且不在链中）
 	inChain := false
 	for _, entry := range g.Pending.WuxiekChain {
@@ -840,6 +845,7 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 	isNanMan := trick.Kind == CardNanMan
 	isTaoYuan := trick.Kind == CardTaoYuan
 	isWuGu := trick.Kind == CardWuGu
+	isTieSuo := trick.Kind == CardTieSuo
 	wuguPicker := g.Pending.WuguPickSeat
 	wuguRevealed := append([]Card(nil), g.Pending.RevealedCards...)
 	wuguRevealedAll := append([]Card(nil), g.Pending.WuguRevealedAll...)
@@ -899,6 +905,18 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 			g.startWuguPickForWithAll(source, next, wuguRevealed, wuguRevealedAll, events)
 			return
 		}
+		if isTieSuo {
+			g.Message = fmt.Sprintf("【无懈可击】阻止了 %s 受到【铁索连环】", g.Players[effectTarget].Name)
+			*events = append(*events, GameEvent{
+				Type:        "trick_cancelled",
+				PlayerIndex: effectTarget,
+				TargetIndex: effectTarget,
+				Card:        &trick,
+				Message:     g.Message,
+			})
+			g.continueTieSuoAfter(source, trick, aoeQueue, events)
+			return
+		}
 		g.Message = fmt.Sprintf("【%s】被【无懈可击】抵消", trick.Name)
 		g.resetTimer()
 		return
@@ -917,6 +935,7 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 			Damage:       1,
 			AoeQueue:     aoeQueue,
 		}
+		FillPendingRoles(g.Pending)
 		g.Message = msg
 		g.resetTimer()
 		*events = append(*events, GameEvent{
@@ -942,6 +961,7 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 			Damage:       1,
 			AoeQueue:     aoeQueue,
 		}
+		FillPendingRoles(g.Pending)
 		g.Message = msg
 		g.resetTimer()
 		*events = append(*events, GameEvent{
@@ -971,6 +991,15 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 		g.wuguPickPass(wuguPicker, wuguRevealed, wuguRevealedAll, source, events)
 		return
 	}
+	if isTieSuo {
+		// 无懈通过 → 对当前目标执行横置/重置，然后继续下一个
+		g.resolveTieSuoChain(source, effectTarget, trick, events)
+		for i, pl := range g.Players {
+			Logf("finalizeWuxiekChain TieSuo: Player[%d]=%s chained=%v", i, pl.Name, g.isChained(i))
+		}
+		g.continueTieSuoAfter(source, trick, aoeQueue, events)
+		return
+	}
 	n := len(g.Players)
 	if source < 0 || source >= n {
 		g.resetTimer()
@@ -991,6 +1020,12 @@ func (g *Game) continueTrickAfterWuxiekPassDirect(source, target int, trick Card
 		_ = g.resolveTanNang(source, target, spec, events)
 	case CardJueDou:
 		_ = g.startCardResponse(source, target, trick, CardSha, fmt.Sprintf("%s 对 %s 发起【决斗】，%s 需出杀", g.Players[source].Name, g.Players[target].Name, g.Players[target].Name), events)
+	case CardHuoGong:
+		_ = g.playHuoGong(source, trick, target, events)
+	case CardTieSuo:
+		// 铁索连环通常在 finalizeWuxiekChain 中直接处理（保留双目标信息）
+		// 此分支仅作为兜底：对单目标执行横置/重置
+		g.resolveTieSuoChain(source, target, trick, events)
 	case CardWuZhong:
 		g.Message = fmt.Sprintf("%s 使用【无中生有】，摸两张牌", g.Players[source].Name)
 		*events = append(*events, GameEvent{Type: "trick_effect", PlayerIndex: source, TargetIndex: source, Message: g.Message})
@@ -1141,6 +1176,7 @@ func (g *Game) takeTargetCard(target int, spec PlayTarget, events *[]GameEvent) 
 		card = p.Hand[0]
 		p.Hand = p.Hand[1:]
 		g.syncCounts()
+		g.runHandEmptyHooks(target, events)
 		return card, "手牌", true
 	case EquipWeapon:
 		card, label, ok = takeCardPtr(&p.Weapon, spec.CardID, "武器")
@@ -1478,6 +1514,12 @@ func (g *Game) restorePendingAfterDying(saved *PendingCombat, events *[]GameEven
 	source := saved.SourceIndex
 	queue := saved.AoeQueue
 	switch {
+	case saved.RequiredKind == "tiesuo":
+		// 铁索连环AOE恢复：濒死结束后继续下一个人
+		// 链式伤害值 = saved.Damage（上一个人的最终伤害值）
+		Logf("restorePendingAfterDying: tiesuo aoe resume, source=%d amount=%d rest=%v", source, saved.Damage, queue)
+		g.continueTiesuoAoe(source, saved.Damage, saved.Card, queue, events)
+		return true
 	case saved.Card.Kind == CardNanMan:
 		g.continueNanManAfterTarget(source, queue, events)
 		return true

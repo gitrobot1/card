@@ -111,6 +111,13 @@ func (r *gameSkillRuntime) PendingGuicaiFor(seat int) bool {
 	return r.g.Pending.ResponseMode == ResponseModeSkillGuicai && r.g.Pending.TargetIndex == seat
 }
 
+func (r *gameSkillRuntime) PendingJudgeReason() string {
+	if r.g.Pending == nil {
+		return ""
+	}
+	return r.g.Pending.JudgeReason
+}
+
 func (r *gameSkillRuntime) StartLuoshen(seat int) error {
 	return r.g.StartLuoshen(seat, r.events)
 }

@@ -71,9 +71,13 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     attackRangeOf,
   } = deps
 
-  const hasTeamMode = computed(
-    () => state.value?.players.some((p) => p.team != null) ?? false,
-  )
+  const hasTeamMode = computed(() => {
+    const mode = state.value?.mode
+    // 只在多队伍模式下启用 team 模式判断
+    // 1v1 和 3p_chain 模式不需要 team 区分
+    if (!mode || mode === '1v1' || mode === '3p_chain') return false
+    return true
+  })
 
   const enemySeats = computed(() => {
     const players = state.value?.players
@@ -84,8 +88,11 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     if (state.value?.mode === '3p_chain' && players.length === 3) {
       return [chainMarkSeat(mySeat.value, 3)]
     }
+    // 1v1 模式：只有一个对手
+    if (!hasTeamMode.value) return [opponentSeat.value]
+    // 多队伍模式（2v2, 3p_ddz 等）：通过 team 字段区分敌我
     const me = players[mySeat.value]
-    if (me?.team == null) return [opponentSeat.value]
+    if (me == null) return [opponentSeat.value]
     return players.filter((p) => p.team !== me.team).map((p) => p.index)
   })
 
@@ -104,9 +111,15 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
   function ringDistance(from: number, to: number) {
     const n = state.value?.players?.length ?? 2
     if (n <= 2) return 1
-    let diff = Math.abs(from - to)
-    if (n - diff < diff) diff = n - diff
-    return Math.max(1, diff)
+    if (from === to) return 1
+    // 左右分开计算，距离从 1 开始
+    // 顺时针距离
+    let clockwise = (to - from + n) % n
+    if (clockwise === 0) clockwise = n
+    // 逆时针距离
+    let counterClockwise = (from - to + n) % n
+    if (counterClockwise === 0) counterClockwise = n
+    return Math.min(clockwise, counterClockwise)
   }
 
   function distanceToSeat(seat: number) {
@@ -116,7 +129,8 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     let dist = ringDistance(mySeat.value, seat)
     if (me.minus_horse) dist -= 1
     if (target.plus_horse) dist += 1
-    return Math.max(1, dist)
+    const result = Math.max(1, dist)
+    return result
   }
 
   function takeableOptionsForPlayer(seat: number) {

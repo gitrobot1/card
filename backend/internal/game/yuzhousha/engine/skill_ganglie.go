@@ -70,6 +70,8 @@ func (g *Game) applyGanglieJudgeResult(owner int, judgeCard Card, events *[]Game
 		msg += "，红桃无效"
 		g.appendSkillEvent(events, skill.IDGanglie, owner, source, msg)
 		g.Pending = nil
+		Logf("applyGanglieJudgeResult: heart suit, advanceDamageAftermath, AoeResume.Active=%v Rest=%v",
+			a.Resume.AoeResume.Active, a.Resume.AoeResume.Rest)
 		if g.advanceDamageAftermath(events) {
 			return nil
 		}

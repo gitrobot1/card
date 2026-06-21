@@ -373,6 +373,7 @@ export function getYuzhoushaState(gameId: string) {
 
 export interface YuzhoushaPlayTarget {
   targetIndex: number
+  secondTargetIndex?: number
   targetZone?: string
   targetCardId?: string
 }
@@ -388,6 +389,7 @@ export function playYuzhoushaCard(
       : {
           card_id: cardId,
           target_index: target.targetIndex,
+          second_target_index: target.secondTargetIndex,
           target_zone: target.targetZone,
           target_card_id: target.targetCardId,
         }

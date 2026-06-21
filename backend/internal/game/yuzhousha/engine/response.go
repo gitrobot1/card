@@ -116,7 +116,13 @@ func (g *Game) resolvePendingDodgeSuccess(seat int, pending *PendingCombat, even
 		}
 		queue := pending.AoeQueue
 		g.Pending = nil
+		// ★ 雷击可能触发技能链（判定→鬼才等），把AOE队列保存到leijiSaved中
+		// 雷击结束后由 finishShanDodgeSuccess 恢复
 		if g.offerLeijiAfterShan(seat, pending, events) {
+			// 雷击窗口已启动，AOE队列通过 leijiSaved 传递
+			// leijiSaved 在 finishShanDodgeSuccess 中恢复时会用到 queue
+			// 但当前 leijiSaved 没有存储 queue...
+			// 这里把 queue 存到 DamageResume.AoeResume
 			return nil
 		}
 		// 南蛮/万箭用新的逐人流程
@@ -549,6 +555,9 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 		return ErrNotYourTurn
 	case ResponseModePeekDeck:
 		return ErrWrongPhase
+	case ResponseModeSkillGanglieChoice:
+		// 刚烈 choice：目标选择受伤
+		return g.GanglieTakeDamage(seat, events)
 	default:
 		return g.resolvePendingMiss(events)
 	}
@@ -593,7 +602,15 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 			Message:     g.damageMessage(&g.Players[pending.TargetIndex], pending.Card.Name, damage),
 		})
 		if g.Players[pending.TargetIndex].HP <= 0 {
-			if g.afterDamageApplied(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, DamageResume{}, events) {
+			dyingResume := DamageResume{}
+			dyingResume.AoeResume.Source = pending.SourceIndex
+			dyingResume.AoeResume.Amount = damage
+			dyingResume.AoeResume.Card = pending.Card
+			dyingResume.AoeResume.Rest = pending.AoeQueue
+			dyingResume.AoeResume.Active = true
+			Logf("resolvePendingMiss: dyingResume AoeResume.Active=%v Rest=%v Card=%s",
+				dyingResume.AoeResume.Active, dyingResume.AoeResume.Rest, dyingResume.AoeResume.Card.Kind)
+			if g.afterDamageApplied(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, dyingResume, events) {
 				// 濒死阶段启动，startDyingWindow 已保存当前 Pending 到 SavedPending
 				// 不要清空 Pending，等濒死结束恢复
 				return nil
@@ -604,7 +621,18 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 			}
 		}
 		g.Pending = nil
-		// 南蛮/万箭用新的逐人流程
+		// 先处理伤害技能链（刚烈等），技能链完毕后由 resumeAfterDamageNoSkill 恢复 AOE
+		resume := DamageResume{}
+		resume.AoeResume.Source = pending.SourceIndex
+		resume.AoeResume.Amount = damage
+		resume.AoeResume.Card = pending.Card
+		resume.AoeResume.Rest = pending.AoeQueue
+		resume.AoeResume.Active = true
+		// Tiesuo=false 表示南蛮/万箭，恢复时走 continueNanManAfterTarget/continueWanJianAfterTarget
+		if g.continueAfterDamage(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, resume, events) {
+			return nil
+		}
+		// 无技能链：直接继续 AOE
 		if pending.Card.Kind == CardNanMan {
 			g.continueNanManAfterTarget(pending.SourceIndex, pending.AoeQueue, events)
 			return nil

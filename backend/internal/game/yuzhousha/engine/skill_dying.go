@@ -25,6 +25,8 @@ func (g *Game) startDyingWindow(victim int, ctx DyingContext, events *[]GameEven
 		return true
 	}
 	ctx.Victim = victim
+	Logf("startDyingWindow: victim=%d AoeResume.Active=%v Rest=%v Card=%s",
+		victim, ctx.Resume.AoeResume.Active, ctx.Resume.AoeResume.Rest, ctx.Resume.AoeResume.Card.Kind)
 	g.dyingContext = &ctx
 	// 保存当前 Pending（如果有），濒死结束后恢复
 	var saved *PendingCombat
@@ -44,7 +46,12 @@ func (g *Game) startDyingWindow(victim int, ctx DyingContext, events *[]GameEven
 	}
 	victimName := g.Players[victim].Name
 	askName := g.Players[victim].Name
-	g.Message = fmt.Sprintf("%s 进入濒死，%s 是否出【桃】", victimName, askName)
+	needTao := 1 - g.Players[victim].HP // HP=0 → 1, HP=-1 → 2
+	if needTao > 1 {
+		g.Message = fmt.Sprintf("%s 进入濒死（需 %d 桃），%s 是否出【桃】", victimName, needTao, askName)
+	} else {
+		g.Message = fmt.Sprintf("%s 进入濒死，%s 是否出【桃】", victimName, askName)
+	}
 	FillPendingRoles(g.Pending)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
@@ -127,6 +134,24 @@ func (g *Game) playTaoForDying(askSeat int, cardID string, events *[]GameEvent) 
 		SkillID:     skillIDIf(viaJiji, skill.IDJiji),
 		Message:     msg,
 	})
+
+	// 检查是否仍需要更多桃：HP=0 时还需要1桃，HP<0 时需要更多
+	needTao := 1 - p.HP // HP=0 → needTao=1, HP=-1 → needTao=2
+	if p.HP <= 0 {
+		*events = append(*events, GameEvent{
+			Type:        "dying_still",
+			PlayerIndex: victim,
+			Message:     fmt.Sprintf("%s 仍需救援（还需 %d 桃）", p.Name, needTao),
+		})
+		// 继续濒死：重置 SourceIndex 为 victim（从濒死者自己重新开始询问）
+		g.Pending.SourceIndex = victim
+		FillPendingRoles(g.Pending)
+		g.Message = fmt.Sprintf("%s 仍需救援（还需 %d 桃），%s 是否出【桃】", p.Name, needTao, g.Players[victim].Name)
+		g.resetTimer()
+		return nil
+	}
+
+	// HP > 0：脱离濒死
 	*events = append(*events, GameEvent{
 		Type:        "dying_saved",
 		PlayerIndex: victim,
@@ -161,7 +186,13 @@ func (g *Game) passDying(askSeat int, events *[]GameEvent) error {
 	next, roundDone := g.nextDyingAskSeat(askSeat, victim)
 	if !roundDone {
 		g.Pending.SourceIndex = next
-		g.Message = fmt.Sprintf("%s 濒死，%s 是否出【桃】", g.Players[victim].Name, g.Players[next].Name)
+		FillPendingRoles(g.Pending) // 同步 ActorSeat/SubjectSeat
+		needTao := 1 - g.Players[victim].HP
+		if needTao > 1 {
+			g.Message = fmt.Sprintf("%s 濒死（需 %d 桃），%s 是否出【桃】", g.Players[victim].Name, needTao, g.Players[next].Name)
+		} else {
+			g.Message = fmt.Sprintf("%s 濒死，%s 是否出【桃】", g.Players[victim].Name, g.Players[next].Name)
+		}
 		g.resetTimer()
 		return nil
 	}
@@ -204,6 +235,8 @@ func (g *Game) resolveDyingSaved(events *[]GameEvent) error {
 	}
 	victim := ctx.Victim
 	source := ctx.Killer
+	Logf("resolveDyingSaved: victim=%d killer=%d AoeResume.Active=%v AoeResume.Rest=%v",
+		victim, source, ctx.Resume.AoeResume.Active, ctx.Resume.AoeResume.Rest)
 	if g.continueAfterDamage(source, victim, ctx.Damage, ctx.Card, ctx.Resume, events) {
 		return nil
 	}

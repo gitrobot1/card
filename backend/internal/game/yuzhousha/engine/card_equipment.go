@@ -1,5 +1,7 @@
 package engine
 
+import "fmt"
+
 // 古锭刀、藤甲等装备牌效果。
 
 const counterChained = "chained"
@@ -60,15 +62,19 @@ func (g *Game) isChained(seat int) bool {
 }
 
 func (g *Game) setChained(seat int, chained bool) {
+	old := g.isChained(seat)
 	if chained {
 		g.setSkillCounter(seat, counterChained, 1)
 	} else {
 		g.setSkillCounter(seat, counterChained, 0)
 	}
+	Logf("setChained: seat=%d(%s) old=%v new=%v", seat, g.Players[seat].Name, old, chained)
 }
 
 func (g *Game) toggleChained(seat int) {
-	g.setChained(seat, !g.isChained(seat))
+	old := g.isChained(seat)
+	g.setChained(seat, !old)
+	Logf("toggleChained: seat=%d(%s) old=%v new=%v", seat, g.Players[seat].Name, old, !old)
 }
 
 func (g *Game) filterAoeQueue(queue []int, trickKind string) []int {
@@ -86,16 +92,23 @@ func (g *Game) filterAoeQueue(queue []int, trickKind string) []int {
 }
 
 // adjustDamageAmount 结算古锭刀、藤甲等加伤（青釭剑 ignoreArmor 时藤甲失效）。
+// 统一从 card.DamageType 判断属性，未来新增雷属性加伤装备也在此处扩展。
 func (g *Game) adjustDamageAmount(source, target, amount int, card Card, isFire, ignoreArmor bool) int {
 	if amount <= 0 {
 		amount = 1
 	}
+	// 古锭刀：杀且目标无手牌时+1
 	if isSha(card.Kind) && g.hasWeaponKind(source, CardWeapon6) && len(g.Players[target].Hand) == 0 {
 		amount++
 	}
+	// 藤甲：火焰伤害+1（青釭剑 ignoreArmor 时失效）
 	if !ignoreArmor && g.hasVineArmor(target) && (isFire || card.DamageType == DamageTypeFire) {
 		amount++
 	}
+	// TODO: 未来新增"雷电伤害+1"等装备在此扩展，例如：
+	// if !ignoreArmor && g.hasThunderArmor(target) && card.DamageType == DamageTypeThunder {
+	//     amount++
+	// }
 	return amount
 }
 
@@ -147,25 +160,158 @@ func (g *Game) convertCardToKind(card Card, targetKind string) Card {
 	return card
 }
 
+// spreadChainedFireDamage 铁索连环AOE：完全类比南蛮入侵。
+// 宣告 → 逐人扣血(无响应) → 完毕。
+// 队列存 g.Pending.AoeQueue，濒死时 startDyingWindow 自动保存/恢复 Pending。
 func (g *Game) spreadChainedFireDamage(source, primaryTarget, amount int, card Card, events *[]GameEvent) {
+	Logf("spreadChainedFireDamage: source=%d(%s) primaryTarget=%d(%s) amount=%d card.Kind=%s card.DamageType=%s",
+		source, g.Players[source].Name, primaryTarget, g.Players[primaryTarget].Name, amount, card.Kind, card.DamageType)
 	if !g.isChained(primaryTarget) {
+		Logf("spreadChainedFireDamage: primaryTarget not chained, skip")
 		return
 	}
+	if card.DamageType != DamageTypeFire && card.DamageType != DamageTypeThunder {
+		Logf("spreadChainedFireDamage: not elemental damage, skip")
+		return
+	}
+	// 收集连环角色队列
+	chainSeats := make([]int, 0)
 	for seat := range g.Players {
 		if seat == primaryTarget || !g.isChained(seat) || g.Players[seat].HP <= 0 {
 			continue
 		}
-		dmg := g.adjustDamageAmount(source, seat, amount, card, true, false)
-		g.applyDamageWithHook(source, seat, dmg, card, events)
+		chainSeats = append(chainSeats, seat)
+	}
+	Logf("spreadChainedFireDamage: chainSeats=%v", chainSeats)
+
+	// 重置首要目标
+	g.setChained(primaryTarget, false)
+
+	// 宣告
+	g.Message = fmt.Sprintf("【铁索连环】%s 受到属性伤害，传导开始", g.Players[primaryTarget].Name)
+	*events = append(*events, GameEvent{
+		Type:        "tiesuo_announce",
+		PlayerIndex: source,
+		TargetIndex: primaryTarget,
+		Message:     g.Message,
+	})
+
+	if len(chainSeats) == 0 {
 		*events = append(*events, GameEvent{
-			Type:        "trick_hit",
+			Type:        "tiesuo_spread",
 			PlayerIndex: source,
-			TargetIndex: seat,
-			Damage:      dmg,
-			Message:     g.damageMessage(&g.Players[seat], card.Name, dmg),
+			Message:     "【铁索连环】传导完毕",
 		})
-		if g.Players[seat].HP <= 0 {
-			_ = g.afterDamageApplied(source, seat, dmg, card, DamageResume{}, events)
+		return
+	}
+
+	// 开始逐人：对第一个人扣血
+	g.startTiesuoAoe(source, amount, card, chainSeats, events)
+}
+
+// startTiesuoAoe 铁索连环AOE：完全类比南蛮的 resolvePendingMiss。
+// 对当前目标扣血 → 如果HP<=0则濒死（Pending自动保存）→ 未死亡则继续下一个。
+// 队列和链式伤害值存 g.Pending，濒死时自动保存/恢复。
+func (g *Game) startTiesuoAoe(source, amount int, card Card, remaining []int, events *[]GameEvent) {
+	if len(remaining) == 0 {
+		g.finishTiesuoAoe(source, events)
+		return
+	}
+	seat := remaining[0]
+	rest := remaining[1:]
+
+	// 重置连环状态
+	g.setChained(seat, false)
+
+	// 链式加成
+	dmg := g.adjustDamageAmount(source, seat, amount, card, card.DamageType == DamageTypeFire, false)
+	Logf("startTiesuoAoe: seat=%d(%s) incoming=%d dmg=%d remaining=%v",
+		seat, g.Players[seat].Name, amount, dmg, rest)
+
+	// 宣告
+	g.Message = fmt.Sprintf("【铁索连环】%s 受到 %d 点属性伤害", g.Players[seat].Name, dmg)
+	*events = append(*events, GameEvent{
+		Type:        "tiesuo_aoe",
+		PlayerIndex: source,
+		TargetIndex: seat,
+		Damage:      dmg,
+		Message:     g.Message,
+	})
+
+	// 扣血
+	g.applyDamageWithHook(source, seat, dmg, card, events)
+	*events = append(*events, GameEvent{
+		Type:        "trick_hit",
+		PlayerIndex: source,
+		TargetIndex: seat,
+		Damage:      dmg,
+		Message:     fmt.Sprintf("%s 受到【铁索连环】%d 点伤害", g.Players[seat].Name, dmg),
+	})
+
+	// ===== 完全类比万箭齐发 resolvePendingMiss 的濒死/技能链/AOE恢复模式 =====
+	// 保存队列到 g.Pending，濒死时 startDyingWindow 自动保存到 SavedPending
+	g.Pending = &PendingCombat{
+		SourceIndex:  source,
+		TargetIndex:  seat,
+		EffectTarget: seat,
+		Card:         card,
+		Damage:       dmg,
+		AoeQueue:     rest,
+		ReturnIndex:  source,
+		RequiredKind: "tiesuo",
+	}
+
+	if g.Players[seat].HP <= 0 {
+		Logf("startTiesuoAoe: seat=%d HP<=0, starting dying, rest=%v", seat, rest)
+		// 类比万箭：设置 dyingResume.AoeResume，让技能链结束后能恢复AOE
+		dyingResume := DamageResume{}
+		dyingResume.AoeResume.Source = source
+		dyingResume.AoeResume.Amount = dmg
+		dyingResume.AoeResume.Card = card
+		dyingResume.AoeResume.Rest = rest
+		dyingResume.AoeResume.Active = true
+		dyingResume.AoeResume.Tiesuo = true
+		if g.afterDamageApplied(source, seat, dmg, card, dyingResume, events) {
+			return // 濒死窗口已启动，Pending已保存到SavedPending
 		}
 	}
+
+	// 未死亡：类比万箭，走 continueAfterDamage 技能链
+	g.Pending = nil
+	resume := DamageResume{}
+	resume.AoeResume.Source = source
+	resume.AoeResume.Amount = dmg
+	resume.AoeResume.Card = card
+	resume.AoeResume.Rest = rest
+	resume.AoeResume.Active = true
+	resume.AoeResume.Tiesuo = true
+	if g.continueAfterDamage(source, seat, dmg, card, resume, events) {
+		return // 技能链处理中，resumeAfterDamageNoSkill 会恢复AOE
+	}
+	// 无技能链：直接继续AOE
+	g.continueTiesuoAoe(source, dmg, card, rest, events)
+}
+
+// continueTiesuoAoe 铁索连环AOE恢复：继续下一个人或完毕（完全类比 continueNanManAfterTarget）。
+func (g *Game) continueTiesuoAoe(source, amount int, card Card, rest []int, events *[]GameEvent) {
+	if len(rest) == 0 {
+		g.finishTiesuoAoe(source, events)
+		return
+	}
+	g.startTiesuoAoe(source, amount, card, rest, events)
+}
+
+// finishTiesuoAoe 铁索连环AOE完毕：恢复出牌。
+func (g *Game) finishTiesuoAoe(source int, events *[]GameEvent) {
+	Logf("finishTiesuoAoe: done")
+	*events = append(*events, GameEvent{
+		Type:        "tiesuo_spread",
+		PlayerIndex: source,
+		Message:     "【铁索连环】传导完毕",
+	})
+	g.Phase = PhasePlaying
+	g.TurnStep = StepPlay
+	g.CurrentTurn = source
+	g.Message = fmt.Sprintf("%s 继续出牌", g.Players[source].Name)
+	g.resetTimer()
 }

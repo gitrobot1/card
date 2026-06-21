@@ -18,6 +18,15 @@ type DamageResume struct {
 	SkipTianxiang bool
 	// IgnoreArmor 青釭剑等无视防具（藤甲加伤与八卦均不生效）。
 	IgnoreArmor bool
+	// AoeResume AOE 恢复信息：伤害技能链处理完毕后继续 AOE 下一个人
+	AoeResume struct {
+		Source   int
+		Amount   int
+		Card     Card
+		Rest     []int
+		Active   bool
+		Tiesuo   bool // true=铁索传导，false=南蛮/万箭
+	}
 }
 
 // DamageAftermath 一次伤害事件触发的可选技能链（奸雄 → 刚烈×N → 反馈×N）。
@@ -63,17 +72,61 @@ func (g *Game) initDamageAftermath(source, target, damage int, card Card, resume
 	g.damageAftermath = a
 }
 
-// continueAfterDamage 扣血后的统一入口：死亡判定 → 伤害技能链 → 武器 follow-up → 恢复出牌。
+// continueAfterDamage 扣血后的统一入口：濒死判定 → 铁索传导 → 伤害技能链 → 武器 follow-up → 恢复出牌。
 func (g *Game) continueAfterDamage(source, target, damage int, card Card, resume DamageResume, events *[]GameEvent) bool {
+	Logf("continueAfterDamage: source=%d target=%d damage=%d card.Kind=%s card.DamageType=%s target_chained=%v target_HP=%d",
+		source, target, damage, card.Kind, card.DamageType, g.isChained(target), g.Players[target].HP)
 	if damage <= 0 {
 		return g.resumeAfterDamageNoSkill(resume, target, source, events)
 	}
 	g.tryJiangDraw(source, card, events)
+
+	// 如果目标连环+属性伤害，先设置 Pending（濒死时自动保存/恢复）
+	if g.isChained(target) && (card.DamageType == DamageTypeFire || card.DamageType == DamageTypeThunder) {
+		chainSeats := make([]int, 0)
+		for seat := range g.Players {
+			if seat == target || !g.isChained(seat) || g.Players[seat].HP <= 0 {
+				continue
+			}
+			chainSeats = append(chainSeats, seat)
+		}
+		g.setChained(target, false)
+		g.Pending = &PendingCombat{
+			SourceIndex:  source,
+			TargetIndex:  target,
+			EffectTarget: target,
+			Card:         card,
+			Damage:       damage,
+			AoeQueue:     chainSeats,
+			ReturnIndex:  source,
+			RequiredKind: "tiesuo",
+		}
+		Logf("continueAfterDamage: tiesuo setup, chainSeats=%v damage=%d", chainSeats, damage)
+	}
+
+	// 先濒死
 	if g.Players[target].HP <= 0 {
 		if g.afterDamageApplied(source, target, damage, card, resume, events) {
 			return true
 		}
 	}
+	// 铁索传导：先处理首要目标的技能链（刚烈等），技能链完毕后再启动传导
+	// 把 AOE 队列信息存入 resume，技能链处理完毕后由 resumeAfterDamageNoSkill 恢复
+	hasTiesuo := g.Pending != nil && g.Pending.RequiredKind == "tiesuo"
+	if hasTiesuo {
+		chainSeats := g.Pending.AoeQueue
+		g.Pending = nil
+		if len(chainSeats) > 0 {
+			resume.AoeResume.Source = source
+			resume.AoeResume.Amount = damage
+			resume.AoeResume.Card = card
+			resume.AoeResume.Rest = chainSeats
+			resume.AoeResume.Active = true
+			resume.AoeResume.Tiesuo = true
+		}
+	}
+
+	// 伤害技能链（刚烈、反馈等）
 	if g.isJueqingHarm(source) {
 		return g.resumeAfterDamageNoSkill(resume, target, source, events)
 	}
@@ -121,6 +174,28 @@ func (g *Game) advanceDamageAftermath(events *[]GameEvent) bool {
 }
 
 func (g *Game) resumeAfterDamageNoSkill(resume DamageResume, target, source int, events *[]GameEvent) bool {
+	// AOE 恢复：伤害技能链（刚烈等）处理完毕后，继续 AOE 下一个人
+	if resume.AoeResume.Active {
+		Logf("resumeAfterDamageNoSkill: AOE resume active, Tiesuo=%v Card=%s Rest=%v", resume.AoeResume.Tiesuo, resume.AoeResume.Card.Kind, resume.AoeResume.Rest)
+		resume.AoeResume.Active = false
+		ar := resume.AoeResume
+		if ar.Tiesuo {
+			// 铁索传导：继续逐人扣血
+			if len(ar.Rest) > 0 {
+				g.startTiesuoAoe(ar.Source, ar.Amount, ar.Card, ar.Rest, events)
+			} else {
+				g.finishTiesuoAoe(ar.Source, events)
+			}
+		} else {
+			// 南蛮/万箭：继续逐人无懈窗口
+			if ar.Card.Kind == CardNanMan {
+				g.continueNanManAfterTarget(ar.Source, ar.Rest, events)
+			} else {
+				g.continueWanJianAfterTarget(ar.Source, ar.Rest, events)
+			}
+		}
+		return true
+	}
 	if resume.ResumeLuanwu {
 		_ = g.finishLuanwu(resume.LuanwuOwner, events)
 		return true

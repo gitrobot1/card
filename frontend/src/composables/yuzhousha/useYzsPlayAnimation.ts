@@ -115,6 +115,71 @@ export async function animateYzsDealToSeat(
   await animateYzsDrawBatch(drawArea, seatIndex, 1, viewerSeat, handArea)
 }
 
+/** 展示手牌：从座位飞向牌桌中央停留展示，但不从手牌移除（火攻等） */
+export async function animateYzsRevealCard(
+  fromSeat: number,
+  card: YzsCard,
+  playArea: HTMLElement | null,
+  onLand?: () => void,
+) {
+  if (!playArea) {
+    onLand?.()
+    return
+  }
+  const fromEl = document.querySelector<HTMLElement>(seatSelector(fromSeat))
+  if (!fromEl) {
+    onLand?.()
+    return
+  }
+
+  const fromRect = fromEl.getBoundingClientRect()
+  const toRect = playArea.getBoundingClientRect()
+  const el = createFlyCard(card)
+  document.body.appendChild(el)
+
+  gsap.set(el, {
+    position: 'fixed',
+    left: fromRect.left + fromRect.width / 2 - 32,
+    top: fromRect.top + fromRect.height / 2 - 45,
+    width: 64,
+    height: 90,
+    zIndex: 9999,
+    opacity: 0.96,
+    scale: 0.88,
+    rotation: -8,
+  })
+
+  await new Promise<void>((resolve) => {
+    gsap.to(el, {
+      left: toRect.left + toRect.width / 2 - 32,
+      top: toRect.top + toRect.height / 2 - 45,
+      scale: 1,
+      rotation: 0,
+      duration: 0.34,
+      ease: 'power2.out',
+      onComplete: () => resolve(),
+    })
+  })
+
+  onLand?.()
+
+  // 展示停留 800ms 后淡出
+  await new Promise<void>((resolve) => {
+    gsap.to(el, {
+      opacity: 0,
+      scale: 0.9,
+      duration: 0.22,
+      ease: 'power1.in',
+      delay: 0.8,
+      onComplete: () => {
+        el.remove()
+        resolve()
+      },
+    })
+  })
+  await sleep(60)
+}
+
 /** 出牌飞向弃牌堆 */
 export async function animateYzsPlayEvent(
   event: YzsEvent,
@@ -332,6 +397,79 @@ export async function animateYzsShaFlyBolt(
   })
 
   await sleep(40)
+}
+
+/** 受伤穿梭线：从目标角色卡片右上角飞到左下角 */
+export async function animateYzsHitSlash(
+  seatIndex: number,
+  root?: ParentNode | null,
+) {
+  // 使用角色卡片选择器（yzs__hero-card），而非 ddz__seat-anchor
+  const selector = `.yzs__hero-card[data-seat="${seatIndex}"]`
+  const targetEl = (root ?? document).querySelector<HTMLElement>(selector)
+  if (!targetEl) return
+
+  const rect = targetEl.getBoundingClientRect()
+  const w = rect.width
+  const h = rect.height
+
+  // 右上角起点
+  const x1 = rect.left + w * 0.85
+  const y1 = rect.top + h * 0.15
+  // 左下角终点
+  const x2 = rect.left + w * 0.15
+  const y2 = rect.top + h * 0.85
+
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const dist = Math.hypot(dx, dy)
+  if (dist < 20) return
+
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI
+  const slashLen = dist * 0.7
+  const travel = dist - slashLen
+  const ux = dx / dist
+  const uy = dy / dist
+
+  const bolt = document.createElement('div')
+  bolt.className = 'yzs-fly-bolt yzs-fly-bolt--hit'
+  document.body.appendChild(bolt)
+
+  gsap.set(bolt, {
+    position: 'fixed',
+    left: 0,
+    top: 0,
+    width: slashLen,
+    height: 2,
+    x: x1,
+    y: y1,
+    rotation: angle,
+    transformOrigin: '0px 50%',
+    opacity: 1,
+    zIndex: 9998,
+    pointerEvents: 'none',
+  })
+
+  await new Promise<void>((resolve) => {
+    gsap.to(bolt, {
+      x: x1 + ux * travel,
+      y: y1 + uy * travel,
+      duration: 0.22,
+      ease: 'power2.in',
+      onComplete: () => resolve(),
+    })
+  })
+
+  await new Promise<void>((resolve) => {
+    gsap.to(bolt, {
+      opacity: 0,
+      duration: 0.1,
+      onComplete: () => {
+        bolt.remove()
+        resolve()
+      },
+    })
+  })
 }
 
 /** 八卦阵判定：从牌堆翻牌到场心，展示红/黑判定结果 */

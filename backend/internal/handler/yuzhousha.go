@@ -18,10 +18,11 @@ type YuzhoushaHandler struct {
 }
 
 type yzsPlayRequest struct {
-	CardID       string `json:"card_id"`
-	TargetIndex  int    `json:"target_index"`
-	TargetZone   string `json:"target_zone"`
-	TargetCardID string `json:"target_card_id"`
+	CardID          string `json:"card_id"`
+	TargetIndex     int    `json:"target_index"`
+	SecondTargetIndex *int `json:"second_target_index"`
+	TargetZone      string `json:"target_zone"`
+	TargetCardID    string `json:"target_card_id"`
 }
 
 type yzsRespondRequest struct {
@@ -245,10 +246,15 @@ func (h *YuzhoushaHandler) PlayCard(c *gin.Context) {
 		return
 	}
 	userID, _ := currentUser(c)
+	secondSeat := -1
+	if req.SecondTargetIndex != nil {
+		secondSeat = *req.SecondTargetIndex
+	}
 	state, err := h.Games.PlayCard(c.Param("gameId"), userID, req.CardID, engine.PlayTarget{
-		SeatIndex: req.TargetIndex,
-		Zone:      req.TargetZone,
-		CardID:    req.TargetCardID,
+		SeatIndex:       req.TargetIndex,
+		SecondSeatIndex: secondSeat,
+		Zone:            req.TargetZone,
+		CardID:          req.TargetCardID,
 	})
 	if err != nil {
 		writeYuzhoushaError(c, err)

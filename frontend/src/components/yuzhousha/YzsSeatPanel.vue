@@ -22,6 +22,9 @@ const {
   seatPanelClass,
   isSeatTargetable,
   onTargetSeat,
+  handleSeatTarget,
+  tiesuoMode,
+  tiesuoTargets,
   equippedCards,
   equipTagTitle,
   equipTagLabel,
@@ -52,6 +55,27 @@ const {
 const player = computed(() => seatAt(props.seat))
 const isIdentityModeActive = computed(() => isIdentityMode(state.value?.mode))
 const takenSeat = computed(() => state.value?.pending?.subject_seat ?? -1)
+
+// 铁索连环模式：所有存活角色可点，已选目标高亮
+const isTiesuoTargetable = computed(
+  () => tiesuoMode.value && !!player.value && (player.value.hp ?? 0) > 0,
+)
+const isTiesuoSelected = computed(
+  () => tiesuoMode.value && tiesuoTargets.value.includes(props.seat),
+)
+// 横置状态：从 skill_counters.chained 判断
+const isChained = computed(
+  () => !!player.value?.skill_counters?.chained,
+)
+function onSeatClick() {
+  if (isTiesuoTargetable.value) {
+    handleSeatTarget(props.seat)
+    return
+  }
+  if (isSeatTargetable(props.seat)) {
+    onTargetSeat(props.seat)
+  }
+}
 
 function identityLabel(identity?: string) {
   switch (identity) {
@@ -113,9 +137,13 @@ const isProtectSeat = computed(
         `yzs__hero-card--${placement}`,
         seatPanelClass(seat, isTeammate, seatRole),
         { 'yzs__hero-card--targetable': isSeatTargetable(seat) },
+        { 'yzs__hero-card--tiesuo-targetable': isTiesuoTargetable },
+        { 'yzs__hero-card--tiesuo-selected': isTiesuoSelected },
+        { 'yzs__hero-card--chained': isChained },
+        { 'yzs__hero-card--dead': (player?.hp ?? 0) <= 0 },
       ]"
       :data-seat="seat"
-      @click="isSeatTargetable(seat) && onTargetSeat(seat)"
+      @click="onSeatClick"
     >
 
       <!-- 左侧：血量竖排 + 手牌数（右下角，手牌数在最底部） -->

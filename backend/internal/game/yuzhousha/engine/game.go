@@ -107,6 +107,27 @@ func (g *Game) setupDeck() {
 	g.DrawPile = deck
 	g.DiscardPile = nil
 	g.syncCounts()
+
+	// 测试功能：为所有玩家自动装备藤甲
+	g.autoEquipVineArmor()
+}
+
+// autoEquipVineArmor 为所有存活玩家装备藤甲（测试用）
+func (g *Game) autoEquipVineArmor() {
+	for i := range g.Players {
+		if g.Players[i].HP > 0 && g.Players[i].Armor == nil {
+			g.Players[i].Armor = &Card{
+				ID:         fmt.Sprintf("test_vine_armor_%d", i),
+				Kind:       CardArmorVine,
+				Name:       "藤甲",
+				Suit:       "D",
+				Rank:       0,
+				Label:      "测试藤甲",
+				TrickScope: "",
+				DamageType: "",
+			}
+		}
+	}
 }
 
 func (g *Game) syncCounts() {

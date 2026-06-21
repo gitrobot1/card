@@ -89,9 +89,10 @@ type Player struct {
 }
 
 type PlayTarget struct {
-	SeatIndex int
-	Zone      string
-	CardID    string
+	SeatIndex       int
+	SecondSeatIndex int // 铁索连环双目标的第二个目标（0 表示无）
+	Zone            string
+	CardID          string
 }
 
 // PendingCombat 等待目标响应的杀、锦囊或无懈可击窗口。
@@ -100,6 +101,7 @@ type PendingCombat struct {
 	TargetIndex  int    `json:"target_index"`
 	ReturnIndex  int    `json:"return_index"`
 	EffectTarget int    `json:"effect_target,omitempty"`
+	SecondTargetIndex int `json:"second_target_index,omitempty"` // 铁索连环双目标
 	Card         Card   `json:"card"`
 	RequiredKind string `json:"required_kind,omitempty"`
 	Damage       int    `json:"damage,omitempty"`
@@ -167,7 +169,7 @@ type PlayerPublic struct {
 	Index           int       `json:"index"`
 	Name            string    `json:"name"`
 	IsAI            bool      `json:"is_ai"`
-	Team            int       `json:"team,omitempty"`
+	Team            int       `json:"team"`
 	Identity        string    `json:"identity,omitempty"`
 	IdentityRevealed bool     `json:"identity_revealed,omitempty"`
 	Character       Character `json:"character"`

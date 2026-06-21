@@ -206,6 +206,19 @@ func catalogSkills() []Decl {
 				return r.DrawSkillCards(seat, IDLianying, 1, "")
 			},
 		},
+		// ====== 神-高达1号 专属技能 ======
+		{
+			Meta: Meta{
+				ID: IDJuejingGundam, Name: "绝境-高达一号", Kind: KindPassive,
+				Desc: "锁定技，你跳过摸牌阶段。你的手牌数始终为4。",
+			},
+		},
+		{
+			Meta: Meta{
+				ID: IDZhanjiang, Name: "斩将", Kind: KindPassive,
+				Desc: "准备阶段，如果场上有【青釭剑】，你可以获得之。",
+			},
+		},
 		{
 			Meta: Meta{
 				ID: IDXiaoji, Name: "枭姬", Kind: KindPassive,

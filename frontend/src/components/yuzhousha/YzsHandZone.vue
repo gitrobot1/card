@@ -74,7 +74,27 @@ const {
   tuxiTargetOptions,
   qixiTargetOptions,
   weaponRange,
+  tiesuoMode,
+  tiesuoTargets,
+  handleSeatTarget,
 } = g
+
+// 铁索连环：自己也可被选为目标
+const isSelfTiesuoTargetable = computed(
+  () => tiesuoMode.value && !!myPlayer.value && (myPlayer.value.hp ?? 0) > 0,
+)
+const isSelfTiesuoSelected = computed(
+  () => tiesuoMode.value && tiesuoTargets.value.includes(mySeat.value),
+)
+const isSelfChained = computed(
+  () => !!myPlayer.value?.skill_counters?.chained,
+)
+function onSelfSeatClick() {
+  console.log('[tiesuo] onSelfSeatClick: tiesuoMode=', tiesuoMode.value, 'isSelfTiesuoTargetable=', isSelfTiesuoTargetable.value, 'mySeat=', mySeat.value)
+  if (isSelfTiesuoTargetable.value) {
+    handleSeatTarget(mySeat.value)
+  }
+}
 
 // 取牌选择器状态（破军已移至 YuzhoushaView 弹窗）
 const pickerState = computed<{
@@ -159,8 +179,13 @@ async function onPickerCancel() {
                 'yzs__hero-card--active': (isMyTurn || isMyDiscard) && !isFinished && !isResponse,
                 'yzs__seat--hit': hitFlashSeat === mySeat,
                 'yzs__seat--block': blockFlashSeat === mySeat,
+                'yzs__hero-card--tiesuo-targetable': isSelfTiesuoTargetable,
+                'yzs__hero-card--tiesuo-selected': isSelfTiesuoSelected,
+                'yzs__hero-card--chained': isSelfChained,
+                'yzs__hero-card--dead': (myPlayer?.hp ?? 0) <= 0,
               }"
               :data-seat="mySeat"
+              @click="onSelfSeatClick"
             >
               <!-- 左侧：血量竖排 + 手牌数（右下角，手牌数在最底部） -->
               <div class="yzs__hero-left">

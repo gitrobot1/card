@@ -4303,6 +4303,61 @@ body {
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
+
+/* 铁索连环：横置状态（卡片中间黑色线条，不旋转） */
+.yzs__hero-card--chained {
+  border-color: #1f2937;
+  box-shadow: 0 0 0 2px rgba(31, 41, 55, 0.3);
+  position: relative;
+}
+.yzs__hero-card--chained::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #111827;
+  transform: translateY(-50%);
+  z-index: 8;
+  pointer-events: none;
+  border-radius: 1px;
+}
+.yzs__hero-card--chained::before {
+  content: '⛓';
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 14px;
+  color: #1f2937;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* 阵亡：卡片变灰 */
+.yzs__hero-card--dead {
+  opacity: 0.55;
+  filter: grayscale(0.5);
+  pointer-events: none;
+}
+
+/* 铁索连环：可选目标高亮 */
+.yzs__hero-card--tiesuo-targetable {
+  cursor: pointer;
+  border-color: #d97706;
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.25);
+}
+.yzs__hero-card--tiesuo-targetable:hover {
+  border-color: #b45309;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.4);
+}
+
+/* 铁索连环：已选目标 */
+.yzs__hero-card--tiesuo-selected {
+  border-color: #b45309;
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.55), 0 0 16px rgba(217, 119, 6, 0.4);
+  background: linear-gradient(135deg, rgba(254, 215, 170, 0.3), rgba(253, 230, 138, 0.2));
+}
 .yzs__hero-card--self {
   width: 150px;
   height: 190px;
@@ -4545,6 +4600,11 @@ body {
   position: fixed;
   background: linear-gradient(90deg, rgba(220, 38, 38, 0.1), #dc2626 65%);
   box-shadow: 0 0 6px rgba(220, 38, 38, 0.8);
+}
+
+.yzs-fly-bolt--hit {
+  background: linear-gradient(90deg, rgba(220, 38, 38, 0.1), #dc2626 65%, #fca5a5);
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.85);
 }
 
 .yzs-fly-bolt--arrow::after {

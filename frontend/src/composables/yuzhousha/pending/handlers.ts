@@ -14,6 +14,17 @@ function cardLabel(kind: string | undefined) {
   return YZS_CARD_LABELS[kind] ?? kind
 }
 
+/** 火攻提示用：花色代码转中文 */
+function huogongSuitName(suit: string | undefined): string {
+  switch (suit) {
+    case 'H': return '红桃'
+    case 'D': return '方块'
+    case 'S': return '黑桃'
+    case 'C': return '梅花'
+    default: return suit ?? ''
+  }
+}
+
 const peekDeckHandler: PendingHandler = {
   modes: ['peek_deck'],
   match: (state) =>
@@ -664,6 +675,13 @@ const dyingRescueHandler: PendingHandler = {
     if (!card || !ctx.cardPlaysAsTao(card)) return
     await ctx.act(() => respondYuzhoushaCard(ctx.state.id, card.id))
   },
+  hint(ctx) {
+    const victim = ctx.state.players?.[ctx.state.pending?.target_index ?? -1]?.name ?? '你'
+    const hp = ctx.state.players?.[ctx.state.pending?.target_index ?? -1]?.hp ?? 0
+    const needTao = 1 - hp // HP=0 → 1, HP=-1 → 2
+    const needMsg = needTao > 1 ? `（需 ${needTao} 桃）` : ''
+    return ctx.centerMessage.value || `【濒死】${victim} 即将阵亡${needMsg}，出【桃】救援或点「取消」放弃`
+  },
 }
 
 const jijiangHandler: PendingHandler = {
@@ -722,6 +740,43 @@ const wuxiekHandler: PendingHandler = {
   },
 }
 
+const huogongHandler: PendingHandler = {
+  modes: ['huogong'],
+  match: (state) => responseMode(state, 'huogong'),
+  canPlayCard(ctx, card) {
+    // 仅允许同花色手牌
+    const requiredSuit = ctx.state.pending?.revealed_cards?.[0]?.suit
+    if (!requiredSuit) return false
+    return card.suit === requiredSuit
+  },
+  canSubmitPlay(ctx) {
+    if (isBusy(ctx)) return false
+    const card = ctx.selectedCard.value
+    if (!card) return false
+    const requiredSuit = ctx.state.pending?.revealed_cards?.[0]?.suit
+    if (!requiredSuit) return false
+    return card.suit === requiredSuit
+  },
+  async submitPlay(ctx) {
+    const card = ctx.selectedCard.value
+    if (!card) return
+    // 弃置同花色手牌 → 后端走 respondHuoGongDiscard，造成 1 点火焰伤害
+    await ctx.act(() => playYuzhoushaCard(ctx.state.id, card.id, ctx.mySeat))
+  },
+  hint(ctx) {
+    const shown = ctx.state.pending?.revealed_cards?.[0]
+    if (!shown) {
+      return ctx.centerMessage.value || '【火攻】：弃置一张同花色手牌造成伤害，或点「取消」放弃'
+    }
+    const suitName = huogongSuitName(shown.suit)
+    const targetName = ctx.state.players?.[ctx.state.pending?.effect_target ?? -1]?.name ?? '目标'
+    return (
+      ctx.centerMessage.value ||
+      `【火攻】${targetName} 展示了 ${shown.label ?? '一张牌'}（${suitName}），选一张 ${suitName} 花色手牌弃置造成 1 点火焰伤害，或点「取消」放弃`
+    )
+  },
+}
+
 /** Registered pending handlers for all response_mode flows. */
 export const pendingHandlers: PendingHandler[] = [
   peekDeckHandler,
@@ -753,6 +808,7 @@ export const pendingHandlers: PendingHandler[] = [
   dyingRescueHandler,
   jijiangHandler,
   wuxiekHandler,
+  huogongHandler,
 ]
 
 export function cardLabelForPending(kind: string | undefined) {

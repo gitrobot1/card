@@ -42,15 +42,9 @@ func (g *Game) handleHPChange(ctx HPChangeContext, events *[]GameEvent) {
 	// 触发血量变化钩子
 	g.runHPChangedHooks(seat, ctx.OldHP, ctx.NewHP, ctx.Delta, ctx.Reason, ctx.Source, ctx.SkillID, events)
 
-	// 检查濒死状态
-	if p.HP <= 0 {
-		_ = g.startDyingWindow(seat, DyingContext{
-			Victim: seat,
-			Killer: ctx.Source,
-			Damage: ctx.Damage,
-			Resume: DamageResume{},
-		}, events)
-	}
+	// 注意：不在此处触发濒死。濒死应由 applyDamageWithHook 的调用者
+	// 通过 afterDamageApplied 统一处理，以便传递正确的 DamageResume（含 AoeResume）。
+	// handleHPChange 作为底层函数，只负责通知血量变化和触发钩子。
 }
 
 // applyDamageWithHook 应用伤害并触发钩子（推荐使用的伤害函数）。

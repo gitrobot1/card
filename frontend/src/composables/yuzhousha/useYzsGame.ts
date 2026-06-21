@@ -120,8 +120,18 @@ const mySeat = computed(() => state.value?.human_player ?? 0)
 const opponentSeat = computed(() => {
   const players = state.value?.players
   const me = mySeat.value
-  if (state.value?.mode === '3p_chain' && players?.length === 3) {
+  if (!players?.length) return 0
+  if (state.value?.mode === '3p_chain' && players.length === 3) {
     return (me - 1 + 3) % 3
+  }
+  // 多队伍模式（2v2, 3p_ddz）：找第一个存活的敌人
+  if (players.length > 2) {
+    const myTeam = players[me]?.team
+    if (myTeam != null) {
+      for (const p of players) {
+        if (p.index !== me && p.team !== myTeam && p.hp > 0) return p.index
+      }
+    }
   }
   return 1 - me
 })
@@ -375,6 +385,9 @@ const zhihengSelectedIds = ref<string[]>([])
 const jieyinMode = ref(false)
 const jieyinSelectedIds = ref<string[]>([])
 const fanjianMode = ref(false)
+// 铁索连环：多目标选择模式（1-2 个目标，或重铸）
+const tiesuoMode = ref(false)
+const tiesuoTargets = ref<number[]>([])
 const fanjianSelectedId = ref('')
 const qixiMode = ref(false)
 const qixiSelectedId = ref('')
@@ -658,6 +671,16 @@ const {
   syncWeaponSkillTargeting,
 } = targeting
 
+// 包装 onTargetSeat：铁索连环模式下走多目标选择
+const _origOnTargetSeat = onTargetSeat
+function handleSeatTarget(seat: number) {
+  if (tiesuoMode.value && isMyPlay.value) {
+    toggleTiesuoTarget(seat)
+    return
+  }
+  _origOnTargetSeat(seat)
+}
+
 function makePendingContext(): PendingContext | null {
   if (!state.value) return null
   return {
@@ -752,6 +775,9 @@ function canPlayCard(card: YzsCard | null | undefined) {
     }
     if (shuangxiongMode.value) {
       return shuangxiongSelectedId.value !== ''
+    }
+    if (tiesuoMode.value) {
+      return tiesuoTargets.value.length >= 1 && tiesuoTargets.value.length <= 2
     }
     if (cardPlaysAsSha(card)) {
       return canPlaySha.value && shaTarget.value != null
@@ -905,6 +931,8 @@ const { centerHint } = useYzsHints({
   fanjianMode,
   qixiMode,
   wushengMode,
+  tiesuoMode,
+  tiesuoTargets,
   isDealing,
   isFinished,
   isMyDiscard,
@@ -1031,6 +1059,38 @@ function clearJieyinMode() {
   jieyinSelectedIds.value = []
 }
 
+function clearTiesuoMode() {
+  tiesuoMode.value = false
+  tiesuoTargets.value = []
+}
+
+// 铁索连环重铸：弃置此牌摸一张
+async function submitTiesuoRecast() {
+  if (!tiesuoMode.value) return
+  const card = selectedCard.value
+  if (!card) return
+  await act(() =>
+    playYuzhoushaCard(state.value!.id, card.id, {
+      targetIndex: mySeat.value,
+      targetZone: 'recast',
+    }),
+  )
+  clearTiesuoMode()
+}
+
+// 铁索连环：点击座位切换目标选择
+function toggleTiesuoTarget(seat: number) {
+  if (!tiesuoMode.value) return
+  console.log('[tiesuo] toggleTiesuoTarget seat=', seat, 'before=', [...tiesuoTargets.value])
+  const idx = tiesuoTargets.value.indexOf(seat)
+  if (idx >= 0) {
+    tiesuoTargets.value = tiesuoTargets.value.filter((s) => s !== seat)
+  } else if (tiesuoTargets.value.length < 2) {
+    tiesuoTargets.value = [...tiesuoTargets.value, seat]
+  }
+  console.log('[tiesuo] toggleTiesuoTarget seat=', seat, 'after=', [...tiesuoTargets.value])
+}
+
 function clearFanjianMode() {
   fanjianMode.value = false
   fanjianSelectedId.value = ''
@@ -1060,6 +1120,7 @@ function clearSkillSelectModes() {
   clearQixiMode()
   clearGuoseMode()
   clearShuangxiongMode()
+  clearTiesuoMode()
 }
 
 function clearTargeting() {
@@ -1360,10 +1421,21 @@ function selectCard(id: string) {
   if (selectedId.value === id) {
     selectedId.value = ''
     if (needsOpponentTarget(card)) clearTargeting()
+    if (card.kind === 'tiesuo') clearTiesuoMode()
     return
   }
 
   selectedId.value = id
+  // 铁索连环：进入多目标选择模式
+  if (isMyPlay.value && card.kind === 'tiesuo') {
+    tiesuoMode.value = true
+    tiesuoTargets.value = []
+    clearRendeMode()
+    clearZhihengMode()
+    clearJieyinMode()
+    clearFanjianMode()
+    clearWushengMode()
+  }
   if (!(isMyPlay.value && canTargetOpponentWith(card))) {
     clearTargeting()
   }
@@ -1985,6 +2057,23 @@ async function submitPlayCard() {
       await submitSkill('shuangxiong')
       return
     }
+    // 铁索连环：提交1-2个目标，或重铸
+    if (tiesuoMode.value) {
+      const card = selectedCard.value
+      if (!card) return
+      if (tiesuoTargets.value.length === 0) return
+      const target1 = tiesuoTargets.value[0]
+      const target2 = tiesuoTargets.value[1] ?? -1
+      console.log('[tiesuo] submit: targets=', [...tiesuoTargets.value], 'target1=', target1, 'target2=', target2, 'secondTargetIndex=', target2 >= 0 ? target2 : undefined)
+      await act(() =>
+        playYuzhoushaCard(state.value!.id, card.id, {
+          targetIndex: target1,
+          secondTargetIndex: target2 >= 0 ? target2 : undefined,
+        }),
+      )
+      clearTiesuoMode()
+      return
+    }
     const card = selectedCard.value
     if (!card) return
 
@@ -2232,6 +2321,11 @@ onMounted(() => {
     onPeekZoneDrop,
     onTargetOpponent,
     onTargetSeat,
+    handleSeatTarget,
+    tiesuoMode,
+    tiesuoTargets,
+    submitTiesuoRecast,
+    clearTiesuoMode,
     opponent,
     opponentHandCount,
     opponentHasKongcheng,

@@ -106,6 +106,7 @@ type Runtime interface {
 	ApplyGuicaiReplace(seat int, handCardID string) error
 	PassGuicai(seat int) error
 	PendingGuicaiFor(seat int) bool
+	PendingJudgeReason() string
 	StartLuoshen(seat int) error
 
 	PendingJianxiongFor(seat int) bool

@@ -46,6 +46,8 @@ export interface YzsHintsDeps {
   isWuxiekOffer: ComputedRef<boolean>
   isWuguPick: ComputedRef<boolean>
   discardNeeded: ComputedRef<number>
+  tiesuoMode: Ref<boolean>
+  tiesuoTargets: Ref<number[]>
   activatableSkillIds: ComputedRef<Set<string>>
   myCharacterSkills: ComputedRef<YzsSkillMeta[]>
   selectedCard: ComputedRef<YzsCard | null>
@@ -130,6 +132,12 @@ export function useYzsHints(deps: YzsHintsDeps) {
         return '【武圣】：已锁定目标，点「出牌」将红色牌当【杀】打出'
       }
       return '【武圣】已发动：选一张红色牌（♥♦），再指定敌方'
+    }
+    if (deps.isMyPlay.value && deps.tiesuoMode.value) {
+      const n = deps.tiesuoTargets.value.length
+      if (n === 0) return '【铁索连环】：点击1-2名角色横置/重置，或点「重铸」弃牌摸牌'
+      if (n === 1) return '【铁索连环】：已选1名目标，可再点1名，或点「出牌」确认'
+      return '【铁索连环】：已选2名目标，点「出牌」确认横置/重置'
     }
     if (deps.isMyPlay.value && deps.needsOpponentTarget(deps.selectedCard.value) && deps.shaTarget.value == null) {
       if (deps.selectedCard.value?.kind === 'bingliang') {

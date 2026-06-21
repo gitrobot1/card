@@ -28,19 +28,11 @@ type TargetContext interface {
 // ValidPlayTargets returns legal target seats for cardKind from source.
 func ValidPlayTargets(ctx TargetContext, source int, cardKind string) []int {
 	if cardKind == TargetTiesuo {
-		out := make([]int, 0, 2)
-		if IsValidPlayTarget(ctx, source, source, cardKind) {
-			out = append(out, source)
-		}
-		var candidates []int
-		if IsIdentity(ctx) {
-			candidates = IdentityPlayTargets(ctx, source)
-		} else {
-			candidates = EnemiesOf(ctx, source)
-		}
-		for _, t := range candidates {
-			if IsValidPlayTarget(ctx, source, t, cardKind) {
-				out = append(out, t)
+		// 铁索连环：所有存活角色均可为目标
+		out := make([]int, 0, ctx.PlayerCount())
+		for i := 0; i < ctx.PlayerCount(); i++ {
+			if ctx.AliveHP(i) > 0 && IsValidPlayTarget(ctx, source, i, cardKind) {
+				out = append(out, i)
 			}
 		}
 		return out
@@ -65,7 +57,8 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 	if ctx.AliveHP(target) <= 0 {
 		return false
 	}
-	if cardKind == TargetTiesuo && source == target {
+	// 铁索连环：任意存活角色均可为目标（含自己、队友、敌人）
+	if cardKind == TargetTiesuo {
 		return true
 	}
 	if source == target {

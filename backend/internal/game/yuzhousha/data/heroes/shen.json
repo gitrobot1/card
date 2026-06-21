@@ -9,6 +9,15 @@
       "gender": "male",
       "skill_ids": ["juejing", "longhun"],
       "accent_color": "#d4af37"
+    },
+    {
+      "id": "shen_gundam_01",
+      "name": "神-高达1号",
+      "max_hp": 1,
+      "kingdom": "shen",
+      "gender": "male",
+      "skill_ids": ["juejing_gundam", "longhun_gundam", "zhanjiang"],
+      "accent_color": "#d4af37"
     }
   ]
 }

@@ -374,11 +374,338 @@ CARD_SIM=1 ./scripts/test.sh simidentity8 -run TestSim_Identity8_RandomOctasSeed
 
 ---
 
-## 6. 相关文档
+## 6. AOE / 锦囊标准开发流程（南蛮入侵范本）
+
+> AOE（南蛮入侵、万箭齐发、桃园结义、铁索连环）遵循统一的逐人处理模式。
+> 每个目标经历：**宣告 → 无懈窗口 → 效果结算 → 玩家响应 → 扣血 → 技能链 → 濒死 → 恢复**。
+> **任何阶段都可能被未知的新阶段（技能窗口、判定、濒死等）打断，打断后必须能正确恢复。**
+
+### 6.1 流程总览
+
+```
+使用锦囊（出牌）
+├─ 1. 宣告 (announce) → 构建目标队列 → 发事件 → 启动第一个目标
+├─ 2. 逐人无懈窗口 (wuxiek_trick)  ← 未知阶段可插入
+├─ 3. 效果结算 → 南蛮需出杀/万箭需出闪/桃园回复/铁索横置
+├─ 4. 玩家响应 (response) → 出牌或跳过
+├─ 5. 扣血 (damage) → adjustDamageAmount → applyDamageWithHook
+├─ 6. 技能链 (aftermath) ← 刚烈/反馈/奸雄等插入
+├─ 7. 濒死 (dying) ← 濒死插入
+└─ 8. 恢复 AOE → 继续下一个目标或完毕
+```
+
+### 6.2 核心数据结构
+
+**`g.Pending`** — 当前阶段挂起状态，关键字段：`ResponseMode`（阶段类型）、`AoeQueue`（剩余队列）、`SavedPending`（濒死前保存的 Pending）、`WuxiekChain`（无懈链）。
+
+**`DamageResume.AoeResume`** — AOE 恢复信息，不存 `g.Pending` 中（避免被技能阶段覆盖）：
+
+```go
+AoeResume struct {
+    Source int; Amount int; Card Card; Rest []int; Active bool; Tiesuo bool
+}
+```
+
+### 6.3 阶段详解
+
+#### 宣告 + 逐人无懈窗口
+
+```go
+// play.go — resolveNanMan
+queue := g.filterAoeQueue(g.aoeResponderQueue(source), CardNanMan)
+*events = append(*events, GameEvent{Type: "nanman_announce", ...})
+g.startNanManJueDou(source, queue[0], queue[1:], events)
+```
+
+```go
+// play.go — startNanManJueDou（逐人无懈）
+g.Pending = &PendingCombat{
+    ResponseMode: ResponseModeWuxiekTrick,
+    EffectTarget: target,     // 当前目标
+    AoeQueue:     rest,       // ★ 剩余队列
+    ResponseQueue: [...],     // 无懈响应队列
+}
+g.advanceToNextWuxiekResponder(events) // 逐人询问
+```
+
+无懈链：奇数抵消（跳过当前目标 → continueXxxAfterTarget），偶数生效（进入效果结算）。
+
+#### 效果结算 + 响应 + 扣血
+
+```go
+// finalizeWuxiekChain — 偶数链生效
+g.Pending = &PendingCombat{
+    RequiredKind: CardSha,     // 需出杀
+    AoeQueue:     aoeQueue,    // ★ 剩余队列
+}
+```
+
+```go
+// response.go — resolvePendingMiss（玩家未出牌，扣血）
+pending := *g.Pending  // ★ 先复制
+g.applyDamageWithHook(...)
+if HP<=0 → afterDamageApplied → 濒死（Pending 保存到 SavedPending）
+
+// ★ 把队列存入 resume，不依赖 g.Pending
+resume.AoeResume = {Rest: pending.AoeQueue, Active: true}
+g.continueAfterDamage(...) → 技能链
+```
+
+#### 技能链 + 濒死 + 恢复
+
+```go
+// skill_damage.go — continueAfterDamage
+if g.isChained(target) && 属性伤害 → resume.AoeResume = {Tiesuo: true, Rest: chainSeats}
+if HP<=0 → afterDamageApplied → 濒死
+g.initDamageAftermath(...) → advanceDamageAftermath → 刚烈/反馈等
+// 技能链完毕 → resumeAfterDamageNoSkill → 检查 AoeResume 恢复 AOE
+```
+
+```go
+// skill_dying.go — startDyingWindow
+saved := g.Pending  // ★ 保存当前 Pending
+g.Pending = &PendingCombat{SavedPending: saved, ResponseMode: ResponseModeDying}
+// 濒死结束 → restorePendingAfterDying(saved) → 恢复 AOE
+```
+
+### 6.4 状态保存策略（黄金法则）
+
+| 信息 | 存储位置 | 原因 |
+|------|---------|------|
+| AOE 队列 | `DamageResume.AoeResume` | 不被 `g.Pending` 覆盖 |
+| 濒死前状态 | `Pending.SavedPending` | 濒死嵌套恢复 |
+| 技能链状态 | `g.damageAftermath` | 独立于 Pending |
+
+所有恢复点（`restorePendingAfterDying`、`resumeAfterDamageNoSkill`、`advanceDamageAftermath` 结尾）都要检查 AOE 恢复。
+
+### 6.5 开发新 AOE Checklist
+
+```text
+后端:
+[ ] 宣告 + 目标队列 + 发事件
+[ ] startXxxFor（无懈窗口，AoeQueue: rest）
+[ ] finalizeWuxiekChain 分支（奇数跳过/偶数生效）
+[ ] resolvePendingMiss 处理（扣血→濒死→技能链→AoeResume 恢复）
+[ ] continueXxxAfterTarget（继续下一个）
+[ ] restorePendingAfterDying 分支
+
+前端:
+[ ] 宣告事件动画 / 效果事件动画 / 无懈窗口 UI
+
+测试:
+[ ] 基础流程 / 无懈抵消+生效 / 技能打断 / 濒死打断 / 濒死+技能 / 多目标
+```
+
+### 6.6 常见 Bug
+
+| Bug | 原因 | 预防 |
+|-----|------|------|
+| AOE 中断后不恢复 | `g.Pending` 被覆盖 | 队列存 `AoeResume`，不依赖 `g.Pending` |
+| 濒死后 AOE 丢失 | 未保存 Pending | `SavedPending` + `restorePendingAfterDying` 分支 |
+| 技能后 AOE 丢失 | 技能覆盖 Pending | `resumeAfterDamageNoSkill` 检查 `AoeResume` |
+| 铁索传导中断 | 同上 | 用 `AoeResume` 传递队列 |
+| 多重濒死嵌套 | SavedPending 被覆盖 | 每次 `startDyingWindow` 都保存 |
+| 前端动画顺序错乱 | 先设 state 后播动画 | 动画中更新状态，初始 state 保留旧值 |
+| AOE 响应窗口 ActorSeat 错误 | `finalizeWuxiekChain` 设置 Pending 后未调 `FillPendingRoles` | 设置 Pending 后立即调 `FillPendingRoles(g.Pending)` |
+| 濒死 resume 丢失 | `handleHPChange` 中自动触发濒死，使用空 `DamageResume` | 濒死统一由 `afterDamageApplied` 处理，`handleHPChange` 只负责通知血量变化 |
+
+### 6.7 AI 拿牌规则
+
+AI 在需要从目标身上获取牌时（顺手牵羊、过河拆桥、反馈、突袭、奇袭等），统一通过 `aiPickTakeTarget`（`skill_tuxi.go`）选择目标牌，优先级如下：
+
+1. **手牌区**：优先随机拿手牌（`zone="hand", cardID=""` 表示由 TakeWindow 自动选择）
+2. **装备区**：手牌区为空时，从武器/防具/+1马/-1马中**随机**选一个非空槽位
+3. **判定区**：装备区也空时，从判定区**随机**选一张
+
+```go
+func aiPickTakeTarget(g *Game, target int) (zone, cardID string) {
+    p := &g.Players[target]
+    // 1. 手牌区
+    if len(p.Hand) > 0 { return "hand", "" }
+    // 2. 装备区（随机非空槽位）
+    equips := 收集所有非空装备槽
+    if len(equips) > 0 { return 随机选一个 }
+    // 3. 判定区（随机）
+    if len(p.JudgeArea) > 0 { return 随机选一张 }
+    return "", ""
+}
+```
+
+所有 TakeWindow 类 AI 操作（包括 `autoTakeWindowIfNeeded`）都使用此规则。新增需要从别人身上拿牌的技能时，直接调用 `aiPickTakeTarget` 即可。
+
+### 6.7 关键文件索引
+
+| 文件 | 关键函数 |
+|------|---------|
+| `play.go` | `resolveNanMan/WanJian/TaoYuan/TieSuoAOE`, `startXxxFor`, `continueXxxAfter`, `advanceToNextWuxiekResponder`, `finalizeWuxiekChain`, `restorePendingAfterDying` |
+| `response.go` | `RespondWuxiek`, `PassResponse`, `resolvePendingMiss` |
+| `skill_damage.go` | `DamageResume`（含 `AoeResume`）, `continueAfterDamage`, `advanceDamageAftermath`, `resumeAfterDamageNoSkill` |
+| `skill_dying.go` | `startDyingWindow`, `playTaoForDying`, `resolveDyingSaved/Death` |
+| `phase_hp_change.go` | `applyDamageWithHook`, `handleHPChange` |
+| `card_equipment.go` | `startTiesuoAoe`, `continueTiesuoAoe`, `finishTiesuoAoe` |
+| `card_tricks_ext.go` | `resolveTieSuoAOE`, `startTieSuoFor`, `continueTieSuoAfter` |
+| `skill_tianxiang.go` | `finalizeDamageHit` |
+| `model.go` | `PendingCombat` 结构体 |
+
+### 6.8 阶段嵌套实战案例
+
+> 以下是一个六人场万箭齐发的完整结算推演，展示了**宣告 → 无懈 → 出闪/不出闪 → 扣血 → 濒死 → 技能 → 恢复AOE** 的嵌套关系。
+> 特别关注濒死和技能阶段如何插入 AOE 流程，以及状态如何保存和恢复。
+
+> **验证状态**：此场景有对应的自动化测试 `TestScenario_WanJian_6pAoeWithDyingAndSkills`，位于 `test/yuzhousha/scenario_wanjian_6p_test.go`。
+> 修复了以下 bug 后才跑通：`finishShanDodgeSuccess` 恢复 AOE、`FillPendingRoles` 缺失、`handleHPChange` 自动濒死导致 AoeResume 丢失、`PassResponse` 缺少刚烈 choice 处理。
+
+#### 初始状态
+
+| 座位 | 武将 | HP | 手牌 | 关键技能 |
+|------|------|-----|------|------|
+| 0 | 陆逊 | 3/3 | 万箭齐发 | 连营（失去最后一张手牌时摸1） |
+| 1 | 张角 | 3/3 | 闪、黑桃2杀 | 雷击、鬼道 |
+| 2 | 司马懿 | 1/3 | 桃×2 | 反馈（受伤拿来源1牌）、鬼才（手牌换判定） |
+| 3 | 郭嘉 | 1/3 | 桃 | 遗计（受伤后摸2） |
+| 4 | 夏侯惇 | 1/3 | 桃 | 刚烈（受伤后判定，非红桃则来源弃2或受1伤） |
+| 5 | 张春华 | 3/3 | 无 | 绝情、伤逝（锁定技，手牌数 < 已损失体力时补牌） |
+
+> 注：司马懿给2桃是因为鬼才阶段会消耗1桃换判定牌。
+
+#### 完整事件序列
+
+```
+宣告
+├── 事件1: 万箭齐发宣告
+│   ├── 陆逊手牌 1→0，打出万箭
+│   ├── 陆逊【连营】：摸1，手牌 0→1
+│   └── 队列 [张角,司马懿,郭嘉,夏侯惇,张春华]
+
+逐人处理 #1 — 张角 (HP 3/3)
+├── 事件2-6: 无懈窗口 → 都跳过（0张，生效）
+├── 事件7: 张角出闪，手牌 2→1（剩黑桃2杀）
+├── 张角【雷击】判定劈陆逊 → 非黑桃不生效
+└── 完毕，继续下一个
+
+逐人处理 #2 — 司马懿 (HP 1/3)
+├── 事件8-12: 无懈窗口 → 都跳过
+├── 事件13: 司马懿无闪（手牌是桃），跳过 → 扣血
+├── 事件14: 扣血 HP 1→0
+│
+├── ╔══ 濒死阶段 ══╗
+│   ║ ★ SavedPending = [郭嘉,夏侯惇,张春华]（保存AOE队列）
+│   ║ 事件15: 司马懿濒死（需1桃）
+│   ║ 司马懿自己出桃，HP 0→1，脱离濒死
+│   ╚══════════════╝
+│
+├── 事件16: 司马懿【反馈】→ 从陆逊拿1牌
+│   ├── 陆逊手牌 1→0 → 陆逊【连营】→ 手牌 0→1
+│   └── 司马懿手牌 0→1
+│
+├── ★ restorePendingAfterDying → AOE恢复 [郭嘉,夏侯惇,张春华]
+└── 继续下一个
+
+逐人处理 #3 — 郭嘉 (HP 1/3)
+├── 事件17-21: 无懈窗口 → 都跳过
+├── 事件22: 郭嘉无闪（手牌是桃），跳过 → 扣血
+├── 事件23: 扣血 HP 1→0
+│
+├── ╔══ 濒死阶段 ══╗
+│   ║ ★ SavedPending = [夏侯惇,张春华]
+│   ║ 事件24: 郭嘉濒死（需1桃）
+│   ║ 郭嘉自己出桃，HP 0→1，脱离濒死
+│   ╚══════════════╝
+│
+├── 事件25: 郭嘉【遗计】→ 摸2牌，手牌 0→2
+├── ★ restorePendingAfterDying → AOE恢复 [夏侯惇,张春华]
+└── 继续下一个
+
+逐人处理 #4 — 夏侯惇 (HP 1/3)
+├── 事件26-30: 无懈窗口 → 都跳过
+├── 事件31: 夏侯惇无闪（手牌是桃），跳过 → 扣血
+├── 事件32: 扣血 HP 1→0
+│
+├── ╔══ 濒死阶段 ══╗
+│   ║ ★ SavedPending = [张春华]
+│   ║ 事件33: 夏侯惇濒死（需1桃）
+│   ║ 夏侯惇自己出桃，HP 0→1，脱离濒死
+│   ╚══════════════╝
+│
+├── 事件34: 夏侯惇【刚烈】→ 判定，非红桃
+│   ├── 陆逊只有1手牌，不够弃2张 → 选择受伤
+│   └── 事件35: 陆逊受刚烈1伤，HP 3→2
+│       （连营不触发——陆逊还有手牌，不是"失去最后一张"）
+│
+├── ★ restorePendingAfterDying → AOE恢复 [张春华]
+└── 继续下一个
+
+逐人处理 #5 — 张春华 (HP 3/3)
+├── 事件36-40: 无懈窗口 → 都跳过
+├── 事件41: 张春华无手牌，跳过 → 扣血
+├── 事件42: 扣血 HP 3→2（已损失体力=1）
+│   （绝情不触发——绝情是她造成伤害时，这里是别人对她造成伤害）
+├── 事件43: 张春华【伤逝】→ 手牌数 0 < 已损失体力 1
+│   → 摸1牌，手牌 0→1
+└── 完毕 → AOE队列空 → 万箭完毕，陆逊继续出牌
+```
+
+#### 最终状态（多局测试验证通过）
+
+| 座位 | 武将 | HP | 手牌 | 实际 | 说明 |
+|------|------|-----|------|------|------|
+| 0 | 陆逊 | 2/3 | 1 | HP✓ | 刚烈反伤1血，连营摸牌 |
+| 1 | 张角 | 3/3 | 1 | ✓ | 出闪剩黑桃2杀 |
+| 2 | 司马懿 | 1/3 | 1 | ✓ | 鬼才用1桃，濒死用1桃，反馈拿牌 |
+| 3 | 郭嘉 | 1/3 | 2 | ✓ | 濒死自救，遗计摸2 |
+| 4 | 夏侯惇 | 1/3 | 0 | ✓ | 濒死自救，刚烈判定→陆逊受1伤 |
+| 5 | 张春华 | 2/3 | 1 | ✓ | 扣1血，伤逝摸1 |
+
+#### 阶段嵌套树
+
+```
+万箭齐发 AOE 队列 [张角, 司马懿, 郭嘉, 夏侯惇, 张春华]
+│
+├── 张角 → 出闪 → 雷击判定 → 完毕
+│
+├── 司马懿 → 无闪 → 扣血 HP=0
+│   └── 【濒死】SavedPending=[郭嘉,夏侯惇,张春华]
+│       ├── 出桃 → HP=1
+│       ├── 【反馈】拿陆逊牌 → 陆逊连营
+│       └── restorePendingAfterDying → 恢复
+│
+├── 郭嘉 → 无闪 → 扣血 HP=0
+│   └── 【濒死】SavedPending=[夏侯惇,张春华]
+│       ├── 出桃 → HP=1
+│       ├── 【遗计】摸2牌
+│       └── restorePendingAfterDying → 恢复
+│
+├── 夏侯惇 → 无闪 → 扣血 HP=0
+│   └── 【濒死】SavedPending=[张春华]
+│       ├── 出桃 → HP=1
+│       ├── 【刚烈】判定 → 陆逊受1伤
+│       └── restorePendingAfterDying → 恢复
+│
+└── 张春华 → 无闪 → 扣血 HP=2(损失1)
+    └── 【伤逝】手牌0<损失1 → 摸1 → 完毕
+```
+
+#### 关键设计要点
+
+1. **AOE 队列不存 `g.Pending`**：濒死和技能都会覆盖 `g.Pending`，队列必须通过 `SavedPending`（濒死恢复）和 `DamageResume.AoeResume`（技能链恢复）传递。
+
+2. **濒死嵌套**：每次 `startDyingWindow` 都保存当前 `g.Pending` 到 `SavedPending`。濒死结束后 `restorePendingAfterDying` 根据 `SavedPending` 的类型选择正确恢复方式。
+
+3. **`handleHPChange` 不触发濒死**：濒死应统一由 `afterDamageApplied` 处理，以便传递正确的 `DamageResume`（含 `AoeResume`）。`handleHPChange` 作为底层函数，只负责通知血量变化和触发钩子。
+
+4. **设置 Pending 后立即调 `FillPendingRoles`**：`finalizeWuxiekChain` 中设置万箭/南蛮响应 Pending 后必须调用，否则 `ActorSeat` 默认为0，导致 AI 无法自动处理。
+
+5. **PassResponse 需覆盖所有技能模式**：新增技能 choice 模式时，`PassResponse` 的 switch 中必须有对应分支，否则走 default → `resolvePendingMiss` 会错误地清空 Pending。
+
+6. **被动技可随时触发**：连营在"失去最后一张手牌"时触发，可能在宣告阶段、反馈阶段等任意位置。
+
+7. **技能描述要精确**：绝情是"她**造成**的伤害视为体力流失"，伤逝是**锁定技**"手牌数 < 已损失体力时补牌"。开发时必须严格区分"造成"和"受到"、区分"一次性触发"和"持续锁定条件"。
+
+---
+
+## 7. 相关文档
 
 - 技能框架：`skill/doc.go`
-- **交互窗口 / Pending 语义（API 草案）**：[`dev-interaction-window.md`](./dev-interaction-window.md) — TakeWindow、Actor/Subject、技能迁移路线
+- **交互窗口 / Pending 语义**：[`dev-interaction-window.md`](./dev-interaction-window.md)
 - 测试 Skill：`.cursor/skills/card-test/SKILL.md`
-- 引擎文件索引：`engine/doc.go`
-- 测试 Agent：`.cursor/skills/card-test/SKILL.md`
 - Sim 日志说明：`backend/test/yuzhousha/sim_logs/README.md`

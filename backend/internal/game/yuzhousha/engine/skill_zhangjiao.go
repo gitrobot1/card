@@ -202,6 +202,17 @@ func (g *Game) finishShanDodgeSuccess(seat int, pending *PendingCombat, events *
 	if pending.Card.Kind == CardSha && g.offerGuanYuFollowUp(source, seat, events) {
 		return nil
 	}
+	// ★ 南蛮/万箭 AOE 恢复：出闪后继续下一个目标
+	if pending.Card.Kind == CardNanMan || pending.Card.Kind == CardWanJian {
+		g.Pending = nil
+		queue := pending.AoeQueue
+		if pending.Card.Kind == CardNanMan {
+			g.continueNanManAfterTarget(source, queue, events)
+		} else {
+			g.continueWanJianAfterTarget(source, queue, events)
+		}
+		return nil
+	}
 	g.Pending = nil
 	if pending.LuanwuSha {
 		g.Message = dodgeMsg

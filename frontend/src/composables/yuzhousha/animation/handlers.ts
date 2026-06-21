@@ -1,6 +1,7 @@
 import {
   animateYzsBaguaJudge,
   animateYzsPlayEvent,
+  animateYzsRevealCard,
 } from '../useYzsPlayAnimation'
 import {
   equipSlotOf,
@@ -408,11 +409,94 @@ const shandianJudgeHandler: EventReplayHandler = {
   },
 }
 
+const huogongRevealHandler: EventReplayHandler = {
+  types: ['huogong_reveal'],
+  match: (e) => e.type === 'huogong_reveal' && !!e.card,
+  async replay(ctx) {
+    const { event, centerMessage, tableActionHint, playAreaRef, setTableCard, sleep } = ctx
+    if (event.message) {
+      tableActionHint.value = event.message
+      centerMessage.value = event.message
+    }
+    // 目标的手牌飞到牌桌中央展示（不从手牌移除）
+    if (event.player_index != null && event.card) {
+      await animateYzsRevealCard(
+        event.player_index,
+        event.card,
+        playAreaRef.value,
+        () => {
+          // 展示期间在牌桌中央显示这张牌
+          setTableCard(event.card!)
+        },
+      )
+    }
+    tableActionHint.value = ''
+  },
+}
+
 const trickResponseHandler: EventReplayHandler = {
   types: ['trick_response', 'wuxiek_offer'],
   match: (e) => typeIs(e.type, 'trick_response', 'wuxiek_offer'),
   async replay(ctx) {
     await ctx.sleep(360)
+  },
+}
+
+const tiesuoChainHandler: EventReplayHandler = {
+  types: ['tiesuo_chain'],
+  match: (e) => e.type === 'tiesuo_chain' && e.target_index != null,
+  async replay(ctx) {
+    const { event, state, centerMessage, tableActionHint, sleep } = ctx
+    if (event.message) {
+      tableActionHint.value = event.message
+      centerMessage.value = event.message
+    }
+    // 更新连环状态：根据消息中的"横置"/"重置"设置，而不是 toggle
+    if (state.value && event.target_index != null) {
+      const seat = event.target_index
+      const isChaining = event.message?.includes('横置') ?? false
+      state.value = {
+        ...state.value,
+        players: state.value.players.map((p) => {
+          if (p.index !== seat) return p
+          const counters = { ...(p.skill_counters ?? {}) }
+          if (isChaining) {
+            counters.chained = 1
+          } else {
+            delete counters.chained
+          }
+          return { ...p, skill_counters: counters }
+        }),
+      }
+    }
+    await sleep(500)
+    tableActionHint.value = ''
+  },
+}
+
+const tiesuoSpreadHandler: EventReplayHandler = {
+  types: ['tiesuo_spread'],
+  match: (e) => e.type === 'tiesuo_spread',
+  async replay(ctx) {
+    const { event, state, centerMessage, tableActionHint, sleep } = ctx
+    if (event.message) {
+      tableActionHint.value = event.message
+      centerMessage.value = event.message
+    }
+    // 传导完毕：重置所有连环角色
+    if (state.value) {
+      state.value = {
+        ...state.value,
+        players: state.value.players.map((p) => {
+          if (!p.skill_counters?.chained) return p
+          const counters = { ...p.skill_counters }
+          delete counters.chained
+          return { ...p, skill_counters: counters }
+        }),
+      }
+    }
+    await sleep(600)
+    tableActionHint.value = ''
   },
 }
 
@@ -655,13 +739,28 @@ const hitHandler: EventReplayHandler = {
   types: ['sha_hit', 'trick_hit'],
   match: (e) => typeIs(e.type, 'sha_hit', 'trick_hit'),
   async replay(ctx) {
-    const { event, sleep, flashSeatHit, flashSeatBlocked } = ctx
+    const { event, sleep, flashSeatHit, flashSeatBlocked, state, runHitSlash } = ctx
     if (event.target_index != null) {
       const dmg = event.damage ?? 0
       if (dmg > 0) {
+        // 受伤穿梭线 → 震动 → 掉血
+        await runHitSlash(event.target_index)
         await flashSeatHit(event.target_index)
       } else {
         await flashSeatBlocked(event.target_index)
+      }
+    }
+    // 震动后再更新 HP（applyState 中保留了旧 HP，这里才更新）
+    if (state.value && event.target_index != null && (event.damage ?? 0) > 0) {
+      const seat = event.target_index
+      const dmg = event.damage ?? 0
+      state.value = {
+        ...state.value,
+        players: state.value.players.map((p) =>
+          p.index === seat
+            ? { ...p, hp: Math.max(0, p.hp - dmg) }
+            : p,
+        ),
       }
     }
     await sleep(280)
@@ -708,7 +807,10 @@ export const eventReplayerHandlers: EventReplayHandler[] = [
   bingliangSkipHandler,
   wuguPickHandler,
   shandianJudgeHandler,
+  huogongRevealHandler,
   trickResponseHandler,
+  tiesuoChainHandler,
+  tiesuoSpreadHandler,
   wuxiekCancelHandler,
   phaseMessageHandler,
   peekDeckHandler,

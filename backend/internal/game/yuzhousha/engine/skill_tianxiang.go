@@ -177,8 +177,54 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 		Message:     g.damageMessage(victim, card.Name, damage),
 	})
 
+	// 类比南蛮入侵：先濒死，濒死结束后再传导
+	// 濒死前先设置 Pending，让 restorePendingAfterDying 能恢复铁索AOE
+	// （和南蛮 resolvePendingMiss 一样：濒死时 Pending 被保存到 SavedPending）
+	if g.isChained(target) && (card.DamageType == DamageTypeFire || card.DamageType == DamageTypeThunder) {
+		// 收集连环角色队列，存到 Pending.AoeQueue
+		chainSeats := make([]int, 0)
+		for seat := range g.Players {
+			if seat == target || !g.isChained(seat) || g.Players[seat].HP <= 0 {
+				continue
+			}
+			chainSeats = append(chainSeats, seat)
+		}
+		g.setChained(target, false) // 重置首要目标
+		g.Pending = &PendingCombat{
+			SourceIndex:  source,
+			TargetIndex:  target,
+			EffectTarget: target,
+			Card:         card,
+			Damage:       damage,
+			AoeQueue:     chainSeats,
+			ReturnIndex:  source,
+			RequiredKind: "tiesuo",
+		}
+		Logf("finalizeDamageHit: tiesuo setup, chainSeats=%v damage=%d", chainSeats, damage)
+	}
+
+	// 铁索AOE信息存入 resume（濒死和非濒死都需要），
+	// 这样技能链（刚烈等）结束后 resumeAfterDamageNoSkill 能正确恢复传导
+	hasTiesuoAoe := g.Pending != nil && g.Pending.RequiredKind == "tiesuo"
+	var tiesuoChainSeats []int
+	if hasTiesuoAoe {
+		tiesuoChainSeats = g.Pending.AoeQueue
+		g.Pending = nil
+		if len(tiesuoChainSeats) > 0 {
+			resume.AoeResume.Source = source
+			resume.AoeResume.Amount = damage
+			resume.AoeResume.Card = card
+			resume.AoeResume.Rest = tiesuoChainSeats
+			resume.AoeResume.Active = true
+			resume.AoeResume.Tiesuo = true
+		}
+	}
+
 	if victim.HP <= 0 {
 		if g.afterDamageApplied(source, target, damage, card, resume, events) {
+			// 濒死启动，Pending 已被保存到 SavedPending
+			// 但 resume.AoeResume 已设置（上面），濒死结束后 continueAfterDamage
+			// → 技能链 → resumeAfterDamageNoSkill 会恢复铁索AOE
 			return nil
 		}
 	}

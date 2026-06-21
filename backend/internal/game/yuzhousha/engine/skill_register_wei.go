@@ -166,6 +166,10 @@ func guicaiAIPriority(r skill.Runtime, seat int) int {
 }
 
 func guicaiAIActivate(r skill.Runtime, seat int) error {
+	// 刚烈判定时，司马懿不应发动鬼才（刚烈是队友技能，改判红桃会导致刚烈失败，损人不利己）
+	if r.PendingJudgeReason() == string(skill.JudgeGanglie) {
+		return r.PassGuicai(seat)
+	}
 	ids := r.PlayerHandCardIDs(seat)
 	if len(ids) == 0 {
 		return r.PassGuicai(seat)

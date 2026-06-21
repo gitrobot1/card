@@ -223,7 +223,10 @@ func (g *Game) continueAfterPrepare(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return nil
 	}
-	
+
+	// 高达1号：斩将
+	g.gundamZhanjiang(seat, events)
+
 	// 进入判定阶段
 	return g.enterJudgePhase(seat, events)
 }
@@ -614,7 +617,18 @@ func (g *Game) advanceToDrawPhase(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return nil
 	}
-	
+
+	// 高达1号：绝境跳过摸牌阶段
+	if g.gundamSkipDrawPhase(seat) {
+		g.Message = fmt.Sprintf("%s 【绝境-高达一号】跳过摸牌阶段", g.Players[seat].Name)
+		*events = append(*events, GameEvent{
+			Type:        "draw_phase_skip",
+			PlayerIndex: seat,
+			Message:     g.Message,
+		})
+		return g.advanceToPlayPhase(seat, events)
+	}
+
 	// 检查是否需要跳过摸牌阶段（如兵粮寸断）
 	if g.Players[seat].SkipDraw {
 		// 重置跳过标记

@@ -157,6 +157,9 @@ func (g *Game) autoDiscard(seat int, events *[]GameEvent) {
 func (g *Game) endTurn(events *[]GameEvent) error {
 	seat := g.CurrentTurn
 
+	// 高达1号：绝境手牌补到4
+	g.gundamSyncHandSize(seat, events)
+
 	// 破军：回合结束后，获得「营」中的牌
 	g.startPojunGainIfNeeded(seat, events)
 
