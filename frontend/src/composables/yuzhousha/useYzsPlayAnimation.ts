@@ -13,7 +13,7 @@ function sleep(ms: number) {
 }
 
 function seatSelector(index: number) {
-  return `.ddz__seat-anchor[data-seat="${index}"]`
+  return `.yzs__hero-card[data-seat="${index}"], .ddz__seat-anchor[data-seat="${index}"]`
 }
 
 function createFlyCard(card: YzsCard): HTMLElement {
@@ -237,6 +237,54 @@ export async function animateYzsPlayEvent(
 
   el.remove()
   if (cardEl) cardEl.style.opacity = ''
+  onLand?.()
+  await sleep(70)
+}
+
+/** 牌从被拿者座位飞向拿牌者座位（顺手牵羊、反馈、冲阵、突袭等） */
+export async function animateYzsTakeCard(
+  fromSeat: number,
+  toSeat: number,
+  card: YzsCard,
+  onLand?: () => void,
+) {
+  const fromEl = document.querySelector<HTMLElement>(seatSelector(fromSeat))
+  const toEl = document.querySelector<HTMLElement>(seatSelector(toSeat))
+  if (!fromEl || !toEl) {
+    onLand?.()
+    return
+  }
+  const fromRect = fromEl.getBoundingClientRect()
+  const toRect = toEl.getBoundingClientRect()
+  const el = createFlyCard(card)
+  document.body.appendChild(el)
+
+  gsap.set(el, {
+    position: 'fixed',
+    left: fromRect.left + fromRect.width / 2 - 32,
+    top: fromRect.top + fromRect.height / 2 - 45,
+    width: 64,
+    height: 90,
+    zIndex: 9999,
+    opacity: 0.96,
+    scale: 0.88,
+    rotation: -8,
+  })
+
+  await new Promise<void>((resolve) => {
+    gsap.to(el, {
+      left: toRect.left + toRect.width / 2 - 32,
+      top: toRect.top + toRect.height / 2 - 45,
+      scale: 0.8,
+      rotation: 0,
+      opacity: 0.6,
+      duration: 0.4,
+      ease: 'power2.in',
+      onComplete: () => resolve(),
+    })
+  })
+
+  el.remove()
   onLand?.()
   await sleep(70)
 }

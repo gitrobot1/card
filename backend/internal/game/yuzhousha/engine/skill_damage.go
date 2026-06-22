@@ -110,19 +110,13 @@ func (g *Game) continueAfterDamage(source, target, damage int, card Card, resume
 			return true
 		}
 	}
-	// 铁索传导：先处理首要目标的技能链（刚烈等），技能链完毕后再启动传导
-	// 把 AOE 队列信息存入 resume，技能链处理完毕后由 resumeAfterDamageNoSkill 恢复
+	// 铁索传导：把 AOE 队列信息存入 resume，技能链处理后由 resumeAfterDamageNoSkill 恢复
 	hasTiesuo := g.Pending != nil && g.Pending.RequiredKind == "tiesuo"
 	if hasTiesuo {
 		chainSeats := g.Pending.AoeQueue
-		g.Pending = nil
+		g.clearPending()
 		if len(chainSeats) > 0 {
-			resume.AoeResume.Source = source
-			resume.AoeResume.Amount = damage
-			resume.AoeResume.Card = card
-			resume.AoeResume.Rest = chainSeats
-			resume.AoeResume.Active = true
-			resume.AoeResume.Tiesuo = true
+			g.setAoeResume(&resume, source, damage, card, chainSeats, true)
 		}
 	}
 

@@ -174,7 +174,8 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
   function canTargetSeat(seat: number, card: YzsCard | null | undefined) {
     if (!card) return false
     const target = seatAt(seat)
-    if (!target || !enemySeats.value.includes(seat)) return false
+    if (!target) return false
+    // 所有牌均可对任何存活角色使用（包括队友）
     if (cardPlaysAsSha(card)) {
       if (isKongchengProtected(target)) return false
       return canPlaySha.value && distanceToSeat(seat) <= attackRangeOf()

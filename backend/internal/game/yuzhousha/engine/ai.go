@@ -241,9 +241,17 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 				return false
 			}
 			if shouldAIDyingRescue(g, seat, victim) {
+				// 优先用桃（或能当桃的牌）
 				if idx := firstPlaysAsCard(g, seat, CardTao); idx >= 0 {
 					_ = g.RespondCard(seat, g.Players[seat].Hand[idx].ID, events)
 					return true
+				}
+				// 自救时可以用酒
+				if seat == victim {
+					if idx := firstCardKind(g.Players[seat].Hand, CardJiu); idx >= 0 {
+						_ = g.RespondCard(seat, g.Players[seat].Hand[idx].ID, events)
+						return true
+					}
 				}
 			}
 			_ = g.PassResponse(seat, events)

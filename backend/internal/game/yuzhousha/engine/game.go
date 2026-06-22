@@ -53,6 +53,7 @@ type Game struct {
 	takeWindow       *takeWindowState
 	discardWindow    *discardWindowState
 	wuguPicked       map[int]bool // 五谷丰登：已选过牌的玩家
+	skipWuxiekSeats  map[int]bool // 本轮都不出无懈的座位（群体锦囊流程中持久）
 }
 
 type PublicState struct {
@@ -107,27 +108,6 @@ func (g *Game) setupDeck() {
 	g.DrawPile = deck
 	g.DiscardPile = nil
 	g.syncCounts()
-
-	// 测试功能：为所有玩家自动装备藤甲
-	g.autoEquipVineArmor()
-}
-
-// autoEquipVineArmor 为所有存活玩家装备藤甲（测试用）
-func (g *Game) autoEquipVineArmor() {
-	for i := range g.Players {
-		if g.Players[i].HP > 0 && g.Players[i].Armor == nil {
-			g.Players[i].Armor = &Card{
-				ID:         fmt.Sprintf("test_vine_armor_%d", i),
-				Kind:       CardArmorVine,
-				Name:       "藤甲",
-				Suit:       "D",
-				Rank:       0,
-				Label:      "测试藤甲",
-				TrickScope: "",
-				DamageType: "",
-			}
-		}
-	}
 }
 
 func (g *Game) syncCounts() {
@@ -135,6 +115,49 @@ func (g *Game) syncCounts() {
 		g.Players[i].HandCount = len(g.Players[i].Hand)
 	}
 }
+
+// ============================================================================
+// 阶段管理防御性入口（Phase Guard）
+// ============================================================================
+
+// pushPending 设置新的 Pending 阶段，自动调用 FillPendingRoles。
+// 如果覆盖了非濒死的旧 Pending，打印警告。
+func (g *Game) pushPending(p *PendingCombat) {
+	if p == nil {
+		return
+	}
+	if g.Pending != nil && g.Pending.ResponseMode != ResponseModeDying {
+		Logf("PHASE-GUARD: pushPending overwrites existing Pending (mode=%s, aoeQueue=%v) with new (mode=%s, aoeQueue=%v)",
+			g.Pending.ResponseMode, g.Pending.AoeQueue, p.ResponseMode, p.AoeQueue)
+	}
+	FillPendingRoles(p)
+	g.Pending = p
+}
+
+// clearPending 清除 Pending 阶段。
+// 如果当前 Pending 有未处理的 AOE 队列，打印警告。
+func (g *Game) clearPending() {
+	if g.Pending != nil && len(g.Pending.AoeQueue) > 0 {
+		Logf("PHASE-GUARD: clearPending discards AoeQueue=%v (mode=%s, requiredKind=%s)",
+			g.Pending.AoeQueue, g.Pending.ResponseMode, g.Pending.RequiredKind)
+	}
+	g.Pending = nil
+}
+
+// setAoeResume 设置 DamageResume 中的 AOE 恢复信息。
+// 所有需要恢复 AOE 的地方统一调用此函数。
+func (g *Game) setAoeResume(resume *DamageResume, source, amount int, card Card, rest []int, tiesuo bool) {
+	resume.AoeResume.Source = source
+	resume.AoeResume.Amount = amount
+	resume.AoeResume.Card = card
+	resume.AoeResume.Rest = rest
+	resume.AoeResume.Active = true
+	resume.AoeResume.Tiesuo = tiesuo
+	Logf("PHASE-GUARD: setAoeResume source=%d amount=%d rest=%v tiesuo=%v card=%s",
+		source, amount, rest, tiesuo, card.Kind)
+}
+
+// ============================================================================
 
 func cloneCardPtr(card *Card) *Card {
 	if card == nil {

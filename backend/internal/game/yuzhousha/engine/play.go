@@ -198,7 +198,7 @@ func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, events *[
 	}
 
 	// 检查是否因龙胆而将闪当杀使用，如果是则触发冲阵
-	g.triggerChongzhen(seat, played, CardSha)
+	g.triggerChongzhenWithEvents(seat, played, CardSha, events)
 
 	// 如果牌本身不是杀（通过技能变牌，如武圣/龙胆），统一转为普通杀
 	if !isSha(played.Kind) {
@@ -1339,6 +1339,7 @@ func tannangTakeComplete(g *Game, events *[]GameEvent) error {
 }
 
 func (g *Game) resolveTaoYuan(seat int, events *[]GameEvent) error {
+	g.skipWuxiekSeats = nil // 新群体锦囊，清空跳过标记
 	// 构建需要回复的玩家队列（从使用者开始，跳过满血玩家）
 	queue := make([]int, 0, len(g.Players))
 	n := len(g.Players)
@@ -1367,6 +1368,7 @@ func (g *Game) resolveTaoYuan(seat int, events *[]GameEvent) error {
 
 // resolveNanMan 南蛮入侵：宣告 → 逐人无懈窗口 → 无懈通过则进入决斗
 func (g *Game) resolveNanMan(source int, events *[]GameEvent) error {
+	g.skipWuxiekSeats = nil // 新群体锦囊，清空跳过标记
 	// 构建受影响玩家队列（从使用者下家开始，过滤藤甲）
 	allQueue := g.aoeResponderQueue(source)
 	queue := g.filterAoeQueue(allQueue, CardNanMan)
@@ -1387,6 +1389,20 @@ func (g *Game) resolveNanMan(source int, events *[]GameEvent) error {
 	return nil
 }
 
+// filterSkipWuxiek 从队列中移除 skipWuxiekSeats 标记的座位
+func (g *Game) filterSkipWuxiek(queue []int) []int {
+	if len(g.skipWuxiekSeats) == 0 {
+		return queue
+	}
+	out := make([]int, 0, len(queue))
+	for _, s := range queue {
+		if !g.skipWuxiekSeats[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // startNanManJueDou 对单个目标发起南蛮决斗无懈窗口
 // 虚拟电脑对 target 使用决斗，target 第一个被询问是否无懈，然后是其他人
 func (g *Game) startNanManJueDou(source, target int, rest []int, events *[]GameEvent) {
@@ -1400,6 +1416,7 @@ func (g *Game) startNanManJueDou(source, target int, rest []int, events *[]GameE
 			queue = append(queue, s)
 		}
 	}
+	queue = g.filterSkipWuxiek(queue)
 	g.Phase = PhaseResponse
 	g.Pending = &PendingCombat{
 		SourceIndex:   source,
@@ -1441,6 +1458,7 @@ func (g *Game) continueNanManAfterTarget(source int, rest []int, events *[]GameE
 
 // resolveWanJian 万箭齐发：宣告 → 逐人无懈窗口 → 无懈通过则需出闪
 func (g *Game) resolveWanJian(source int, events *[]GameEvent) error {
+	g.skipWuxiekSeats = nil // 新群体锦囊，清空跳过标记
 	allQueue := g.aoeResponderQueue(source)
 	queue := g.filterAoeQueue(allQueue, CardWanJian)
 	if len(queue) == 0 {
@@ -1468,6 +1486,7 @@ func (g *Game) startWanJianShan(source, target int, rest []int, events *[]GameEv
 			queue = append(queue, s)
 		}
 	}
+	queue = g.filterSkipWuxiek(queue)
 	g.Phase = PhaseResponse
 	g.Pending = &PendingCombat{
 		SourceIndex:   source,
@@ -1551,6 +1570,7 @@ func (g *Game) startTaoYuanHeal(source, target int, rest []int, events *[]GameEv
 			queue = append(queue, s)
 		}
 	}
+	queue = g.filterSkipWuxiek(queue)
 	g.Phase = PhaseResponse
 	g.Pending = &PendingCombat{
 		SourceIndex:   source,

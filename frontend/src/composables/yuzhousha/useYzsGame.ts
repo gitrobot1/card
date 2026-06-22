@@ -37,6 +37,7 @@ import {
   passYuzhoushaPrepare,
   passYuzhoushaDraw,
   passYuzhoushaResponse,
+  passAllWuxiek,
   baguaYuzhoushaJudge,
   playYuzhoushaCard,
   respondYuzhoushaCard,
@@ -272,6 +273,8 @@ function cardPlaysAsShan(card: YzsCard | null | undefined) {
 function cardPlaysAsTao(card: YzsCard | null | undefined) {
   if (!card) return false
   if (card.kind === 'tao') return true
+  // 酒：濒死时只能对自己使用（不是变牌，是酒本身的濒死效果）
+  if (card.kind === 'jiu' && isDyingRescue.value && state.value?.pending?.target_index === mySeat.value) return true
   if (hasMySkill('jiji') && isRedCard(card)) {
     if (isJijiHeal.value || isDyingRescue.value) {
       return state.value?.current_turn !== mySeat.value
@@ -344,7 +347,7 @@ watch(
     const s = state.value
     if (!s) return
 
-    // 新五谷开始（wuxiek_trick 或 wugu_pick）：清空记录，显示框
+    // 新五谷开始（wuxiek_trick 或 wugu_pick）：清空记录，延迟显示框（等飞线动画）
     if ((newMode === 'wuxiek_trick' || newMode === 'wugu_pick') && 
         oldMode !== 'wuxiek_trick' && oldMode !== 'wugu_pick') {
       if (wuguHideTimer) { clearTimeout(wuguHideTimer); wuguHideTimer = null }
@@ -353,7 +356,10 @@ watch(
       if (s.pending?.wugu_revealed_all?.length) {
         wuguRevealedAllCache.value = [...s.pending.wugu_revealed_all]
       }
-      isWuguBoardVisible.value = true
+      // 延迟 450ms 等飞线动画完成后才亮出选牌框
+      setTimeout(() => {
+        isWuguBoardVisible.value = true
+      }, 450)
     }
 
     // 追踪 wugu_pick 事件（必须在结束检测之前，确保最后选牌也被记录）
@@ -490,9 +496,23 @@ const isGuoHeTake = computed(
 const isTanNangTake = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'tannang',
 )
-const isTakeWindow = computed(
+/** TakeWindow 是否激活（不含延迟） */
+const isTakeWindowRaw = computed(
   () => isGuoHeTake.value || isTanNangTake.value,
 )
+/** TakeWindow 延迟显示（等飞线+无懈动画） */
+const isTakeWindowVisible = ref(false)
+let takeWindowDelayTimer: ReturnType<typeof setTimeout> | null = null
+watch(isTakeWindowRaw, (val) => {
+  if (takeWindowDelayTimer) { clearTimeout(takeWindowDelayTimer); takeWindowDelayTimer = null }
+  if (val) {
+    // 等待动画完成后再弹出，给用户看清飞线的反应时间
+    takeWindowDelayTimer = setTimeout(() => { isTakeWindowVisible.value = true }, 800)
+  } else {
+    isTakeWindowVisible.value = false
+  }
+})
+const isTakeWindow = computed(() => isTakeWindowVisible.value)
 const takeWindowTargetOptions = computed(() => {
   if (!isTakeWindow.value) return []
   const takenSeat = state.value?.pending?.subject_seat ?? -1
@@ -1442,8 +1462,9 @@ function selectCard(id: string) {
 }
 
 
-async function act(fn: () => Promise<YuzhoushaState>) {
-  if (!state.value || loading.value || isDealing.value || isAnimating.value) return
+async function act(fn: () => Promise<YuzhoushaState>, opts?: { allowAnimating?: boolean }) {
+  if (!state.value || loading.value || isDealing.value) return
+  if (!opts?.allowAnimating && isAnimating.value) return
   loading.value = true
   try {
     await applyState(await fn())
@@ -2119,6 +2140,13 @@ async function submitCancelResponse() {
   await act(() => passYuzhoushaResponse(state.value!.id))
 }
 
+async function submitPassAllWuxiek() {
+  if (!state.value) return
+  if (loading.value) return
+  selectedId.value = ''
+  await act(() => passAllWuxiek(state.value!.id), { allowAnimating: true })
+}
+
 async function submitBaguaJudge() {
   if (!state.value || !canSubmitBagua.value) return
   selectedId.value = ''
@@ -2386,6 +2414,7 @@ onMounted(() => {
     state,
     submitBaguaJudge,
     submitCancelResponse,
+    submitPassAllWuxiek,
     submitCancelWusheng,
     submitEndTurn,
     submitFanjianSuit,

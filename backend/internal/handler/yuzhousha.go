@@ -292,6 +292,16 @@ func (h *YuzhoushaHandler) PassResponse(c *gin.Context) {
 	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
+func (h *YuzhoushaHandler) PassAllWuxiek(c *gin.Context) {
+	userID, _ := currentUser(c)
+	state, err := h.Games.PassAllWuxiek(c.Param("gameId"), userID)
+	if err != nil {
+		writeYuzhoushaError(c, err)
+		return
+	}
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
+}
+
 func (h *YuzhoushaHandler) BaguaJudge(c *gin.Context) {
 	userID, _ := currentUser(c)
 	state, err := h.Games.TryBaguaJudge(c.Param("gameId"), userID)

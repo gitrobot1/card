@@ -203,30 +203,26 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 		Logf("finalizeDamageHit: tiesuo setup, chainSeats=%v damage=%d", chainSeats, damage)
 	}
 
-	// 铁索AOE信息存入 resume（濒死和非濒死都需要），
-	// 这样技能链（刚烈等）结束后 resumeAfterDamageNoSkill 能正确恢复传导
+	// 铁索AOE信息存入 resume（濒死和非濒死都需要）
 	hasTiesuoAoe := g.Pending != nil && g.Pending.RequiredKind == "tiesuo"
 	var tiesuoChainSeats []int
 	if hasTiesuoAoe {
 		tiesuoChainSeats = g.Pending.AoeQueue
-		g.Pending = nil
 		if len(tiesuoChainSeats) > 0 {
-			resume.AoeResume.Source = source
-			resume.AoeResume.Amount = damage
-			resume.AoeResume.Card = card
-			resume.AoeResume.Rest = tiesuoChainSeats
-			resume.AoeResume.Active = true
-			resume.AoeResume.Tiesuo = true
+			g.setAoeResume(&resume, source, damage, card, tiesuoChainSeats, true)
 		}
 	}
 
 	if victim.HP <= 0 {
 		if g.afterDamageApplied(source, target, damage, card, resume, events) {
-			// 濒死启动，Pending 已被保存到 SavedPending
-			// 但 resume.AoeResume 已设置（上面），濒死结束后 continueAfterDamage
-			// → 技能链 → resumeAfterDamageNoSkill 会恢复铁索AOE
+			// 濒死启动：Pending 仍保留（含 AoeQueue+RequiredKind），
+			// 濒死救回 → resume.AoeResume 恢复；濒死死亡 → SavedPending 恢复
 			return nil
 		}
+	}
+	// 未濒死：清理 Pending
+	if hasTiesuoAoe {
+		g.clearPending()
 	}
 
 	if g.continueAfterDamage(source, target, damage, card, resume, events) {

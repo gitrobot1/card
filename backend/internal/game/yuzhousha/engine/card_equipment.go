@@ -263,32 +263,20 @@ func (g *Game) startTiesuoAoe(source, amount int, card Card, remaining []int, ev
 
 	if g.Players[seat].HP <= 0 {
 		Logf("startTiesuoAoe: seat=%d HP<=0, starting dying, rest=%v", seat, rest)
-		// 类比万箭：设置 dyingResume.AoeResume，让技能链结束后能恢复AOE
 		dyingResume := DamageResume{}
-		dyingResume.AoeResume.Source = source
-		dyingResume.AoeResume.Amount = dmg
-		dyingResume.AoeResume.Card = card
-		dyingResume.AoeResume.Rest = rest
-		dyingResume.AoeResume.Active = true
-		dyingResume.AoeResume.Tiesuo = true
+		g.setAoeResume(&dyingResume, source, dmg, card, rest, true)
 		if g.afterDamageApplied(source, seat, dmg, card, dyingResume, events) {
-			return // 濒死窗口已启动，Pending已保存到SavedPending
+			return
 		}
 	}
 
 	// 未死亡：类比万箭，走 continueAfterDamage 技能链
-	g.Pending = nil
+	g.clearPending()
 	resume := DamageResume{}
-	resume.AoeResume.Source = source
-	resume.AoeResume.Amount = dmg
-	resume.AoeResume.Card = card
-	resume.AoeResume.Rest = rest
-	resume.AoeResume.Active = true
-	resume.AoeResume.Tiesuo = true
+	g.setAoeResume(&resume, source, dmg, card, rest, true)
 	if g.continueAfterDamage(source, seat, dmg, card, resume, events) {
-		return // 技能链处理中，resumeAfterDamageNoSkill 会恢复AOE
+		return
 	}
-	// 无技能链：直接继续AOE
 	g.continueTiesuoAoe(source, dmg, card, rest, events)
 }
 

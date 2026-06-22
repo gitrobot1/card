@@ -57,7 +57,7 @@ func (g *Game) RespondCard(seat int, cardID string, events *[]GameEvent) error {
 	}
 
 	// 检查是否因龙胆而将杀当闪打出，如果是则触发冲阵
-	g.triggerChongzhen(seat, cardObj, requiredKind)
+	g.triggerChongzhenWithEvents(seat, cardObj, requiredKind, events)
 
 	// 从对应区域移除牌
 	var played Card
@@ -603,11 +603,7 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 		})
 		if g.Players[pending.TargetIndex].HP <= 0 {
 			dyingResume := DamageResume{}
-			dyingResume.AoeResume.Source = pending.SourceIndex
-			dyingResume.AoeResume.Amount = damage
-			dyingResume.AoeResume.Card = pending.Card
-			dyingResume.AoeResume.Rest = pending.AoeQueue
-			dyingResume.AoeResume.Active = true
+			g.setAoeResume(&dyingResume, pending.SourceIndex, damage, pending.Card, pending.AoeQueue, false)
 			Logf("resolvePendingMiss: dyingResume AoeResume.Active=%v Rest=%v Card=%s",
 				dyingResume.AoeResume.Active, dyingResume.AoeResume.Rest, dyingResume.AoeResume.Card.Kind)
 			if g.afterDamageApplied(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, dyingResume, events) {
@@ -620,14 +616,10 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 				return nil
 			}
 		}
-		g.Pending = nil
+		g.clearPending()
 		// 先处理伤害技能链（刚烈等），技能链完毕后由 resumeAfterDamageNoSkill 恢复 AOE
 		resume := DamageResume{}
-		resume.AoeResume.Source = pending.SourceIndex
-		resume.AoeResume.Amount = damage
-		resume.AoeResume.Card = pending.Card
-		resume.AoeResume.Rest = pending.AoeQueue
-		resume.AoeResume.Active = true
+		g.setAoeResume(&resume, pending.SourceIndex, damage, pending.Card, pending.AoeQueue, false)
 		// Tiesuo=false 表示南蛮/万箭，恢复时走 continueNanManAfterTarget/continueWanJianAfterTarget
 		if g.continueAfterDamage(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, resume, events) {
 			return nil
@@ -662,6 +654,47 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 		resume.LuanwuOwner = pending.LuanwuOwner
 	}
 	return g.finalizeDamageHit(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, resume, events)
+}
+
+// PassAllWuxiek 本轮都不出无懈可击：标记该玩家，当前及后续目标的无懈窗口均跳过
+func (g *Game) PassAllWuxiek(seat int, events *[]GameEvent) error {
+	if g.IsFinished() {
+		return ErrGameOver
+	}
+	if g.Phase != PhaseResponse || g.Pending == nil {
+		return ErrNoPendingCombat
+	}
+	g.ensurePendingRoles()
+	if seat != g.Pending.ActorSeat {
+		return ErrNotYourTurn
+	}
+	mode := g.Pending.ResponseMode
+	if mode != ResponseModeWuxiekTrick && mode != ResponseModeWuxiekLebu &&
+		mode != ResponseModeWuxiekBingliang && mode != ResponseModeWuxiekShandian {
+		return ErrWrongPhase
+	}
+	// 标记为跳过（持久到 Game 级别，群体锦囊切换目标时不会丢失）
+	if g.skipWuxiekSeats == nil {
+		g.skipWuxiekSeats = make(map[int]bool)
+	}
+	g.skipWuxiekSeats[seat] = true
+	// 从当前队列移除并推进
+	queue := g.Pending.ResponseQueue
+	idx := g.Pending.ResponseIndex
+	newQueue := make([]int, 0, len(queue)-1)
+	for i, s := range queue {
+		if s == seat {
+			if i < idx {
+				idx--
+			}
+			continue
+		}
+		newQueue = append(newQueue, s)
+	}
+	g.Pending.ResponseQueue = newQueue
+	g.Pending.ResponseIndex = idx
+	g.advanceToNextWuxiekResponder(events)
+	return nil
 }
 
 func (g *Game) damageMessage(target *Player, sourceName string, damage int) string {

@@ -94,20 +94,14 @@ export function useYzsAnimations(deps: YzsAnimationsDeps) {
   }
 
   async function runShaFlyBolt(source: number, target: number) {
-    if (isBoltFlying.value) return
-    isBoltFlying.value = true
-    try {
-      await animateYzsShaFlyBolt(
-        source,
-        target,
-        mySeat.value,
-        handAreaRef.value,
-        'dash-flow',
-        tableWrapRef.value,
-      )
-    } finally {
-      isBoltFlying.value = false
-    }
+    await animateYzsShaFlyBolt(
+      source,
+      target,
+      mySeat.value,
+      handAreaRef.value,
+      'dash-flow',
+      tableWrapRef.value,
+    )
   }
 
   function syncDisplayFromState(next: YuzhoushaState) {
@@ -133,13 +127,44 @@ function appendDrawnCards(cards: YzsCard[]) {
   }, 420)
 }
 
+/** 每张牌在牌桌上展示的时长（ms） */
+/** 每张牌在牌桌上展示的时长（ms） */
+const TABLE_CARD_TTL = 5000
+/** 牌叠最多同时显示张数 */
+const TABLE_CARD_MAX = 8
+
+/** 牌桌牌叠计时器映射 cardId → expireAt */
+const tableCardTimers = new Map<string, number>()
+
 function setTableCard(card: YzsCard) {
-  displayedTableCards.value = [card]
+  const now = Date.now()
+  const fresh = displayedTableCards.value.filter(
+    (c) => {
+      const expireAt = tableCardTimers.get(c.id)
+      return expireAt == null || expireAt > now
+    },
+  )
+  const expireAt = now + TABLE_CARD_TTL
+  tableCardTimers.set(card.id, expireAt)
+  fresh.push(card)
+  while (fresh.length > TABLE_CARD_MAX) {
+    const removed = fresh.shift()
+    if (removed) tableCardTimers.delete(removed.id)
+  }
+  displayedTableCards.value = fresh
+  // 到期后自动清理（但保留最后一张牌，避免空牌桌）
+  setTimeout(() => {
+    tableCardTimers.delete(card.id)
+    if (displayedTableCards.value.length <= 1 && displayedTableCards.value[0]?.id === card.id) {
+      return
+    }
+    displayedTableCards.value = displayedTableCards.value.filter((c) => c.id !== card.id)
+  }, TABLE_CARD_TTL + 100)
 }
 
 function addTableCard(card: YzsCard) {
   if (displayedTableCards.value.some((c) => c.id === card.id)) return
-  displayedTableCards.value = [...displayedTableCards.value, card]
+  setTableCard(card)
 }
 
 function collectDiscardBatch(events: YzsEvent[], start: number): YzsEvent[] {
@@ -213,6 +238,7 @@ async function replayDiscardBatch(batch: YzsEvent[]) {
   const hint = discardActorHint(seat)
   tableActionHint.value = hint
   centerMessage.value = hint
+  console.log('[table] CLEAR by discard batch')
   displayedTableCards.value = []
 
   await animateYzsDiscardBatch(
@@ -294,16 +320,15 @@ async function applyState(next: YuzhoushaState) {
   const skipReplay =
     next.pending?.response_mode === 'peek_deck' || next.turn_step === 'prepare'
 
-  // 先把最终 state 设上，但保留旧 HP（hitHandler 震动后再更新 HP）
-  // 避免先掉血再震动的视觉错误
+  // 先把最终 state 设上，但始终保留旧 HP（事件重放驱动 HP 变化）
+  // 避免先显示最终值再闪烁回动画中间值的视觉错误
   const oldState = state.value
-  if (oldState && events.some((e) => e.type === 'sha_hit' || e.type === 'trick_hit')) {
+  if (oldState && events.length > 0) {
     state.value = {
       ...next,
       players: next.players.map((np) => {
         const op = oldState.players[np.index]
         if (!op || op.hp === np.hp) return np
-        // 保留旧 HP，等 hitHandler 震动后再更新
         return { ...np, hp: op.hp }
       }),
     }
@@ -336,18 +361,9 @@ async function applyState(next: YuzhoushaState) {
       await replayEvent(events[i])
       i++
     }
-    // 保留 hitHandler 中已更新的 HP（震动后才掉血）
-    const currentPlayers = state.value?.players
-    state.value = {
-      ...next,
-      events: [],
-      players: currentPlayers
-        ? next.players.map((np) => {
-            const cp = currentPlayers[np.index]
-            return cp ? { ...np, hp: cp.hp } : np
-          })
-        : next.players,
-    }
+    // 事件重放完成后，HP 以后端最终值为准（避免前端重放计算偏差）
+    // hitHandler 的震动动画已在重放过程中播放，此处直接覆盖为权威值
+    state.value = { ...next, events: [] }
     syncDisplayFromState(next)
   } finally {
     isAnimating.value = false

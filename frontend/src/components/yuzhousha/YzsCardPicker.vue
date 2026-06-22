@@ -102,7 +102,6 @@ const allOptions = computed(() => [...handCards.value, ...equipCards.value, ...j
 <template>
   <Transition name="yzs-picker-fade">
     <div v-if="visible" class="yzs-picker" @click.self="emit('cancel')">
-      <div class="yzs-picker__backdrop" />
       <div class="yzs-picker__card">
         <div class="yzs-picker__header">
           <div class="yzs-picker__title">{{ title || '' }}</div>

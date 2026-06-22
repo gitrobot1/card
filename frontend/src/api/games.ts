@@ -417,6 +417,10 @@ export function passYuzhoushaResponse(gameId: string) {
   return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/pass`, { method: 'POST' })
 }
 
+export function passAllWuxiek(gameId: string) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/pass-all-wuxiek`, { method: 'POST' })
+}
+
 export function baguaYuzhoushaJudge(gameId: string) {
   return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/bagua`, { method: 'POST' })
 }

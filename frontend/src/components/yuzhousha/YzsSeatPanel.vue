@@ -4,6 +4,7 @@ import SeatIndicator from '../doudizhu/SeatIndicator.vue'
 import { useYzsGameInject } from '../../composables/yuzhousha/useYzsGame'
 import { isIdentityMode } from '../../constants/yzsModes'
 import { suitColor, suitSymbol } from '../../constants/games'
+import { visibleMarks, judgeCardShortName } from '../../composables/yuzhousha/playerCardHelpers'
 
 const props = withDefaults(
   defineProps<{
@@ -154,7 +155,7 @@ const isProtectSeat = computed(
         <span v-if="player" class="yzs__hero-hand-tag">{{ player.hand_count ?? 0 }}</span>
       </div>
 
-      <!-- 右侧：武将名 + 装备区 + 判定区 + 标记 -->
+      <!-- 右侧：武将名 + 装备区 -->
       <div class="yzs__hero-right">
         <!-- 武将名（居中） -->
         <div class="yzs__hero-name-btn yzs__hero-name-btn--self">
@@ -201,20 +202,31 @@ const isProtectSeat = computed(
             </template>
           </div>
         </div>
-
-        <!-- 判定区 -->
-        <div v-if="judgeAreaCards(player).length" class="yzs__hero-judge">
-          <div v-for="judge in judgeAreaCards(player)" :key="judge.id" class="yzs__equip-line yzs__equip-line--judge">
-            <span class="yzs__equip-name">{{ judge.name }}</span>
-          </div>
-        </div>
-
-        <!-- 标记（酒/营等） -->
-        <div v-if="player?.drunk || player?.skill_counters?.pojun_gain_pending" class="yzs__hero-marks">
-          <span v-if="player?.drunk" class="yzs__equip-tag yzs__equip-tag--buff">酒</span>
-          <span v-if="player?.skill_counters?.pojun_gain_pending" class="yzs__equip-tag yzs__equip-tag--mark">营</span>
-        </div>
       </div>
+    </div>
+
+    <!-- 外部状态栏：判定区 | 标记（始终占位） -->
+    <div
+      class="yzs__hero-status-bar"
+      :class="{ 'yzs__hero-status-bar--active': judgeAreaCards(player).length > 0 || visibleMarks(player).length > 0 }"
+    >
+      <template v-if="judgeAreaCards(player).length">
+        <span v-for="judge in judgeAreaCards(player)" :key="judge.id" class="yzs__judge-tag">{{ judgeCardShortName(judge.kind) }}</span>
+      </template>
+      <span v-else class="yzs__status-placeholder">判定</span>
+
+      <span v-if="judgeAreaCards(player).length && visibleMarks(player).length" class="yzs__status-divider" />
+
+      <template v-if="visibleMarks(player).length">
+        <span
+          v-for="mark in visibleMarks(player)"
+          :key="mark.name"
+          class="yzs__equip-tag yzs__equip-tag--mark"
+        >
+          {{ mark.name }}{{ mark.count }}
+        </span>
+      </template>
+      <span v-else class="yzs__status-placeholder">标记</span>
     </div>
 
     <!-- 可选目标/技能面板 -->

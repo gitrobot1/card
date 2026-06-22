@@ -701,9 +701,274 @@ func aiPickTakeTarget(g *Game, target int) (zone, cardID string) {
 
 7. **技能描述要精确**：绝情是"她**造成**的伤害视为体力流失"，伤逝是**锁定技**"手牌数 < 已损失体力时补牌"。开发时必须严格区分"造成"和"受到"、区分"一次性触发"和"持续锁定条件"。
 
+
+
+真人开发者的感悟
+
+1.现在系统开发流程这么多问题，很大一部分原因是一开始我以及ai都没有明确一个东西叫阶段，以及插入一个阶段后后续状态的保存。游戏的运行流程就像是一部无限单向通行的电梯，电梯隔几层就会停一次，相当于进入了一个阶段，要完成这个阶段的所有事才会走到下一个阶段。插入一个阶段就好比在通往下一个楼层前中间有人又按了一个楼层，这个时候电梯一定会停在新按的楼层前，完成这个阶段的所有事才会通往既定的楼层。现在就是但凡没有特别编写两个阶段中插入一个新的阶段，整个流程就会有问题，我特意测试了aoe中间插入濒死+技能触发阶段，外带特殊处理了这些代码，才让aoe的流程通过，万一有一些特定的场景我没有测试到，系统是不是就有很大概率会出错？我一直想让我们这个系统有通用性，想让后续开发的每一个阶段触发过程中再插入新的阶段之后都会恢复下面的流程，现在就是只要我想不到的特殊场景，系统就会出问题，系统给我的感觉并不像一个电梯一样会顺序的运行下去。可能ai没有这么聪明，能让每一个新开发的阶段（技能、锦囊、武器）都能非常智能的保存后续状态并恢复，我只是想给ai排查问题提供一个方向，让他知道该往哪个方向走，现在就是丢阶段了ai也不知道，很大的问题就是该触发的阶段不触发，该保存的状态不保存。
+
+2.关于五谷丰登等所有群体锦囊的开发，感谢英雄联盟提供的开发灵感，英雄联盟中所有的加速技能都是在英雄身边生成一个虚拟的琴女，这个琴女会对着英雄用琴女的加速技能。这个开发方向让我明白了群体锦囊就是依次让玩家对玩家或让一个虚拟电脑对玩家使用一个已经开发完毕虚拟单体锦囊，然后用完虚拟单体锦囊之后就能正常的接入已经开发完毕的单体锦囊的无懈可击流程。我想说这个就是给ai提供方向，后续开发新的技能或锦囊的时候ai能不能想到把一个复杂流程拆开，拆成数个简单流程的组合，最后复用已经开发完毕的简单流程。
+
 ---
 
-## 7. 相关文档
+## 7. 阶段插入点清单（Phase Interruption Checklist）
+
+> 游戏运行流程类似电梯：每个阶段完成前，随时可能被其他阶段插入打断。
+> 插入点就是"新楼层"，必须在插入前保存当前状态，插入结束后恢复。
+> **新增任何阶段/技能/锦囊时，必须对照此清单检查是否遗漏了保存/恢复逻辑。**
+
+### 7.1 状态载体一览
+
+| 载体 | 用途 | 存储位置 | 生命周期 |
+|------|------|---------|---------|
+| `g.Pending` | 当前阶段挂起状态（单槽位） | 堆上 | 阶段开始→结束 |
+| `g.Pending.SavedPending` | 濒死前保存的原 Pending | `g.Pending` 内嵌 | 濒死开始→结束 |
+| `DamageResume.AoeResume` | AOE 队列恢复信息 | 函数参数传递 | 伤害链期间 |
+| `g.dyingContext` | 濒死上下文 | 独立字段 | 濒死开始→结束 |
+| `g.damageAftermath` | 伤害技能链状态 | 独立字段 | 伤害后→技能链结束 |
+| `g.leijiSavedPending` | 雷击前保存的 Pending | 独立字段 | 雷击开始→结束 |
+
+### 7.2 已知阶段插入点（全部）
+
+#### A. 濒死阶段（最高优先级）
+
+| 插入点 | 触发条件 | 插入位置 | 状态保存 | 恢复路径 |
+|--------|---------|---------|---------|---------|
+| `afterDamageApplied` → `startDyingWindow` | HP ≤ 0 | 伤害结算中、AOE 中、铁索传导中 | `g.Pending` → `SavedPending`；`g.dyingContext` 设置 | `resolveDyingSaved` → `restorePendingAfterDying` / `continueAfterDamage` |
+
+**被插入的上层阶段**（濒死可能打断以下任何阶段）：
+- AOE 逐人处理（万箭/南蛮/桃园/铁索）
+- 铁索属性伤害传导
+- 杀/锦囊伤害结算
+- 刚烈/反馈等技能伤害
+- 雷击/闪电判定伤害
+
+**检查项**：
+- [ ] `SavedPending` 是否正确保存了被中断阶段的队列（`AoeQueue`）
+- [ ] `DamageResume.AoeResume` 是否在传入 `afterDamageApplied` 前已设置
+- [ ] `restorePendingAfterDying` 是否有对应的 `RequiredKind` / `Card.Kind` 分支
+
+#### B. 伤害技能链（Damage Aftermath）
+
+| 插入点 | 触发条件 | 插入位置 | 状态保存 | 恢复路径 |
+|--------|---------|---------|---------|---------|
+| `initDamageAftermath` → `advanceDamageAftermath` | 目标拥有刚烈/反馈/奸雄/遗计 | `continueAfterDamage` 中 | `g.damageAftermath` 设置；`resume` 参数携带 `AoeResume` | `resumeAfterDamageNoSkill` → 检查 `AoeResume.Active` → 恢复 AOE |
+
+**技能链顺序**：奸雄 → 遗计 → 刚烈 → 反馈
+每个技能可能创建新的 `g.Pending`（覆盖原值），结束后回到 `advanceDamageAftermath` 继续下一个技能。
+
+**检查项**：
+- [ ] `resume.AoeResume` 是否在调用 `continueAfterDamage` 前已设置（`Active=true`, `Rest`, `Source`, `Amount`, `Card`）
+- [ ] 铁索传导：`resume.AoeResume.Tiesuo` 是否设为 `true`
+- [ ] `resumeAfterDamageNoSkill` 中是否有对应的 AOE 恢复分支（`Tiesuo` / `NanMan` / `WanJian`）
+- [ ] 新增技能时，`advanceDamageAftermath` 的 switch 是否需要新增分支
+
+#### C. 判定阶段（Judge）
+
+| 插入点 | 触发条件 | 插入位置 | 状态保存 | 恢复路径 |
+|--------|---------|---------|---------|---------|
+| `startJudge` | 八卦阵/铁骑/雷击/刚烈/闪电/乐不思蜀/兵粮寸断/洛神 | 杀响应、AOE、回合开始等 | `g.Pending` → `SavedPending`；`JudgeCard`/`JudgeReason`/`GuicaiResume` 存入 `g.Pending` | `afterJudgeFlip` → 技能恢复函数 |
+
+**判定类型与恢复函数**：
+| 判定类型 | `JudgeReason` | 鬼才/鬼道可改 | 恢复函数 |
+|---------|--------------|-------------|---------|
+| 八卦阵 | `bagua` | ✅ | 继续出闪流程 |
+| 铁骑 | `tieqi` | ✅ | 铁骑结果处理 |
+| 雷击 | `leiji` | ✅ | `finishShanDodgeSuccess`（恢复 AOE） |
+| 刚烈 | `ganglie` | ✅ | `applyGanglieJudgeResult`（恢复 AOE） |
+| 闪电 | `shandian` | ✅ | `continueTurnAfterJudge` |
+| 乐不思蜀 | `lebu` | ✅ | 摸牌/跳过出牌 |
+| 兵粮寸断 | `bingliang` | ✅ | 摸牌/跳过摸牌 |
+| 洛神 | `luoshen` | ✅ | 洛神继续摸牌 |
+
+**检查项**：
+- [ ] 判定前是否保存了 `g.Pending` 到 `SavedPending`
+- [ ] `GuicaiResume` 是否设置（用于鬼才/鬼道改判后恢复）
+- [ ] 判定结束后是否正确恢复了 AOE 队列
+- [ ] 雷击 `finishShanDodgeSuccess` 是否正确恢复了 AOE（已知曾遗漏）
+
+#### D. 无懈可击窗口（Wuxiek）
+
+| 插入点 | 触发条件 | 插入位置 | 状态保存 | 恢复路径 |
+|--------|---------|---------|---------|---------|
+| `startWuxiekTrickWindow` | 锦囊牌使用 | 锦囊结算前 | `AoeQueue` + `ResponseQueue` 存入 `g.Pending` | `finalizeWuxiekChain` → 奇数抵消/偶数生效 → 继续 AOE |
+| `startJudgeWuxiekWindow` | 延时锦囊判定 | 回合开始判定前 | 同上 | `finalizeWuxiekChain` → 继续判定或跳过 |
+| `startWuxiekLebuJudgeWindow` | 乐不思蜀 | 回合开始 | 同上 | 同上 |
+| `startWuxiekBingliangWindow` | 兵粮寸断 | 回合开始 | 同上 | 同上 |
+| `startWuxiekShandianWindow` | 闪电 | 回合开始 | 同上 | 同上 |
+| `startWuxiekGuoseWindow` | 国色 | 出牌阶段 | 同上 | 同上 |
+
+**检查项**：
+- [ ] `finalizeWuxiekChain` 设置新 Pending 后是否调用了 `FillPendingRoles`
+- [ ] 奇数无懈抵消后是否调用了正确的 `continueXxxAfterTarget`
+- [ ] 偶数无懈生效后是否正确设置了响应 Pending（含 `AoeQueue`）
+
+#### E. 技能窗口（Skill Windows）
+
+| 技能 | ResponseMode | 触发位置 | 保存了什么 | 恢复路径 |
+|------|-------------|---------|-----------|---------|
+| 刚烈 offer | `skill_ganglie_offer` | 伤害技能链 | `g.Pending` 被覆盖 | 完成后回到 `advanceDamageAftermath` |
+| 刚烈 choice | `skill_ganglie_choice` | 刚烈判定后 | `g.Pending` 被覆盖 | `GanglieTakeDamage`/`GanglieDiscard` → `advanceDamageAftermath` |
+| 反馈 | `skill_fankui` | 伤害技能链 | `g.Pending` 被覆盖 | 完成后回到 `advanceDamageAftermath` |
+| 奸雄 | `skill_jianxiong` | 伤害技能链 | `g.Pending` 被覆盖 | 完成后回到 `advanceDamageAftermath` |
+| 遗计 offer | `skill_yiji_offer` | 伤害技能链 | `g.Pending` 被覆盖 | 完成后回到 `advanceDamageAftermath` |
+| 遗计 give | `skill_yiji_give` | 遗计摸牌后 | `g.Pending` 被覆盖 | 完成后回到 `advanceDamageAftermath` |
+| 雷击 offer | `skill_leiji_offer` | 闪成功后 | `g.leijiSavedPending` | `finishShanDodgeSuccess` |
+| 鬼才 | `skill_guicai` | 判定后 | `g.Pending` 被覆盖（GuicaiResume） | `afterJudgeFlip` |
+| 鬼道 | `skill_guidao` | 判定后 | 同上 | 同上 |
+| 天香 | `skill_tianxiang` | 伤害结算前 | `g.Pending` 被覆盖 | 天香转移/取消 → 继续伤害链 |
+| 突袭 | `skill_tuxi` | 摸牌阶段 | `g.Pending` 被覆盖 | 突袭结束 → 继续回合 |
+| 琉璃 | `skill_liuli` | 被杀目标时 | `g.Pending` 被覆盖 | 转移杀目标 |
+| 激昂 | `skill_fanjian_suit` | 反间结算 | `g.Pending` 被覆盖 | 反间完成 |
+
+**检查项**：
+- [ ] 技能创建 Pending 后是否调用了 `FillPendingRoles`
+- [ ] 技能结束后是否回到了正确的调用点（而非直接回到出牌阶段）
+- [ ] `PassResponse` 是否有对应的 `ResponseMode` 分支（已知曾遗漏 `ganglie_choice`）
+
+#### F. 铁索连环属性传导（TieSuo AOE）
+
+| 插入点 | 触发条件 | 插入位置 | 状态保存 | 恢复路径 |
+|--------|---------|---------|---------|---------|
+| `finalizeDamageHit` 设置铁索 | 杀命中连环目标 | 伤害结算中 | `resume.AoeResume`（`Active=true, Tiesuo=true`） | `resumeAfterDamageNoSkill` → `startTiesuoAoe` |
+| `spreadChainedFireDamage` | 属性伤害传导 | 伤害技能链后 | `g.Pending.AoeQueue` | `startTiesuoAoe` 逐人 |
+| `startTiesuoAoe` 逐人扣血 | 传导开始 | AOE 中 | `g.Pending.AoeQueue` + `resume.AoeResume` | 濒死 → `restorePendingAfterDying`；非濒死 → `continueAfterDamage` → `resumeAfterDamageNoSkill` |
+
+**检查项**（曾遗漏，现已修复）：
+- [ ] `startTiesuoAoe` 濒死分支是否传入了正确的 `dyingResume`（含 `AoeResume`）
+- [ ] `startTiesuoAoe` 非濒死分支是否走了 `continueAfterDamage` 技能链
+- [ ] `finalizeDamageHit` 濒死分支是否提前设置了 `resume.AoeResume`
+
+### 7.3 新增阶段检查清单（Checklist）
+
+新增任何阶段（技能、锦囊、武器效果）时，必须逐项检查：
+
+```
+□ 1. 识别上层阶段
+   这个新阶段可能插入在哪些已有阶段中间？
+   （出牌、AOE、伤害链、濒死、判定、无懈、回合开始/结束...）
+
+□ 2. 状态保存
+   □ 是否需要保存 g.Pending？→ 存入 SavedPending
+   □ 是否需要保存 AOE 队列？→ 存入 DamageResume.AoeResume
+   □ 是否需要保存其他上下文？→ g.dyingContext / g.damageAftermath / 自定义字段
+
+□ 3. 阶段创建
+   □ g.Phase = PhaseResponse（如果需要响应）
+   □ g.Pending = &PendingCombat{...}（设置新阶段）
+   □ FillPendingRoles(g.Pending)（设置 Actor/Subject/Origin）
+
+□ 4. 恢复路径
+   □ 正常结束 → 恢复到什么状态？
+   □ 被濒死打断 → SavedPending 是否正确？
+   □ 被技能链打断 → AoeResume 是否正确？
+   □ PassResponse 分支是否覆盖？
+
+□ 5. AOE 恢复（如果上层是 AOE）
+   □ continueXxxAfterTarget 是否正确恢复？
+   □ restorePendingAfterDying 是否有分支？
+   □ resumeAfterDamageNoSkill 是否有分支？
+
+□ 6. 测试
+   □ 基础流程测试
+   □ + 濒死打断测试
+   □ + 技能打断测试
+   □ + 判定打断测试
+   □ + 多重打断测试（如六人场景）
+```
+
+### 7.4 已知遗漏记录（历史教训）
+
+| 遗漏 | 发现场景 | 根因 | 修复 |
+|------|---------|------|------|
+| `finishShanDodgeSuccess` 不恢复 AOE | 雷击后万箭中断 | 雷击恢复函数未处理 AOE | 补 `continueWanJianAfterTarget` |
+| `FillPendingRoles` 缺失 | 万箭响应窗口 ActorSeat=0 | `finalizeWuxiekChain` 未调用 | 补调用 |
+| `handleHPChange` 自动濒死丢失 AoeResume | 南蛮扣血濒死 | 濒死走 `handleHPChange` 而非 `afterDamageApplied` | 改为 `afterDamageApplied` 统一处理 |
+| `PassResponse` 缺少 `ganglie_choice` | 刚烈 choice 走 default → 清空 Pending | switch 无对应分支 | 补分支 |
+| 鬼才对刚烈判定发动鬼才 | 司马懿手牌=0 | AI 无条件发动鬼才 | 增加 `JudgeGanglie` 判断 |
+| 铁索传导濒死后伤害消失 | 濒死救回后传导中断 | `startTiesuoAoe` 濒死时传入空 `DamageResume` | 按万箭模式传入完整 `AoeResume` |
+| 铁索传导非濒死不触发技能链 | 刚烈等技能被跳过 | `startTiesuoAoe` 直接调 `continueTiesuoAoe` | 改为走 `continueAfterDamage` |
+| 铁索 `finalizeDamageHit` 濒死丢失 AOE | 杀命中后濒死，恢复时无 AOE | 濒死分支未设置 `resume.AoeResume` | 提前到濒死检查之前设置 |
+
+---
+
+## 8. 阶段栈重构评估
+
+### 8.1 当前架构问题
+
+| 问题 | 影响范围 | 严重程度 |
+|------|---------|---------|
+| `g.Pending` 是单槽位，无栈结构 | 所有阶段嵌套 | 🔴 高 |
+| `SavedPending` 只有一层（濒死专用） | 多重嵌套（濒死中插入技能） | 🟡 中 |
+| `AoeResume` 手动传递，易遗漏 | AOE 类锦囊 | 🔴 高 |
+| `DamageResume` 字段膨胀，职责不清 | 伤害链 | 🟡 中 |
+| 状态恢复分散在多个函数中 | 全局 | 🟡 中 |
+
+### 8.2 理想方案：PhaseStack
+
+```go
+type PhaseStack struct {
+    stack []PhaseFrame
+}
+
+type PhaseFrame struct {
+    Phase       string          // playing / response / hp_change
+    Pending     *PendingCombat  // 阶段挂起状态
+    Resume      DamageResume    // 恢复信息（AOE 队列等）
+    Context     interface{}     // 阶段特定上下文（dyingContext / damageAftermath）
+    OnResume    func() error    // 阶段恢复回调
+}
+```
+
+**核心操作**：
+- `Push(frame)` — 保存当前阶段，进入新阶段
+- `Pop()` — 恢复上一个阶段，调用 `OnResume`
+
+### 8.3 改造范围
+
+| 模块 | 文件 | 改动量 | 说明 |
+|------|------|--------|------|
+| **核心状态机** | `engine/game.go` | 🟡 中 | 新增 `PhaseStack`，替换 `g.Pending`/`g.Phase`/`g.dyingContext` |
+| **模型层** | `engine/model.go` | 🟡 中 | `PendingCombat` 合并 `SavedPending`；`DamageResume` 精简 |
+| **伤害链** | `engine/skill_damage.go` | 🟡 中 | `continueAfterDamage`/`advanceDamageAftermath`/`resumeAfterDamageNoSkill` 改用栈操作 |
+| **濒死** | `engine/skill_dying.go` | 🟡 中 | `startDyingWindow`/`resolveDyingSaved` 改用栈 Push/Pop |
+| **AOE 锦囊** | `engine/play.go` | 🟡 中 | `resolvePendingMiss`/`startXxxFor`/`continueXxxAfter` 改用栈 |
+| **铁索传导** | `engine/card_equipment.go` | 🟢 小 | `startTiesuoAoe` 改用栈 |
+| **判定** | `engine/skill_judge.go` | 🟢 小 | `startJudge` 改用栈 |
+| **无懈可击** | `engine/play.go` (tricks部分) | 🟢 小 | `finalizeWuxiekChain` 改用栈 |
+| **各技能** | `engine/skill_*.go` (~15个文件) | 🟢 小 | 技能窗口创建改用 `g.PushPhase()` |
+| **前端** | `frontend/` | 🟢 小 | Pending 结构可能微调，基本兼容 |
+| **测试** | `test/yuzhousha/` (~20个文件) | 🟡 中 | 测试适配新接口 |
+
+### 8.4 工程量估算
+
+| 阶段 | 工作内容 | 预估时间 |
+|------|---------|---------|
+| **Phase 1: 核心栈** | 实现 `PhaseStack` + `PhaseFrame`，替换 `g.Pending`/`g.Phase` 的直接赋值 | 2-3 天 |
+| **Phase 2: 伤害链** | 改造 `continueAfterDamage`/`advanceDamageAftermath`/`resumeAfterDamageNoSkill` | 1-2 天 |
+| **Phase 3: 濒死** | 改造 `startDyingWindow`/`resolveDyingSaved`，消除 `SavedPending` 手动管理 | 1 天 |
+| **Phase 4: AOE** | 改造 `resolvePendingMiss`/`startXxxFor`/`continueXxxAfter`/`restorePendingAfterDying` | 1-2 天 |
+| **Phase 5: 铁索+判定+无懈** | 改造铁索传导、判定、无懈可击窗口 | 1 天 |
+| **Phase 6: 技能窗口** | 改造所有技能文件（~15个），统一用 `PushPhase` | 2-3 天 |
+| **Phase 7: 测试适配** | 所有测试文件适配新接口，回归验证 | 2-3 天 |
+| **Phase 8: 清理** | 删除废弃字段（`SavedPending`、`dyingContext`、`damageAftermath`、`leijiSavedPending` 等），简化 `DamageResume` | 1 天 |
+| **总计** | | **11-16 天** |
+
+### 8.5 风险与建议
+
+**风险**：
+- 🔴 重构期间所有模式（1v1/2v2/3p/3v3/identity_5/identity_8）都可能受影响
+- 🔴 阶段嵌套的边界条件多，容易引入回归
+- 🟡 前端 Pending 结构可能需要微调
+
+**建议**：
+1. **渐进式重构**：先做 Phase 1（核心栈），然后在每个阶段逐步迁移，保持新旧代码共存
+2. **充分测试**：六人场景测试 + 全模式冒烟 + AI 自对弈
+3. **不急于求成**：当前系统已稳定运行，可以在后续开发新功能时逐步迁移，而非一次性全部重写
+
+---
+
+## 9. 相关文档
 
 - 技能框架：`skill/doc.go`
 - **交互窗口 / Pending 语义**：[`dev-interaction-window.md`](./dev-interaction-window.md)

@@ -92,6 +92,10 @@ func (g *Game) canPlayTaoForDying(askSeat int, card Card) bool {
 	if card.Kind == CardTao {
 		return true
 	}
+	// 酒：濒死时只能对自己使用，回复1点体力
+	if card.Kind == CardJiu && askSeat == victim {
+		return true
+	}
 	return g.cardPlaysAs(askSeat, card, CardTao)
 }
 
@@ -113,15 +117,20 @@ func (g *Game) playTaoForDying(askSeat int, cardID string, events *[]GameEvent) 
 
 	p := &g.Players[victim]
 	p.HP++
-	viaJiji := cardObj.Kind != CardTao && g.hasSkill(askSeat, SkillJiji)
+	viaJiji := cardObj.Kind != CardTao && cardObj.Kind != CardJiu && g.hasSkill(askSeat, SkillJiji)
+	isJiu := cardObj.Kind == CardJiu
 	msg := fmt.Sprintf("%s 对 %s 使用【桃】，体力 %d/%d", g.Players[askSeat].Name, p.Name, p.HP, p.MaxHP)
-	if viaJiji {
+	if isJiu {
+		msg = fmt.Sprintf("%s 使用【酒】自救，体力 %d/%d", g.Players[askSeat].Name, p.HP, p.MaxHP)
+	} else if viaJiji {
 		msg = fmt.Sprintf("%s 发动【急救】，将 %s 当【桃】救 %s，体力 %d/%d",
 			g.Players[askSeat].Name, played.Label, p.Name, p.HP, p.MaxHP)
 	}
 	g.Message = msg
 	eventType := "play_tao"
-	if viaJiji {
+	if isJiu {
+		eventType = "play_jiu"
+	} else if viaJiji {
 		eventType = "skill_jiji"
 		g.appendSkillEvent(events, skill.IDJiji, askSeat, victim, msg)
 	}

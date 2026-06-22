@@ -23,30 +23,17 @@ type TargetContext interface {
 	HandCount(seat int) int
 	// LimuActive 返回 source 的立牧是否生效（判定区有牌且有立牧技能）
 	LimuActive(source int) bool
+	// TrickIgnoresDistance 返回 source 的锦囊是否无视距离（奇才等）
+	TrickIgnoresDistance(source int, trickKind string) bool
 }
 
 // ValidPlayTargets returns legal target seats for cardKind from source.
+// 所有牌均可对任何存活角色使用（包括队友）。
 func ValidPlayTargets(ctx TargetContext, source int, cardKind string) []int {
-	if cardKind == TargetTiesuo {
-		// 铁索连环：所有存活角色均可为目标
-		out := make([]int, 0, ctx.PlayerCount())
-		for i := 0; i < ctx.PlayerCount(); i++ {
-			if ctx.AliveHP(i) > 0 && IsValidPlayTarget(ctx, source, i, cardKind) {
-				out = append(out, i)
-			}
-		}
-		return out
-	}
-	var candidates []int
-	if IsIdentity(ctx) {
-		candidates = IdentityPlayTargets(ctx, source)
-	} else {
-		candidates = EnemiesOf(ctx, source)
-	}
-	out := make([]int, 0, len(candidates))
-	for _, t := range candidates {
-		if IsValidPlayTarget(ctx, source, t, cardKind) {
-			out = append(out, t)
+	out := make([]int, 0, ctx.PlayerCount())
+	for i := 0; i < ctx.PlayerCount(); i++ {
+		if ctx.AliveHP(i) > 0 && IsValidPlayTarget(ctx, source, i, cardKind) {
+			out = append(out, i)
 		}
 	}
 	return out
@@ -57,14 +44,11 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 	if ctx.AliveHP(target) <= 0 {
 		return false
 	}
-	// 铁索连环：任意存活角色均可为目标（含自己、队友、敌人）
-	if cardKind == TargetTiesuo {
+	// 铁索连环/顺手牵羊/过河拆桥：任意存活角色均可为目标（含队友）
+	if cardKind == TargetTiesuo || cardKind == TargetGuohe || cardKind == TargetTannang {
 		return true
 	}
 	if source == target {
-		return false
-	}
-	if !IsIdentity(ctx) && !IsEnemy(ctx, source, target) {
 		return false
 	}
 	if ctx.TargetBlocked(target, cardKind) {
@@ -72,12 +56,16 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 	}
 	// 立牧生效时，所有牌都需要检查攻击范围（但距离计算已被忽略）
 	limuActive := ctx.LimuActive(source)
+	// 奇才：锦囊无距离限制，顺手牵羊/过河拆桥直接通过
+	trickIgnoresDist := ctx.TrickIgnoresDistance(source, cardKind)
 	switch cardKind {
 	case TargetSha:
 		return ctx.CanAttack(source, target)
 	case TargetGuohe, TargetTannang:
+		if trickIgnoresDist {
+			return ctx.HasTakeableCard(target)
+		}
 		if limuActive {
-			// 立牧生效时，需要先满足攻击范围，再检查是否有可拿的牌
 			if !ctx.CanAttack(source, target) {
 				return false
 			}

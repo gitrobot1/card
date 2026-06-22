@@ -283,8 +283,47 @@ func (g *Game) takeRandomHandCard(seat, target int) {
 	p.Hand = p.Hand[1:]
 	g.Players[seat].Hand = append(g.Players[seat].Hand, taken)
 	
-	// 记录消息
 	g.Message = fmt.Sprintf("%s 发动【冲阵】，获得 %s 的一张手牌", g.Players[seat].Name, p.Name)
+}
+
+// triggerChongzhenWithEvents 同 triggerChongzhen，但发出 GameEvent 供前端动画
+func (g *Game) triggerChongzhenWithEvents(seat int, card Card, asKind string, events *[]GameEvent) {
+	// 如果牌本身就是目标类型，不需要龙胆转化
+	if card.Kind == asKind {
+		return
+	}
+	
+	if !g.hasSkill(seat, SkillChongzhen) {
+		return
+	}
+	
+	isValidLongdan := (card.Kind == CardShan && asKind == CardSha) || 
+		(card.Kind == CardSha && asKind == CardShan)
+	
+	if !isValidLongdan {
+		return
+	}
+	
+	opponent := g.opponentOf(seat)
+	if opponent < 0 || len(g.Players[opponent].Hand) == 0 {
+		return
+	}
+	
+	taken := g.Players[opponent].Hand[0]
+	g.Players[opponent].Hand = g.Players[opponent].Hand[1:]
+	g.Players[seat].Hand = append(g.Players[seat].Hand, taken)
+	g.syncCounts()
+	
+	msg := fmt.Sprintf("%s 发动【冲阵】，获得 %s 的一张手牌", g.Players[seat].Name, g.Players[opponent].Name)
+	g.Message = msg
+	*events = append(*events, GameEvent{
+		Type:        "chongzhen_take",
+		PlayerIndex: seat,
+		TargetIndex: opponent,
+		Card:        &taken,
+		SkillID:     SkillChongzhen,
+		Message:     msg,
+	})
 }
 
 func (g *Game) skillUnlimitedShaViaHooks(seat int) bool {

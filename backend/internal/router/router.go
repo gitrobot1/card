@@ -130,6 +130,7 @@ func New(cfg *appconfig.Config, db *gorm.DB, rdb *redis.Client) *gin.Engine {
 		api.POST("/games/yuzhousha/:gameId/shan", yzsHandler.RespondShan)
 		api.POST("/games/yuzhousha/:gameId/respond", yzsHandler.RespondCard)
 		api.POST("/games/yuzhousha/:gameId/pass", yzsHandler.PassResponse)
+		api.POST("/games/yuzhousha/:gameId/pass-all-wuxiek", yzsHandler.PassAllWuxiek)
 		api.POST("/games/yuzhousha/:gameId/bagua", yzsHandler.BaguaJudge)
 		api.POST("/games/yuzhousha/:gameId/end", yzsHandler.EndPlay)
 		api.POST("/games/yuzhousha/:gameId/discard", yzsHandler.DiscardCard)

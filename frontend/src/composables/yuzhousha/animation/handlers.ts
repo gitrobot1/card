@@ -2,6 +2,7 @@ import {
   animateYzsBaguaJudge,
   animateYzsPlayEvent,
   animateYzsRevealCard,
+  animateYzsTakeCard,
 } from '../useYzsPlayAnimation'
 import {
   equipSlotOf,
@@ -26,21 +27,18 @@ async function flyBoltIfTargeted(ctx: EventReplayContext) {
 
   await tick()
 
-  // 万箭齐发：飞线指向所有存活玩家
-  if (event.type === 'play_trick' && event.card?.kind === 'wanjian') {
-    const players = ctx.state.value?.players ?? []
-    for (let i = 0; i < players.length; i++) {
-      if (players[i].hp > 0 && i !== source) {
-        await runShaFlyBolt(source, i)
-      }
+  // 群体锦囊（万箭齐发、南蛮入侵、桃园结义、五谷丰登）：一次性并发飞线到所有存活玩家
+  if (event.type === 'play_trick') {
+    const aoeKinds = ['wanjian', 'nanman', 'taoyuan', 'wugu']
+    if (event.card?.kind && aoeKinds.includes(event.card.kind)) {
+      const players = ctx.state.value?.players ?? []
+      await Promise.all(
+        players
+          .filter((p) => p.hp > 0 && p.index !== source)
+          .map((p) => runShaFlyBolt(source, p.index)),
+      )
+      return
     }
-    return
-  }
-
-  // 无懈可击：飞线从打出者指向被抵消的无懈可击/锦囊的来源
-  if (event.type === 'play_wuxiek' && target != null) {
-    await runShaFlyBolt(source, target)
-    return
   }
 
   // 对自己用的锦囊（无中生有）：无飞线
@@ -48,8 +46,15 @@ async function flyBoltIfTargeted(ctx: EventReplayContext) {
     return
   }
 
+  // 无懈可击：飞线从打出者指向被抵消的锦囊来源
+  if (event.type === 'play_wuxiek' && target != null) {
+    await runShaFlyBolt(source, target)
+    return
+  }
+
   // 其他有目标的情况：杀、过河拆桥、顺手牵羊、决斗等
-  if (target != null) {
+  // 跳过自指目标（酒自救、桃自救等），飞线无意义
+  if (target != null && target !== source) {
     await runShaFlyBolt(source, target)
   }
 }
@@ -155,7 +160,7 @@ const playTrickHandler: EventReplayHandler = {
 
 const playJiuEquipHandler: EventReplayHandler = {
   types: ['play_jiu', 'equip'],
-  match: (e) => (e.type === 'play_jiu' || e.type === 'equip') && !!e.card,
+  match: (e) => (e.type === 'play_jiu' || e.type === 'equip') && !!e.card && !e.heal,
   async replay(ctx) {
     const { event, state, mySeat, displayedHand, setTableCard } = ctx
     await flyBoltIfTargeted(ctx)
@@ -189,9 +194,9 @@ const playJiuEquipHandler: EventReplayHandler = {
 }
 
 const respondCardHandler: EventReplayHandler = {
-  types: ['play_tao', 'skill_jiji', 'respond_shan', 'respond_sha'],
+  types: ['play_tao', 'play_jiu', 'skill_jiji', 'respond_shan', 'respond_sha'],
   match: (e) =>
-    typeIs(e.type, 'play_tao', 'skill_jiji', 'respond_shan', 'respond_sha') && !!e.card,
+    typeIs(e.type, 'play_tao', 'play_jiu', 'skill_jiji', 'respond_shan', 'respond_sha') && !!e.card,
   async replay(ctx) {
     const { event, state, mySeat, displayedHand, setTableCard } = ctx
     await flyBoltIfTargeted(ctx)
@@ -202,7 +207,7 @@ const respondCardHandler: EventReplayHandler = {
       }
       if (state.value && event.player_index != null) {
         const healSeat =
-          (event.type === 'play_tao' || event.type === 'skill_jiji') && event.heal
+          (event.type === 'play_tao' || event.type === 'play_jiu' || event.type === 'skill_jiji') && event.heal
             ? (event.target_index ?? event.player_index)
             : null
         state.value = {
@@ -228,48 +233,43 @@ const trickEffectHandler: EventReplayHandler = {
   types: ['trick_effect'],
   match: (e) => e.type === 'trick_effect',
   async replay(ctx) {
-    const { event, state, mySeat, centerMessage, tableActionHint, displayedHand, appendDrawnCards, playAreaRef, setTableCard, sleep } = ctx
+    const { event, state, mySeat, centerMessage, tableActionHint, displayedHand, appendDrawnCards, setTableCard, sleep } = ctx
     if (event.message) {
       tableActionHint.value = event.message
       centerMessage.value = event.message
     }
 
-    // 过河拆桥拆牌 / 顺手牵羊拿牌：播放牌飞到弃牌堆的动画，并留在牌桌中央
-    if (event.card && event.target_index != null && event.player_index != null && event.amount !== 1) {
-      const targetSeat = event.target_index
-      const fromEl = document.querySelector<HTMLElement>(`[data-seat="${targetSeat}"]`)
-      const playArea = playAreaRef.value
-      if (fromEl && playArea) {
-        const fromRect = fromEl.getBoundingClientRect()
-        const toRect = playArea.getBoundingClientRect()
-        const el = createFlyCardEl(event.card)
-        document.body.appendChild(el)
-        el.style.position = 'fixed'
-        el.style.left = `${fromRect.left + fromRect.width / 2 - 32}px`
-        el.style.top = `${fromRect.top + fromRect.height / 2 - 45}px`
-        el.style.width = '64px'
-        el.style.height = '90px'
-        el.style.zIndex = '9999'
-        el.style.opacity = '0.96'
-        el.style.scale = '0.88'
-        el.style.rotate = '-8deg'
-        el.style.transition = 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
-        await sleep(50)
-        el.style.left = `${toRect.left + toRect.width / 2 - 32}px`
-        el.style.top = `${toRect.top + toRect.height / 2 - 45}px`
-        el.style.scale = '0.92'
-        el.style.rotate = '0deg'
-        el.style.opacity = '0.85'
-        await sleep(400)
-        el.remove()
-      }
-      // 被拆的牌持久显示在牌桌中央，直到下一张牌打出才被覆盖
-      setTableCard(event.card)
+    const isTake = event.amount === 1 // 顺手牵羊（拿牌）
+    const isDiscard = !isTake && !!event.card && event.target_index != null && event.player_index != null // 过河拆桥（拆牌）
+
+    // 过河拆桥：牌从被拆者飞到牌桌中央（复用正常打牌的动画）
+    if (isDiscard) {
+      // 先显示飞线：从拆牌者飞到被拆牌者
+      await flyBoltIfTargeted(ctx)
+      // 临时修改 event.player_index 为目标玩家，让动画从被拆者位置飞出
+      const originalPlayerIndex = event.player_index
+      event.player_index = event.target_index!
+      await playCardToTable(ctx, () => {
+        setTableCard(event.card!)
+      })
+      // 恢复原始的 player_index
+      event.player_index = originalPlayerIndex
+    }
+
+    // 顺手牵羊：牌从被拿者飞到拿牌者手上
+    if (isTake && event.player_index != null) {
+      await animateYzsTakeCard(event.target_index!, event.player_index, event.card!, () => {
+        if (event.player_index === mySeat) {
+          appendDrawnCards([event.card!])
+        }
+      })
     }
 
     if (state.value && event.player_index != null && event.target_index != null) {
-      if (event.amount === 1 && event.player_index === mySeat && event.card) {
-        appendDrawnCards([event.card])
+      if (isTake) {
+        if (event.player_index === mySeat && event.card) {
+          appendDrawnCards([event.card])
+        }
       }
       if (event.target_index === mySeat && event.card) {
         displayedHand.value = displayedHand.value.filter((card) => card.id !== event.card!.id)
@@ -277,10 +277,10 @@ const trickEffectHandler: EventReplayHandler = {
       state.value = {
         ...state.value,
         players: state.value.players.map((p) => {
-          if (event.amount === 1) {
+          if (isTake) {
             if (p.index === event.player_index) return { ...p, hand_count: p.hand_count + 1 }
             if (p.index === event.target_index) return removeKnownCardFromPlayer(p, event.card)
-          } else if (event.card && p.index === event.target_index) {
+          } else if (isDiscard && p.index === event.target_index) {
             return removeKnownCardFromPlayer(p, event.card)
           }
           return p
@@ -424,11 +424,11 @@ const huogongRevealHandler: EventReplayHandler = {
         event.player_index,
         event.card,
         playAreaRef.value,
-        () => {
-          // 展示期间在牌桌中央显示这张牌
-          setTableCard(event.card!)
-        },
+        () => setTableCard(event.card!),
       )
+      // 确保牌一定被设置（动画跳过时 fallback）
+      setTableCard(event.card!)
+      await sleep(600)
     }
     tableActionHint.value = ''
   },
@@ -505,13 +505,14 @@ const wuxiekCancelHandler: EventReplayHandler = {
   match: (e) => typeIs(e.type, 'play_wuxiek', 'trick_cancelled', 'wuxiek_recursive'),
   async replay(ctx) {
     const { event, mySeat, displayedHand, setTableCard, sleep } = ctx
-    // 无懈可击打出时显示在牌桌中间 + 飞线
+    // 无懈可击打出时：牌飞行动画 + 飞线
     if (event.card && event.type === 'play_wuxiek') {
-      setTableCard(event.card)
-      await flyBoltIfTargeted(ctx)
-    }
-    if (event.card && event.player_index === mySeat) {
-      displayedHand.value = displayedHand.value.filter((card) => card.id !== event.card!.id)
+      await playCardToTable(ctx, () => {
+        setTableCard(event.card!)
+        if (event.player_index === mySeat) {
+          displayedHand.value = displayedHand.value.filter((c) => c.id !== event.card!.id)
+        }
+      })
     }
     await sleep(320)
   },
@@ -606,10 +607,30 @@ const skillTriggerHealHandler: EventReplayHandler = {
   match: (e) =>
     e.type === 'skill_heal' || (e.type === 'skill_trigger' && e.skill_id !== 'guanxing'),
   async replay(ctx) {
-    const { event, state, centerMessage, tableActionHint, sleep } = ctx
+    const { event, state, centerMessage, tableActionHint, mySeat, displayedHand, setTableCard, sleep } = ctx
     if (event.message) {
       tableActionHint.value = event.message
       centerMessage.value = event.message
+    }
+    // 技能触发带牌（如丈八蛇矛出杀）：牌飞到牌桌中央
+    if (event.card && event.type === 'skill_trigger') {
+      await playCardToTable(ctx, () => {
+        setTableCard(event.card!)
+        if (event.player_index === mySeat) {
+          displayedHand.value = displayedHand.value.filter((c) => c.id !== event.card!.id)
+        }
+        if (state.value && event.player_index != null) {
+          state.value = {
+            ...state.value,
+            discard_count: state.value.discard_count + 1,
+            players: state.value.players.map((p) =>
+              p.index === event.player_index
+                ? { ...p, hand_count: Math.max(0, p.hand_count - 1) }
+                : p,
+            ),
+          }
+        }
+      })
     }
     if (event.type === 'skill_heal' && event.player_index != null && event.heal && state.value) {
       state.value = {
@@ -641,16 +662,74 @@ function gainCardSkillHandler(type: string): EventReplayHandler {
   }
 }
 
+/** 牌从被拿者飞向拿牌者的通用 handler（反馈、突袭、冲阵等） */
+const takeCardHandler: EventReplayHandler = {
+  types: ['fankui_take', 'tuxi_take', 'chongzhen_take'],
+  match: (e) =>
+    typeIs(e.type, 'fankui_take', 'tuxi_take', 'chongzhen_take') && !!e.card,
+  async replay(ctx) {
+    const { event, state, mySeat, centerMessage, tableActionHint, displayedHand, appendDrawnCards, sleep } = ctx
+    if (event.message) {
+      tableActionHint.value = event.message
+      centerMessage.value = event.message
+    }
+    const taker = event.player_index // 拿牌者
+    const victim = event.target_index // 被拿者
+    // 牌从被拿者座位飞向拿牌者座位
+    if (event.card && taker != null && victim != null) {
+      await animateYzsTakeCard(victim, taker, event.card, () => {
+        if (taker === mySeat) {
+          appendDrawnCards([event.card])
+        }
+      })
+    }
+    // 更新手牌状态
+    if (state.value && taker != null && victim != null) {
+      if (victim === mySeat && event.card) {
+        displayedHand.value = displayedHand.value.filter((c) => c.id !== event.card!.id)
+      }
+      state.value = {
+        ...state.value,
+        players: state.value.players.map((p) => {
+          if (p.index === taker) return { ...p, hand_count: p.hand_count + 1 }
+          if (p.index === victim) return removeKnownCardFromPlayer(p, event.card)
+          return p
+        }),
+      }
+    }
+    await sleep(360)
+    tableActionHint.value = ''
+  },
+}
+
 const guicaiReplaceHandler: EventReplayHandler = {
   types: ['guicai_replace'],
   match: (e) => e.type === 'guicai_replace' && !!e.message,
   async replay(ctx) {
-    ctx.tableActionHint.value = ctx.event.message!
-    ctx.centerMessage.value = ctx.event.message!
-    if (ctx.event.card && ctx.event.player_index === ctx.mySeat) {
-      ctx.displayedHand.value = ctx.displayedHand.value.filter((c) => c.id !== ctx.event.card!.id)
+    const { event, mySeat, displayedHand, setTableCard, state, sleep } = ctx
+    ctx.tableActionHint.value = event.message!
+    ctx.centerMessage.value = event.message!
+    // 鬼才改判：手牌飞到牌桌中央展示
+    if (event.card) {
+      await playCardToTable(ctx, () => {
+        setTableCard(event.card!)
+        if (event.player_index === mySeat) {
+          displayedHand.value = displayedHand.value.filter((c) => c.id !== event.card!.id)
+        }
+        if (state.value && event.player_index != null) {
+          state.value = {
+            ...state.value,
+            discard_count: state.value.discard_count + 1,
+            players: state.value.players.map((p) =>
+              p.index === event.player_index
+                ? { ...p, hand_count: Math.max(0, p.hand_count - 1) }
+                : p,
+            ),
+          }
+        }
+      })
     }
-    await ctx.sleep(360)
+    await sleep(360)
     ctx.tableActionHint.value = ''
   },
 }
@@ -659,8 +738,8 @@ const skillGiveCardHandler: EventReplayHandler = {
   types: ['skill_give_card'],
   match: (e) => e.type === 'skill_give_card' && e.target_index != null && !!e.card,
   async replay(ctx) {
-    const { event, state, mySeat, appendDrawnCards, displayedHand, sleep } = ctx
-    if (!state.value) return
+    const { event, mySeat, appendDrawnCards, displayedHand, sleep } = ctx
+    // 给牌直接到手上，不在牌桌展示
     if (event.target_index === mySeat) {
       appendDrawnCards([event.card!])
     } else if (event.player_index === mySeat) {
@@ -674,8 +753,25 @@ const skillJijiangShaHandler: EventReplayHandler = {
   types: ['skill_jijiang_sha'],
   match: (e) => e.type === 'skill_jijiang_sha' && !!e.card,
   async replay(ctx) {
-    ctx.tableActionHint.value = ctx.event.message ?? ''
-    await ctx.sleep(320)
+    const { event, mySeat, displayedHand, setTableCard, state } = ctx
+    await flyBoltIfTargeted(ctx)
+    await playCardToTable(ctx, () => {
+      setTableCard(event.card!)
+      if (event.player_index === mySeat) {
+        displayedHand.value = displayedHand.value.filter((c) => c.id !== event.card!.id)
+      }
+      if (state.value && event.player_index != null) {
+        state.value = {
+          ...state.value,
+          discard_count: state.value.discard_count + 1,
+          players: state.value.players.map((p) =>
+            p.index === event.player_index
+              ? { ...p, hand_count: Math.max(0, p.hand_count - 1) }
+              : p,
+          ),
+        }
+      }
+    })
     ctx.tableActionHint.value = ''
   },
 }
@@ -684,8 +780,29 @@ const weaponSkillHandler: EventReplayHandler = {
   types: ['weapon_skill'],
   match: (e) => e.type === 'weapon_skill',
   async replay(ctx) {
-    ctx.tableActionHint.value = ctx.event.message ?? ''
-    ctx.centerMessage.value = ctx.event.message ?? ctx.centerMessage.value
+    const { event, mySeat, displayedHand, setTableCard, state } = ctx
+    if (event.card) {
+      await flyBoltIfTargeted(ctx)
+      await playCardToTable(ctx, () => {
+        setTableCard(event.card!)
+        if (event.player_index === mySeat) {
+          displayedHand.value = displayedHand.value.filter((c) => c.id !== event.card!.id)
+        }
+        if (state.value && event.player_index != null) {
+          state.value = {
+            ...state.value,
+            discard_count: state.value.discard_count + 1,
+            players: state.value.players.map((p) =>
+              p.index === event.player_index
+                ? { ...p, hand_count: Math.max(0, p.hand_count - 1) }
+                : p,
+            ),
+          }
+        }
+      })
+    }
+    ctx.tableActionHint.value = event.message ?? ''
+    ctx.centerMessage.value = event.message ?? ctx.centerMessage.value
     await ctx.sleep(420)
     ctx.tableActionHint.value = ''
   },
@@ -695,19 +812,25 @@ const qilinDiscardHandler: EventReplayHandler = {
   types: ['qilin_discard'],
   match: (e) => e.type === 'qilin_discard' && e.target_index != null && !!e.card,
   async replay(ctx) {
-    const { event, state, sleep } = ctx
+    const { event, state, setTableCard, sleep } = ctx
     if (!state.value) return
-    state.value = {
-      ...state.value,
-      players: state.value.players.map((p) => {
-        if (p.index !== event.target_index) return p
-        const next = { ...p }
-        if (next.plus_horse?.id === event.card!.id) next.plus_horse = undefined
-        if (next.minus_horse?.id === event.card!.id) next.minus_horse = undefined
-        return next
-      }),
-      discard_count: state.value.discard_count + 1,
-    }
+    // 弃置的装备飞到牌桌中央展示
+    await playCardToTable(ctx, () => {
+      setTableCard(event.card!)
+      if (state.value && event.target_index != null) {
+        state.value = {
+          ...state.value,
+          players: state.value.players.map((p) => {
+            if (p.index !== event.target_index) return p
+            const next = { ...p }
+            if (next.plus_horse?.id === event.card!.id) next.plus_horse = undefined
+            if (next.minus_horse?.id === event.card!.id) next.minus_horse = undefined
+            return next
+          }),
+          discard_count: state.value.discard_count + 1,
+        }
+      }
+    })
     await sleep(360)
   },
 }
@@ -802,6 +925,7 @@ export const eventReplayerHandlers: EventReplayHandler[] = [
   playJiuEquipHandler,
   respondCardHandler,
   trickEffectHandler,
+  takeCardHandler,
   trickHealHandler,
   lebuSkipHandler,
   bingliangSkipHandler,

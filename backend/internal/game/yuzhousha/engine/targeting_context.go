@@ -51,6 +51,10 @@ func (t gameTargetCtx) LimuActive(source int) bool {
 	return t.g.hasSkill(source, SkillLimu) && len(t.g.Players[source].JudgeArea) > 0
 }
 
+func (t gameTargetCtx) TrickIgnoresDistance(source int, trickKind string) bool {
+	return t.g.trickIgnoresDistance(source, trickKind)
+}
+
 func (g *Game) validPlayTargets(source int, cardKind string) []int {
 	return mode.ValidPlayTargets(g.targetCtx(), source, cardKind)
 }

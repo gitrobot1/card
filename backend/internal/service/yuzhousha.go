@@ -210,6 +210,12 @@ func (s *YuzhoushaService) PassResponse(gameID string, userID uint64) (engine.Pu
 	})
 }
 
+func (s *YuzhoushaService) PassAllWuxiek(gameID string, userID uint64) (engine.PublicState, error) {
+	return s.act(gameID, userID, func(g *engine.Game, seat int, ev *[]engine.GameEvent) error {
+		return g.PassAllWuxiek(seat, ev)
+	})
+}
+
 func (s *YuzhoushaService) TryBaguaJudge(gameID string, userID uint64) (engine.PublicState, error) {
 	return s.act(gameID, userID, func(g *engine.Game, seat int, ev *[]engine.GameEvent) error {
 		return g.TryBaguaJudge(seat, ev)
