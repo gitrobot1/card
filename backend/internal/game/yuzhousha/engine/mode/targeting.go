@@ -21,6 +21,8 @@ type TargetContext interface {
 	TargetBlocked(target int, cardKind string) bool
 	PlayerHP(seat int) (hp, maxHP int)
 	HandCount(seat int) int
+	// HasJudgeKind 返回 target 判定区是否有 kind 类型的延时锦囊
+	HasJudgeKind(target int, kind string) bool
 	// LimuActive 返回 source 的立牧是否生效（判定区有牌且有立牧技能）
 	LimuActive(source int) bool
 	// TrickIgnoresDistance 返回 source 的锦囊是否无视距离（奇才等）
@@ -52,6 +54,10 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 		return false
 	}
 	if ctx.TargetBlocked(target, cardKind) {
+		return false
+	}
+	// 延时锦囊：目标判定区已有同名牌则不可选
+	if isDelayTrick(cardKind) && ctx.HasJudgeKind(target, cardKind) {
 		return false
 	}
 	// 立牧生效时，所有牌都需要检查攻击范围（但距离计算已被忽略）
@@ -102,6 +108,15 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 func needsOpponentTarget(kind string) bool {
 	switch kind {
 	case TargetGuohe, TargetTannang, TargetJuedou, TargetLebu, TargetBingliang, TargetHuogong, TargetTiesuo:
+		return true
+	default:
+		return false
+	}
+}
+
+func isDelayTrick(kind string) bool {
+	switch kind {
+	case TargetLebu, TargetBingliang, "shandian":
 		return true
 	default:
 		return false

@@ -73,10 +73,9 @@ func isLightningStrike(suit string, rank int) bool {
 	if suit != "S" {
 		return false
 	}
-	if rank == 15 {
-		return true
-	}
-	return rank >= 3 && rank <= 9
+	// 黑桃2-9判定生效，使用三国杀归一化rank
+	sgsRank := normalizeRank(rank)
+	return sgsRank >= 2 && sgsRank <= 9
 }
 
 func trickStaysInJudge(kind string) bool {

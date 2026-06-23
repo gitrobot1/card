@@ -62,6 +62,7 @@ const {
   isTuxiTake,
   isWuguPick,
   isWuxiekOffer,
+  isAoeWuxiekOffer,
   isYijiGive,
   isYijiOffer,
   isYinghunChoice,
@@ -596,9 +597,9 @@ const {
         >
           {{ isWuxiekOffer ? '不出' : '取消' }}
         </button>
-        <!-- 无懈可击窗口且轮到当前玩家且动画完成：额外显示“本轮都不出” -->
+        <!-- 群体锦囊无懈窗口且轮到当前玩家且动画完成：额外显示“本轮都不出” -->
         <button
-          v-if="isMyResponse && isWuxiekOffer && !isAnimating"
+          v-if="isMyResponse && isAoeWuxiekOffer && !isAnimating"
           type="button"
           class="ddz__btn"
           @click="() => { console.log('[wuxiek] pass-all clicked'); submitPassAllWuxiek() }"

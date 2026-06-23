@@ -13,6 +13,7 @@ type GameEvent struct {
 	Heal        int    `json:"heal,omitempty"`
 	Amount      int    `json:"amount,omitempty"`
 	SkillID     string `json:"skill_id,omitempty"`
+	Success     bool   `json:"success,omitempty"`
 }
 
 // PlayerGameStats 单玩家对局统计（游戏结束时填充，预留扩展）。
@@ -139,7 +140,10 @@ type PendingCombat struct {
 	PojunMax        int `json:"pojun_max,omitempty"`
 	PojunPlaced     int `json:"pojun_placed,omitempty"`
 	PojunRemaining  int `json:"pojun_remaining,omitempty"`
-	SavedPending   *PendingCombat `json:"-"`
+	SavedPending     *PendingCombat `json:"-"`
+	// 改判队列：按座位顺序收集的候选人及当前索引
+	ModifyCandidates []int `json:"-"`
+	ModifyIndex      int   `json:"-"`
 
 	// Extra 通用扩展字段，用于技能逻辑传递中间状态
 	Extra map[string]int `json:"extra,omitempty"`

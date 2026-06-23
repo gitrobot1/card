@@ -162,11 +162,11 @@ func (g *Game) PassDdzJudgeCancel(seat int, events *[]GameEvent) error {
 		g.Phase = PhasePlaying
 		return g.applyBingliangSkipDrawContinue(judgeSeat, events)
 	default:
-		if g.offerGuicaiWindow(judgeSeat, reason, resume, judgeCard, events) {
-			return nil
-		}
-		if g.offerGuidaoWindow(judgeSeat, reason, resume, judgeCard, events) {
-			return nil
+		// 统一走 afterJudgeFlip 的改判队列逻辑
+		candidates := g.collectModifyJudgeSeats(judgeSeat)
+		if len(candidates) > 0 {
+			g.Pending = saved
+			return g.offerNextModifyJudge(judgeSeat, reason, resume, judgeCard, candidates, 0, events)
 		}
 		return g.completeJudgeResume(resume, judgeSeat, reason, judgeCard, events)
 	}

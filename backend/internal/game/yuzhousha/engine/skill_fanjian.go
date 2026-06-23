@@ -138,6 +138,52 @@ func suitLabel(s string) string {
 	}
 }
 
+func suitSymbol(s string) string {
+	switch s {
+	case "H":
+		return "♥"
+	case "D":
+		return "♦"
+	case "S":
+		return "♠"
+	case "C":
+		return "♣"
+	default:
+		return s
+	}
+}
+
+// normalizeRank 将底层rank转为三国杀rank（底层14=A→1, 15=2→2, 3-13=3-K）
+// 用于拼点、闪电等需要比较rank大小的场景
+func normalizeRank(rank int) int {
+	switch rank {
+	case 14: // A = 1
+		return 1
+	case 15: // 2
+		return 2
+	default:
+		return rank
+	}
+}
+
+// rankLabel 将底层rank转为三国杀显示（底层14=A, 15=2, 3-13=3-K）
+func rankLabel(rank int) string {
+	switch rank {
+	case 14: // A
+		return "A"
+	case 15: // 2
+		return "2"
+	case 11:
+		return "J"
+	case 12:
+		return "Q"
+	case 13:
+		return "K"
+	default:
+		return fmt.Sprintf("%d", rank)
+	}
+}
+
 func (g *Game) aiPickFanjianSuit() string {
 	// 均匀猜花色；AI 无完美信息。
 	suits := []string{"H", "D", "S", "C"}

@@ -463,55 +463,34 @@ func (g *Game) startJudgeWuxiekWindow(seat int, judgeCard Card, events *[]GameEv
 		g.syncCounts()
 		return g.processNextJudgeCard(seat, events)
 	}
-	
+
 	// 创建响应队列：从当前回合玩家开始，逆时针顺序
 	responseQueue := g.createResponseQueue(seat)
-	
-	// 检查队列中是否有玩家可以使用无懈可击
-	hasWuxiek := false
-	for _, playerSeat := range responseQueue {
-		if g.Players[playerSeat].HP > 0 {
-			// 检查该玩家手牌中是否有无懈可击
-			for _, card := range g.Players[playerSeat].Hand {
-				if card.Kind == CardWuxiek {
-					hasWuxiek = true
-					break
-				}
-			}
-			if hasWuxiek {
-				break
-			}
-		}
-	}
-	
-	// 如果没有人有无懈可击，直接执行判定
-	if !hasWuxiek {
-		return g.executeJudge(seat, judgeCard, events)
-	}
-	
-	// 启动无懈可击响应窗口
+
+	// 启动无懈可击响应窗口（始终启动，给人类玩家看到的机会）
 	g.Phase = PhaseResponse
 	g.Pending = &PendingCombat{
-		SourceIndex:    seat, // 判定牌的拥有者
-		TargetIndex:    -1,   // -1 表示任何人都可以响应无懈可击
+		SourceIndex:    seat,
+		TargetIndex:    -1,
 		ReturnIndex:    seat,
 		EffectTarget:   seat,
 		Card:           judgeCard,
 		ResponseMode:   responseMode,
 		AllowWuxiek:    true,
 		ResponseQueue:  responseQueue,
-		ResponseIndex:  0, // 从队列第一个玩家开始
+		ResponseIndex:  0,
 	}
-	// 保存当前判定的座位号，以便响应结束后恢复判定流程
+	// 保存判定信息，以便无懈窗口结束后恢复
 	g.Pending.SavedPending = &PendingCombat{
 		EffectTarget: seat,
 		Card:         judgeCard,
+		ResponseMode: responseMode,
 	}
-	
-	// 设置当前响应者
+
 	g.Pending.ActorSeat = responseQueue[0]
-	
-	g.Message = fmt.Sprintf("可对【%s】使用【无懈可击】", judgeCard.Name)
+
+	trickName := judgeCard.Name
+	g.Message = fmt.Sprintf("可对 %s 的【%s】使用【无懈可击】", g.Players[seat].Name, trickName)
 	g.resetTimer()
 	*events = append(*events, GameEvent{
 		Type:        "wuxiek_offer",
@@ -520,7 +499,7 @@ func (g *Game) startJudgeWuxiekWindow(seat int, judgeCard Card, events *[]GameEv
 		Card:        &judgeCard,
 		Message:     g.Message,
 	})
-	
+
 	return nil
 }
 
@@ -542,21 +521,144 @@ func (g *Game) createResponseQueue(startSeat int) []int {
 }
 
 // executeJudge 执行判定（无懈可击处理后）
+// 阶段2：翻牌 → 设置中间Pending → 返回
+// 阶段3（改判）由 RunAIActionStep 在下一轮驱动
 func (g *Game) executeJudge(seat int, judgeCard Card, events *[]GameEvent) error {
+	Logf("executeJudge: seat=%d(%s) kind=%s name=%s", seat, g.Players[seat].Name, judgeCard.Kind, judgeCard.Name)
 	if g.IsFinished() {
 		return nil
 	}
-	
-	// 根据判定牌的类型执行相应的判定
+
+	// 移除判定区对应的延时锦囊
 	switch judgeCard.Kind {
 	case CardLeBu:
-		return g.resolveLebuJudge(seat, events)
+		g.removeJudgeByKind(seat, CardLeBu)
 	case CardBingLiang:
-		return g.resolveBingliangJudge(seat, events)
+		g.removeJudgeByKind(seat, CardBingLiang)
 	case CardShanDian:
-		return g.resolveShandianJudge(seat, events)
+		g.removeJudgeByKind(seat, CardShanDian)
+	}
+
+	// 翻判定牌
+	reason := judgeReasonForKind(judgeCard.Kind)
+	card, ok := g.flipJudgeCard(events, seat)
+	if !ok {
+		return g.processNextJudgeCard(seat, events)
+	}
+	// 覆盖翻牌消息，带上花色
+	if len(*events) > 0 {
+		last := &(*events)[len(*events)-1]
+		if last.Type == "judge_flip" {
+			judgeName := reasonToName(reason)
+			label := suitSymbol(card.Suit) + rankLabel(card.Rank)
+			last.Message = fmt.Sprintf("%s 的【%s】判定为 %s", g.Players[seat].Name, judgeName, label)
+		}
+	}
+
+	// 收集可改判者
+	candidates := g.collectModifyJudgeSeats(seat)
+	if len(candidates) == 0 {
+		// 无人可改判，直接进入结果阶段
+		return g.completeJudgeResume("phase_judge", seat, reason, card, events)
+	}
+
+	// 设置中间 Pending，等待前端展示翻牌后再进入改判阶段
+	// ActorSeat = -1 表示纯展示阶段，无人需要操作
+	g.Phase = PhaseResponse
+	g.Pending = &PendingCombat{
+		SourceIndex:    seat,
+		TargetIndex:    -1,
+		ActorSeat:      -1,
+		ResponseMode:   ResponseModeJudgeFlipped,
+		JudgeCard:      card,
+		JudgeReason:    string(reason),
+		GuicaiResume:   "phase_judge",
+		GuicaiJudgeSeat: seat,
+		ModifyCandidates: candidates,
+		ModifyIndex:      0,
+	}
+	label := suitSymbol(card.Suit) + rankLabel(card.Rank)
+	g.Message = fmt.Sprintf("%s 的【%s】判定为 %s", g.Players[seat].Name, reasonToName(reason), label)
+	g.resetTimer()
+	return nil
+}
+
+func judgeReasonForKind(kind string) skill.JudgeReason {
+	switch kind {
+	case CardLeBu:
+		return skill.JudgeLebu
+	case CardBingLiang:
+		return skill.JudgeBingliang
+	case CardShanDian:
+		return skill.JudgeShandian
 	default:
-		// 未知判定牌类型，跳过
+		return ""
+	}
+}
+
+// applyPhaseJudgeResult 鬼才窗口结束后，应用判定阶段判定结果
+func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCard Card, events *[]GameEvent) error {
+	Logf("applyPhaseJudgeResult: seat=%d(%s) reason=%s suit=%s rank=%d", seat, g.Players[seat].Name, reason, judgeCard.Suit, judgeCard.Rank)
+	// 判定牌放入弃牌堆
+	g.DiscardPile = append(g.DiscardPile, judgeCard)
+	g.syncCounts()
+
+	isClub := judgeCard.Suit == "C"
+	isHeart := judgeCard.Suit == "H"
+
+	label := suitSymbol(judgeCard.Suit) + rankLabel(judgeCard.Rank)
+	switch reason {
+	case skill.JudgeLebu:
+		// 乐不思蜀：不是红桃则跳过出牌阶段
+		if !isHeart {
+			g.Players[seat].SkipPlay = true
+			Logf("applyPhaseJudgeResult LEBU SKIP: seat=%d(%s) SkipPlay=true, advancing to discard", seat, g.Players[seat].Name)
+			msg := fmt.Sprintf("%s 的【乐不思蜀】判定生效（%s），跳过出牌阶段", g.Players[seat].Name, label)
+			g.Message = msg
+			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: false, Message: msg})
+			g.syncCounts()
+			return g.advanceToDiscardPhase(seat, events)
+		}
+		Logf("applyPhaseJudgeResult LEBU INVALID: seat=%d(%s) isHeart=true, continue", seat, g.Players[seat].Name)
+		msg := fmt.Sprintf("%s 的【乐不思蜀】判定无效（%s）", g.Players[seat].Name, label)
+		g.Message = msg
+		*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: true, Message: msg})
+		g.syncCounts()
+		return g.processNextJudgeCard(seat, events)
+
+	case skill.JudgeBingliang:
+		// 兵粮寸断：不是梅花则跳过摸牌阶段
+		if !isClub {
+			g.Players[seat].SkipDraw = true
+			msg := fmt.Sprintf("%s 的【兵粮寸断】判定生效（%s），跳过摸牌阶段", g.Players[seat].Name, label)
+			g.Message = msg
+			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: false, Message: msg})
+		} else {
+			msg := fmt.Sprintf("%s 的【兵粮寸断】判定无效（%s）", g.Players[seat].Name, label)
+			g.Message = msg
+			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: true, Message: msg})
+		}
+		g.syncCounts()
+		return g.processNextJudgeCard(seat, events)
+
+	case skill.JudgeShandian:
+		// 闪电：黑桃2-9则雷击
+		if isLightningStrike(judgeCard.Suit, judgeCard.Rank) {
+			msg := fmt.Sprintf("%s 的【闪电】判定生效（%s），受到 3 点雷电伤害", g.Players[seat].Name, label)
+			g.Message = msg
+			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: false, Message: msg, Damage: 3})
+			g.applyDamageWithHook(seat, seat, 3, Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}, events)
+			if g.Players[seat].HP <= 0 {
+				if g.afterDamageApplied(seat, seat, 3, Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}, DamageResume{}, events) {
+					return nil // 濒死处理中
+				}
+			}
+		} else {
+			g.transferShandian(seat, judgeCard, events)
+		}
+		return g.processNextJudgeCard(seat, events)
+
+	default:
 		return g.processNextJudgeCard(seat, events)
 	}
 }
@@ -590,10 +692,30 @@ func (g *Game) handleWuxiekCounterPass(events *[]GameEvent) error {
 	if g.Pending == nil {
 		return g.advanceToDrawPhase(g.CurrentTurn, events)
 	}
-	// 递归窗口结束：SavedPending 不为 nil → 无懈可击生效（锦囊已被抵消），回到出牌阶段
+	// 递归窗口结束：SavedPending 不为 nil → 无懈可击生效
 	if g.Pending.SavedPending != nil {
 		savedPending := g.Pending.SavedPending
 		g.Pending = nil
+		// 检查是否是判定牌无懈窗口
+		if g.isJudgeWuxiekMode(savedPending.ResponseMode) {
+			// 无懈抵消延时锦囊：移除判定牌，继续处理下一张
+			seat := savedPending.EffectTarget
+			judgeCard := savedPending.Card
+			g.removeJudgeCard(seat, judgeCard.ID)
+			g.DiscardPile = append(g.DiscardPile, judgeCard)
+			g.syncCounts()
+			*events = append(*events, GameEvent{
+				Type:        "wuxiek_cancel_judge",
+				PlayerIndex: seat,
+				Card:        &judgeCard,
+				Message:     fmt.Sprintf("【%s】被【无懈可击】抵消", judgeCard.Name),
+			})
+			g.Phase = PhasePlaying
+			g.TurnStep = StepJudge
+			g.resetTimer()
+			return g.processNextJudgeCard(seat, events)
+		}
+		// 普通锦囊无懈抵消：回到出牌阶段
 		g.Phase = PhasePlaying
 		g.TurnStep = StepPlay
 		g.CurrentTurn = savedPending.SourceIndex
@@ -604,12 +726,27 @@ func (g *Game) handleWuxiekCounterPass(events *[]GameEvent) error {
 	if g.Pending.ResponseMode == ResponseModeWuxiekTrick {
 		return g.continueTrickAfterWuxiekPass(events)
 	}
-	// 判定牌无懈窗口结束
+	// 判定牌无懈窗口结束（初始窗口，无人出无懈）→ 执行判定
+	if g.isJudgeWuxiekMode(g.Pending.ResponseMode) {
+		judgeCard := g.Pending.Card
+		seat := g.Pending.EffectTarget
+		g.Pending = nil
+		g.Phase = PhasePlaying
+		g.TurnStep = StepJudge
+		g.resetTimer()
+		return g.executeJudge(seat, judgeCard, events)
+	}
 	g.Pending = nil
 	g.Phase = PhasePlaying
 	g.TurnStep = StepPlay
 	g.resetTimer()
 	return nil
+}
+
+func (g *Game) isJudgeWuxiekMode(mode string) bool {
+	return mode == ResponseModeWuxiekLebu ||
+		mode == ResponseModeWuxiekBingliang ||
+		mode == ResponseModeWuxiekShandian
 }
 
 // advanceToDrawPhase 从判定阶段进入摸牌阶段
@@ -698,98 +835,97 @@ func (g *Game) advanceToPlayPhase(seat int, events *[]GameEvent) error {
 }
 
 // resolveLebuJudge 处理乐不思蜀的判定
+// 规则：判定牌不是红桃 → 跳过出牌阶段；红桃 → 无效，正常出牌
 func (g *Game) resolveLebuJudge(seat int, events *[]GameEvent) error {
 	// 翻判定牌
 	judgeCard, ok := g.flipJudgeCard(events, seat)
 	if !ok {
 		return g.processNextJudgeCard(seat, events)
 	}
-	
-	// 检查判定结果（红桃则生效，跳过出牌阶段）
-	isRed := isRedSuit(judgeCard.Suit)
-	
-	// 移除判定牌
-	g.removeJudgeCard(seat, "")
+
+	// 判定牌放入弃牌堆
 	g.DiscardPile = append(g.DiscardPile, judgeCard)
-	g.syncCounts()
-	
-	if isRed {
-		// 判定成功，跳过出牌阶段
+
+	// 移除判定区的乐不思蜀
+	g.removeJudgeByKind(seat, CardLeBu)
+
+	label := suitSymbol(judgeCard.Suit) + rankLabel(judgeCard.Rank)
+	// 判定结果：红桃则无效，不是红桃则生效
+	isHeart := judgeCard.Suit == "H"
+	if !isHeart {
+		// 不是红桃 → 跳过出牌阶段
 		g.Players[seat].SkipPlay = true
-		msg := fmt.Sprintf("%s 的【乐不思蜀】判定生效，跳过出牌阶段", g.Players[seat].Name)
+		msg := fmt.Sprintf("%s 的【乐不思蜀】判定生效（%s），跳过出牌阶段", g.Players[seat].Name, label)
 		g.Message = msg
 		*events = append(*events, GameEvent{
 			Type:        "judge_result",
 			PlayerIndex: seat,
 			Card:        &judgeCard,
+			Success:     false, // 对拥有者不利
 			Message:     msg,
 		})
-		
-		// 消耗 SkipPlay 标志，移除判定区的乐不思蜀，跳过出牌阶段
-		g.Players[seat].SkipPlay = false
-		if card, ok := g.removeJudgeByKind(seat, CardLeBu); ok {
-			g.DiscardPile = append(g.DiscardPile, card)
-		}
-		
+		g.syncCounts()
 		// 直接跳到弃牌阶段
 		return g.advanceToDiscardPhase(seat, events)
-	} else {
-		// 判定失败，正常进行出牌阶段
-		g.Players[seat].SkipPlay = false
-		msg := fmt.Sprintf("%s 的【乐不思蜀】判定无效", g.Players[seat].Name)
-		g.Message = msg
-		*events = append(*events, GameEvent{
-			Type:        "judge_result",
-			PlayerIndex: seat,
-			Card:        &judgeCard,
-			Message:     msg,
-		})
-		
-		// 继续处理下一张判定牌
-		return g.processNextJudgeCard(seat, events)
 	}
+
+	// 红桃 → 无效，正常出牌
+	msg := fmt.Sprintf("%s 的【乐不思蜀】判定无效（%s）", g.Players[seat].Name, label)
+	g.Message = msg
+	*events = append(*events, GameEvent{
+		Type:        "judge_result",
+		PlayerIndex: seat,
+		Card:        &judgeCard,
+		Success:     true, // 对拥有者有利
+		Message:     msg,
+	})
+	g.syncCounts()
+	return g.processNextJudgeCard(seat, events)
 }
 
 // resolveBingliangJudge 处理兵粮寸断的判定
+// 规则：判定牌不是梅花 → 跳过摸牌阶段；梅花 → 无效，正常摸牌
 func (g *Game) resolveBingliangJudge(seat int, events *[]GameEvent) error {
 	// 翻判定牌
 	judgeCard, ok := g.flipJudgeCard(events, seat)
 	if !ok {
 		return g.processNextJudgeCard(seat, events)
 	}
-	
-	// 检查判定结果（红桃则生效，跳过摸牌阶段）
-	isRed := isRedSuit(judgeCard.Suit)
-	
-	// 移除判定牌
-	g.removeJudgeCard(seat, "")
+
+	// 判定牌放入弃牌堆
 	g.DiscardPile = append(g.DiscardPile, judgeCard)
-	g.syncCounts()
-	
-	if isRed {
-		// 判定成功，跳过摸牌阶段
+
+	// 移除判定区的兵粮寸断
+	g.removeJudgeByKind(seat, CardBingLiang)
+
+	label := suitSymbol(judgeCard.Suit) + rankLabel(judgeCard.Rank)
+	// 判定结果：梅花则无效，不是梅花则生效
+	isClub := judgeCard.Suit == "C"
+	if !isClub {
+		// 不是梅花 → 跳过摸牌阶段
 		g.Players[seat].SkipDraw = true
-		msg := fmt.Sprintf("%s 的【兵粮寸断】判定生效，跳过摸牌阶段", g.Players[seat].Name)
+		msg := fmt.Sprintf("%s 的【兵粮寸断】判定生效（%s），跳过摸牌阶段", g.Players[seat].Name, label)
 		g.Message = msg
 		*events = append(*events, GameEvent{
 			Type:        "judge_result",
 			PlayerIndex: seat,
 			Card:        &judgeCard,
+			Success:     false, // 对拥有者不利
 			Message:     msg,
 		})
 	} else {
-		// 判定失败
-		msg := fmt.Sprintf("%s 的【兵粮寸断】判定无效", g.Players[seat].Name)
+		// 梅花 → 无效
+		msg := fmt.Sprintf("%s 的【兵粮寸断】判定无效（%s）", g.Players[seat].Name, label)
 		g.Message = msg
 		*events = append(*events, GameEvent{
 			Type:        "judge_result",
 			PlayerIndex: seat,
 			Card:        &judgeCard,
+			Success:     true, // 对拥有者有利
 			Message:     msg,
 		})
 	}
-	
-	// 继续处理下一张判定牌
+	g.syncCounts()
 	return g.processNextJudgeCard(seat, events)
 }
 
@@ -800,41 +936,44 @@ func (g *Game) resolveShandianJudge(seat int, events *[]GameEvent) error {
 	if !ok {
 		return g.processNextJudgeCard(seat, events)
 	}
-	
+
 	// 检查判定结果（黑桃2-9则雷击）
 	struck := isLightningStrike(judgeCard.Suit, judgeCard.Rank)
-	
-	// 移除判定牌
-	g.removeJudgeCard(seat, "")
-	
+
+	// 移除判定区的闪电
+	g.removeJudgeByKind(seat, CardShanDian)
+
+	label := suitSymbol(judgeCard.Suit) + rankLabel(judgeCard.Rank)
 	if struck {
 		// 闪电生效，造成3点雷电伤害
 		g.DiscardPile = append(g.DiscardPile, judgeCard)
 		g.syncCounts()
-		
-		msg := fmt.Sprintf("%s 的【闪电】判定生效，受到 3 点雷电伤害", g.Players[seat].Name)
+
+		msg := fmt.Sprintf("%s 的【闪电】判定生效（%s），受到 3 点雷电伤害", g.Players[seat].Name, label)
 		g.Message = msg
 		*events = append(*events, GameEvent{
 			Type:        "judge_result",
 			PlayerIndex: seat,
 			Card:        &judgeCard,
+			Success:     false, // 对拥有者不利
 			Message:     msg,
 			Damage:      3,
 		})
-		
+
 		// 应用伤害
 		g.applyDamageWithHook(seat, seat, 3, Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}, events)
 	} else {
 		// 闪电转移到下家
 		g.transferShandian(seat, judgeCard, events)
 	}
-	
+
 	// 继续处理下一张判定牌（如果有的话）
 	return g.processNextJudgeCard(seat, events)
 }
 
 // advanceToDiscardPhase 进入弃牌阶段
 func (g *Game) advanceToDiscardPhase(seat int, events *[]GameEvent) error {
+	Logf("advanceToDiscardPhase: seat=%d(%s)", seat, g.Players[seat].Name)
 	if g.IsFinished() {
 		return nil
 	}
@@ -929,11 +1068,12 @@ func (g *Game) flipJudgeCard(events *[]GameEvent, seat int) (Card, bool) {
 	g.DrawPile = g.DrawPile[1:]
 	g.syncCounts()
 	
+	label := suitSymbol(card.Suit) + rankLabel(card.Rank)
 	*events = append(*events, GameEvent{
 		Type:        "judge_flip",
 		PlayerIndex: seat,
 		Card:        &card,
-		Message:     fmt.Sprintf("%s 翻开判定牌：%s", g.Players[seat].Name, card.Label),
+		Message:     fmt.Sprintf("%s 翻开判定牌：%s", g.Players[seat].Name, label),
 	})
 	
 	return card, true

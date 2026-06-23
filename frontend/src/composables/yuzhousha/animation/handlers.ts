@@ -142,15 +142,8 @@ const playTrickHandler: EventReplayHandler = {
             if (p.index === event.player_index) {
               return { ...p, hand_count: Math.max(0, p.hand_count - 1) }
             }
-            if (event.target_index == null || !event.card || !trickStaysInJudge(event.card.kind)) {
-              return p
-            }
-            const patch: Partial<YzsPlayer> = {
-              judge_area: [...judgeAreaCards(p), event.card],
-            }
-            if (event.card.kind === 'lebu') patch.skip_play = true
-            if (event.card.kind === 'bingliang') patch.skip_draw = true
-            return { ...p, ...patch }
+            // 延时锦囊的判定区状态由 applyState 最终覆盖，不在这里手动修改
+            return p
           }),
         }
       }
@@ -239,8 +232,9 @@ const trickEffectHandler: EventReplayHandler = {
       centerMessage.value = event.message
     }
 
+    const isDelayTrick = event.card ? trickStaysInJudge(event.card.kind) : false
     const isTake = event.amount === 1 // 顺手牵羊（拿牌）
-    const isDiscard = !isTake && !!event.card && event.target_index != null && event.player_index != null // 过河拆桥（拆牌）
+    const isDiscard = !isTake && !isDelayTrick && !!event.card && event.target_index != null && event.player_index != null // 过河拆桥（拆牌）
 
     // 过河拆桥：牌从被拆者飞到牌桌中央（复用正常打牌的动画）
     if (isDiscard) {
@@ -265,7 +259,7 @@ const trickEffectHandler: EventReplayHandler = {
       })
     }
 
-    if (state.value && event.player_index != null && event.target_index != null) {
+    if (state.value && event.player_index != null && event.target_index != null && !isDelayTrick) {
       if (isTake) {
         if (event.player_index === mySeat && event.card) {
           appendDrawnCards([event.card])
@@ -367,6 +361,29 @@ const bingliangSkipHandler: EventReplayHandler = {
   },
 }
 
+/** 摸牌阶段被跳过（兵粮寸断生效后的提示） */
+const drawPhaseSkipHandler: EventReplayHandler = {
+  types: ['draw_phase_skip'],
+  match: (e) => e.type === 'draw_phase_skip',
+  async replay(ctx) {
+    const { event, state, centerMessage, tableActionHint, sleep } = ctx
+    if (event.message) {
+      centerMessage.value = event.message
+      tableActionHint.value = event.message
+    }
+    if (state.value && event.player_index != null) {
+      state.value = {
+        ...state.value,
+        players: state.value.players.map((p) =>
+          p.index === event.player_index ? { ...p, skip_draw: false } : p,
+        ),
+      }
+    }
+    await sleep(600)
+    tableActionHint.value = ''
+  },
+}
+
 const wuguPickHandler: EventReplayHandler = {
   types: ['wugu_pick'],
   match: (e) => e.type === 'wugu_pick' && e.player_index != null && !!e.card,
@@ -438,7 +455,11 @@ const trickResponseHandler: EventReplayHandler = {
   types: ['trick_response', 'wuxiek_offer'],
   match: (e) => typeIs(e.type, 'trick_response', 'wuxiek_offer'),
   async replay(ctx) {
-    await ctx.sleep(360)
+    if (ctx.event.message) {
+      ctx.tableActionHint.value = ctx.event.message
+    }
+    await ctx.sleep(800)
+    ctx.tableActionHint.value = ''
   },
 }
 
@@ -519,10 +540,28 @@ const wuxiekCancelHandler: EventReplayHandler = {
 }
 
 const phaseMessageHandler: EventReplayHandler = {
-  types: ['prepare_phase', 'draw_phase'],
-  match: (e) => typeIs(e.type, 'prepare_phase', 'draw_phase'),
+  types: ['prepare_phase', 'draw_phase', 'judge_phase', 'play_phase', 'discard_phase'],
+  match: (e) => typeIs(e.type, 'prepare_phase', 'draw_phase', 'judge_phase', 'play_phase', 'discard_phase'),
   async replay(ctx) {
-    if (ctx.event.message) ctx.centerMessage.value = ctx.event.message
+    if (ctx.event.message) {
+      ctx.centerMessage.value = ctx.event.message
+      ctx.tableActionHint.value = ctx.event.message
+    }
+    await ctx.sleep(800)
+    ctx.tableActionHint.value = ''
+  },
+}
+
+const turnEndHandler: EventReplayHandler = {
+  types: ['turn_end'],
+  match: (e) => e.type === 'turn_end',
+  async replay(ctx) {
+    if (ctx.event.message) {
+      ctx.centerMessage.value = ctx.event.message
+      ctx.tableActionHint.value = ctx.event.message
+    }
+    await ctx.sleep(800)
+    ctx.tableActionHint.value = ''
   },
 }
 
@@ -568,10 +607,48 @@ const judgeFlipHandler: EventReplayHandler = {
   types: ['judge_flip'],
   match: (e) => e.type === 'judge_flip',
   async replay(ctx) {
-    if (!ctx.event.message) return
-    ctx.centerMessage.value = ctx.event.message
-    ctx.tableActionHint.value = ctx.event.message
-    await ctx.sleep(420)
+    const { event, setTableCard } = ctx
+    // 判定牌翻到牌桌上展示
+    if (event.card) {
+      setTableCard(event.card)
+    }
+    if (event.message) {
+      ctx.centerMessage.value = event.message
+      ctx.tableActionHint.value = event.message
+    }
+    await ctx.sleep(2500)
+    ctx.tableActionHint.value = ''
+  },
+}
+
+/** 判定结果：展示 ✅ 或 ❌，并移除判定区对应的延时锦囊 */
+const judgeResultHandler: EventReplayHandler = {
+  types: ['judge_result'],
+  match: (e) => e.type === 'judge_result',
+  async replay(ctx) {
+    const { event, setTableCard, state, sleep } = ctx
+    // 再次确保判定牌在桌上
+    if (event.card) {
+      setTableCard(event.card)
+    }
+    // 显示结果
+    const resultIcon = event.success ? '✅' : '❌'
+    if (event.message) {
+      ctx.centerMessage.value = `${resultIcon} ${event.message}`
+      ctx.tableActionHint.value = `${resultIcon} ${event.message}`
+    }
+    // 从判定区移除第一张延时锦囊（乐/兵/电）
+    if (state.value && event.player_index != null) {
+      state.value = {
+        ...state.value,
+        players: state.value.players.map((p) => {
+          if (p.index !== event.player_index || !p.judge_area?.length) return p
+          const area = p.judge_area.slice(1)
+          return { ...p, judge_area: area.length ? area : undefined }
+        }),
+      }
+    }
+    await sleep(3000)
     ctx.tableActionHint.value = ''
   },
 }
@@ -729,7 +806,39 @@ const guicaiReplaceHandler: EventReplayHandler = {
         }
       })
     }
-    await sleep(360)
+    await sleep(1000)
+    ctx.tableActionHint.value = ''
+  },
+}
+
+/** 鬼道改判：黑色手牌代替判定牌，展示在牌桌 */
+const guidaoReplaceHandler: EventReplayHandler = {
+  types: ['guidao_replace'],
+  match: (e) => e.type === 'guidao_replace' && !!e.message,
+  async replay(ctx) {
+    const { event, mySeat, displayedHand, setTableCard, state, sleep } = ctx
+    ctx.tableActionHint.value = event.message!
+    ctx.centerMessage.value = event.message!
+    if (event.card) {
+      await playCardToTable(ctx, () => {
+        setTableCard(event.card!)
+        if (event.player_index === mySeat) {
+          displayedHand.value = displayedHand.value.filter((c) => c.id !== event.card!.id)
+        }
+        if (state.value && event.player_index != null) {
+          state.value = {
+            ...state.value,
+            discard_count: state.value.discard_count + 1,
+            players: state.value.players.map((p) =>
+              p.index === event.player_index
+                ? { ...p, hand_count: Math.max(0, p.hand_count - 1) }
+                : p,
+            ),
+          }
+        }
+      })
+    }
+    await sleep(1000)
     ctx.tableActionHint.value = ''
   },
 }
@@ -890,14 +999,6 @@ const hitHandler: EventReplayHandler = {
   },
 }
 
-const turnEndHandler: EventReplayHandler = {
-  types: ['turn_end'],
-  match: (e) => e.type === 'turn_end',
-  async replay(ctx) {
-    await ctx.sleep(280)
-  },
-}
-
 const identityRevealedHandler: EventReplayHandler = {
   types: ['identity_revealed'],
   match: (e) => e.type === 'identity_revealed',
@@ -929,6 +1030,7 @@ export const eventReplayerHandlers: EventReplayHandler[] = [
   trickHealHandler,
   lebuSkipHandler,
   bingliangSkipHandler,
+  drawPhaseSkipHandler,
   wuguPickHandler,
   shandianJudgeHandler,
   huogongRevealHandler,
@@ -942,6 +1044,7 @@ export const eventReplayerHandlers: EventReplayHandler[] = [
   skillAwakenHandler,
   skillJiangHandler,
   judgeFlipHandler,
+  judgeResultHandler,
   luoshenGainHandler,
   luoshenStopHandler,
   skillTriggerHealHandler,
@@ -949,6 +1052,7 @@ export const eventReplayerHandlers: EventReplayHandler[] = [
   gainCardSkillHandler('fankui_take'),
   gainCardSkillHandler('tuxi_take'),
   guicaiReplaceHandler,
+  guidaoReplaceHandler,
   skillGiveCardHandler,
   skillJijiangShaHandler,
   weaponSkillHandler,

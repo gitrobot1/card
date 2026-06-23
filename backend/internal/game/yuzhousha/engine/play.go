@@ -352,6 +352,10 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 	if played.Kind == CardHuoGong && len(g.Players[target].Hand) == 0 {
 		return ErrInvalidTarget
 	}
+	// 延时锦囊：目标判定区已有同名牌则不能使用
+	if trickStaysInJudge(played.Kind) && g.Players[target].hasJudgeKind(played.Kind) {
+		return ErrInvalidTarget
+	}
 
 	// 激昂：使用【决斗】时摸一张牌
 	if g.hasSkill(seat, skill.IDJiang) && played.Kind == CardJueDou {
@@ -512,6 +516,12 @@ func (g *Game) advanceToNextWuxiekResponder(events *[]GameEvent) {
 		g.setWuxiekMessage()
 		return
 	}
+	// 判定阶段无懈窗口：AI 不应主动出无懈抵消延时锦囊（延时锦囊对自己不利）
+	// 反无懈窗口（WuxiekChain 非空）：AI 也不主动出反无懈
+	if g.isJudgeWuxiekMode(g.Pending.ResponseMode) {
+		_ = g.advanceJudgeWuxiekQueue(nextSeat, events)
+		return
+	}
 	// AI 自动决定：该出无懈且有牌才出，否则跳过
 	if shouldAIWuxiekTrick(g, nextSeat, g.Pending) {
 		for _, card := range g.Players[nextSeat].Hand {
@@ -521,7 +531,7 @@ func (g *Game) advanceToNextWuxiekResponder(events *[]GameEvent) {
 			}
 		}
 	}
-	// AI 没有无懈（或不该出），跳过，推进队列
+	// AI 没有无懈（或不该出），跳过
 	g.advanceWuxiekQueueAfterPass(nextSeat, events)
 }
 

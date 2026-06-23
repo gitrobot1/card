@@ -369,30 +369,26 @@ func (g *Game) advanceWuxiekResponseQueue(events *[]GameEvent) error {
 }
 
 // advanceJudgeWuxiekQueue 推进判定前无懈可击的响应队列
+// seat 是当前跳过无懈的人，但 executeJudge 需要判定目标（EffectTarget）
 func (g *Game) advanceJudgeWuxiekQueue(seat int, events *[]GameEvent) error {
 	if g.Pending == nil || len(g.Pending.ResponseQueue) == 0 {
-		// 响应队列为空，执行判定
-		return g.executeJudge(seat, g.Pending.Card, events)
+		return g.executeJudge(g.Pending.EffectTarget, g.Pending.Card, events)
 	}
-	
-	// 移动到下一个响应者
+
 	g.Pending.ResponseIndex++
-	
-	// 如果所有玩家都响应过了
+
 	if g.Pending.ResponseIndex >= len(g.Pending.ResponseQueue) {
-		// 没有人使用无懈可击，执行判定
-		return g.executeJudge(seat, g.Pending.Card, events)
+		return g.executeJudge(g.Pending.EffectTarget, g.Pending.Card, events)
 	}
-	
-	// 设置下一个响应者
+
 	nextSeat := g.Pending.ResponseQueue[g.Pending.ResponseIndex]
 	g.Pending.ActorSeat = nextSeat
-	
-	// 如果下一个响应者是AI，自动处理
+
+	// AI自动处理（判定阶段无懈可击是系统行为，AI有就出，没有就跳过）
 	if g.Players[nextSeat].IsAI {
 		return g.handleAIWuxiekResponse(nextSeat, events)
 	}
-	
+
 	return nil
 }
 
@@ -451,6 +447,9 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 	}
 	if g.Pending.ResponseMode == ResponseModeSkillGuidao && seat == g.Pending.TargetIndex {
 		return g.PassGuidao(seat, events)
+	}
+	if g.Pending.ResponseMode == ResponseModeSkillGuicaiGuidao && seat == g.Pending.TargetIndex {
+		return g.passModifyJudge(seat, events)
 	}
 	if g.Pending.ResponseMode == ResponseModeSkillLeijiOffer && seat == g.Pending.TargetIndex {
 		return g.PassLeijiOffer(seat, events)
@@ -515,16 +514,11 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 		g.advanceWuxiekQueueAfterPass(seat, events)
 		return nil
 	case ResponseModeWuxiekLebu, ResponseModeWuxiekBingliang, ResponseModeWuxiekShandian:
-		// 检查是否是反无懈可击窗口
-		if g.Pending.SavedPending != nil {
-			// 这是反无懈可击窗口的跳过
-			// 移动到响应队列的下一个玩家
+		// 通过 WuxiekChain 区分：链非空=反无懈窗口，链空=初始无懈窗口
+		if len(g.Pending.WuxiekChain) > 0 {
 			return g.advanceWuxiekResponseQueue(events)
-		} else {
-			// 这是判定前无懈可击窗口的跳过
-			// 移动到响应队列的下一个玩家
-			return g.advanceJudgeWuxiekQueue(seat, events)
 		}
+		return g.advanceJudgeWuxiekQueue(seat, events)
 	case ResponseModeWuxiekGuose:
 		// 国色无懈可击响应窗口的跳过
 		// 检查是否是反无懈可击窗口
@@ -558,6 +552,12 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 	case ResponseModeSkillGanglieChoice:
 		// 刚烈 choice：目标选择受伤
 		return g.GanglieTakeDamage(seat, events)
+	case ResponseModeJudgeFlipped:
+		// 翻牌展示阶段：直接清除，进入下一阶段
+		g.Pending = nil
+		g.Phase = PhasePlaying
+		g.resetTimer()
+		return nil
 	default:
 		return g.resolvePendingMiss(events)
 	}
@@ -656,7 +656,8 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 	return g.finalizeDamageHit(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, resume, events)
 }
 
-// PassAllWuxiek 本轮都不出无懈可击：标记该玩家，当前及后续目标的无懈窗口均跳过
+// PassAllWuxiek 本轮都不出无懈可击：标记该玩家，当前及后续目标的无懈窗口均跳过。
+// 仅用于群体锦囊（南蛮/万箭/桃园/五谷），不适用于判定阶段。
 func (g *Game) PassAllWuxiek(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return ErrGameOver
@@ -669,8 +670,8 @@ func (g *Game) PassAllWuxiek(seat int, events *[]GameEvent) error {
 		return ErrNotYourTurn
 	}
 	mode := g.Pending.ResponseMode
-	if mode != ResponseModeWuxiekTrick && mode != ResponseModeWuxiekLebu &&
-		mode != ResponseModeWuxiekBingliang && mode != ResponseModeWuxiekShandian {
+	// 只允许群体锦囊的无懈窗口使用"本轮都不出"，判定阶段不允许
+	if mode != ResponseModeWuxiekTrick {
 		return ErrWrongPhase
 	}
 	// 标记为跳过（持久到 Game 级别，群体锦囊切换目标时不会丢失）

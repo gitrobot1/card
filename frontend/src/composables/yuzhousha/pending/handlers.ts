@@ -205,8 +205,8 @@ const tannangHandler: PendingHandler = {
 }
 
 const guicaiHandler: PendingHandler = {
-  modes: ['skill_guicai'],
-  match: (state) => responseMode(state, 'skill_guicai'),
+  modes: ['skill_guicai', 'skill_guicai_guidao'],
+  match: (state) => responseMode(state, 'skill_guicai') || responseMode(state, 'skill_guicai_guidao'),
   skillOnly: true,
   suppressPlaySubmit: true,
   canSubmitSkill(ctx, skillId) {
@@ -228,8 +228,8 @@ const guicaiHandler: PendingHandler = {
 }
 
 const guidaoHandler: PendingHandler = {
-  modes: ['skill_guidao'],
-  match: (state) => responseMode(state, 'skill_guidao'),
+  modes: ['skill_guidao', 'skill_guicai_guidao'],
+  match: (state) => responseMode(state, 'skill_guidao') || responseMode(state, 'skill_guicai_guidao'),
   skillOnly: true,
   suppressPlaySubmit: true,
   canSubmitSkill(ctx, skillId) {

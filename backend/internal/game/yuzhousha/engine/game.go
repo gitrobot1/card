@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/time/card/backend/internal/game/yuzhousha/skill"
+
 	"github.com/time/card/backend/internal/game/yuzhousha/engine/mode"
 )
 
@@ -54,6 +56,12 @@ type Game struct {
 	discardWindow    *discardWindowState
 	wuguPicked       map[int]bool // 五谷丰登：已选过牌的玩家
 	skipWuxiekSeats  map[int]bool // 本轮都不出无懈的座位（群体锦囊流程中持久）
+	// 判定流程中间状态：翻牌后暂存，下一轮 RunAIActionStep 进入改判
+	judgeFlippedCard       *Card
+	judgeFlippedSeat       int
+	judgeFlippedReason     skill.JudgeReason
+	judgeFlippedResume     string
+	judgeFlippedCandidates []int
 }
 
 type PublicState struct {

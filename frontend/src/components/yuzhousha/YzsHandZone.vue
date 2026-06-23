@@ -297,19 +297,12 @@ async function onPickerCancel() {
               </div>
             </div>
 
-            <!-- 外部状态栏：判定区 | 标记（始终占位） -->
-            <div
-              class="yzs__hero-status-bar"
-              :class="{ 'yzs__hero-status-bar--active': judgeAreaCards(myPlayer).length > 0 || visibleMarks(myPlayer).length > 0 }"
-            >
-              <template v-if="judgeAreaCards(myPlayer).length">
+            <!-- 外部状态栏：左判定 | 右标记（始终占位，宽度=卡片宽） -->
+            <div class="yzs__hero-status-bar">
+              <div class="yzs__status-judge-side">
                 <span v-for="judge in judgeAreaCards(myPlayer)" :key="judge.id" class="yzs__judge-tag">{{ judgeCardShortName(judge.kind) }}</span>
-              </template>
-              <span v-else class="yzs__status-placeholder">判定</span>
-
-              <span v-if="judgeAreaCards(myPlayer).length && visibleMarks(myPlayer).length" class="yzs__status-divider" />
-
-              <template v-if="visibleMarks(myPlayer).length">
+              </div>
+              <div class="yzs__status-mark-side">
                 <span
                   v-for="mark in visibleMarks(myPlayer)"
                   :key="mark.name"
@@ -317,8 +310,7 @@ async function onPickerCancel() {
                 >
                   {{ mark.name }}{{ mark.count }}
                 </span>
-              </template>
-              <span v-else class="yzs__status-placeholder">标记</span>
+              </div>
             </div>
 
             <div class="ddz__seat-stack ddz__seat-stack--self">

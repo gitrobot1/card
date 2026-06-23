@@ -137,6 +137,10 @@ export function useYzsTargeting(deps: YzsTargetingDeps) {
     const player = state.value?.players[seat]
     if (!player) return []
     const options: { zone: string; cardId: string; label: string }[] = []
+    // 手牌（对手手牌对玩家不可见，后端随机选择）
+    if ((player.hand_count ?? 0) > 0) {
+      options.push({ zone: 'hand', cardId: '', label: '手牌' })
+    }
     for (const equip of equippedCards(player)) {
       options.push({ zone: equipSlotOf(equip), cardId: equip.id, label: equipTagLabel(equip) })
     }

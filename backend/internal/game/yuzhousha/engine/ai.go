@@ -69,6 +69,38 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			}
 			return true
 		}
+		if pending.ResponseMode == ResponseModeSkillGuicaiGuidao {
+			seat := pending.TargetIndex
+			if !g.Players[seat].IsAI {
+				return false
+			}
+			// 同时有鬼才和鬼道：AI 优先使用鬼才
+			rt := g.skillRuntime(events)
+			if gh, ok := skill.Lookup(SkillGuicai); ok && gh.CanActivate(rt, seat) {
+				_ = gh.AIActivate(rt, seat)
+			} else if gdh, ok := skill.Lookup(SkillGuidao); ok && gdh.CanActivate(rt, seat) {
+				_ = gdh.AIActivate(rt, seat)
+			} else {
+				_ = g.passModifyJudge(seat, events)
+			}
+			return true
+		}
+		// 判定翻牌后中间阶段：清除 Pending，前端展示翻牌
+		if pending.ResponseMode == ResponseModeJudgeFlipped {
+			card := pending.JudgeCard
+			judgeSeat := pending.GuicaiJudgeSeat
+			reason := skill.JudgeReason(pending.JudgeReason)
+			resume := pending.GuicaiResume
+			candidates := pending.ModifyCandidates
+			g.judgeFlippedCard = &card
+			g.judgeFlippedSeat = judgeSeat
+			g.judgeFlippedReason = reason
+			g.judgeFlippedResume = resume
+			g.judgeFlippedCandidates = candidates
+			g.Pending = nil
+			g.Phase = PhasePlaying
+			return true
+		}
 		if pending.ResponseMode == ResponseModeSkillLeijiOffer {
 			seat := pending.TargetIndex
 			if !g.Players[seat].IsAI {
@@ -425,6 +457,16 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			_ = g.PassResponse(seat, events)
 			acted = true
 		}
+	} else if g.judgeFlippedCard != nil {
+		// 翻牌展示后进入改判阶段
+		card := *g.judgeFlippedCard
+		judgeSeat := g.judgeFlippedSeat
+		reason := g.judgeFlippedReason
+		resume := g.judgeFlippedResume
+		candidates := g.judgeFlippedCandidates
+		g.judgeFlippedCard = nil
+		g.offerNextModifyJudge(judgeSeat, reason, resume, card, candidates, 0, events)
+		return g.Pending != nil
 	} else if g.Phase == PhasePlaying && g.TurnStep == StepPrepare && g.Players[g.CurrentTurn].IsAI {
 		seat := g.CurrentTurn
 		g.runAIPreparePhase(seat, events)
@@ -476,9 +518,12 @@ func runAIDrawPhase(g *Game, seat int, events *[]GameEvent) bool {
 }
 
 func (g *Game) pickTrickTarget(seat int, cardKind string) int {
-	valid := g.validPlayTargets(seat, cardKind)
-	if len(valid) > 0 {
-		return valid[0]
+	// AI 只对敌方使用需要敌方目标的锦囊（乐/兵/决斗等）
+	enemies := g.enemiesOf(seat)
+	for _, e := range enemies {
+		if g.Players[e].HP > 0 && g.isValidPlayTarget(seat, e, cardKind) {
+			return e
+		}
 	}
 	return g.opponentOf(seat)
 }

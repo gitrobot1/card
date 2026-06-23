@@ -205,19 +205,12 @@ const isProtectSeat = computed(
       </div>
     </div>
 
-    <!-- 外部状态栏：判定区 | 标记（始终占位） -->
-    <div
-      class="yzs__hero-status-bar"
-      :class="{ 'yzs__hero-status-bar--active': judgeAreaCards(player).length > 0 || visibleMarks(player).length > 0 }"
-    >
-      <template v-if="judgeAreaCards(player).length">
+    <!-- 外部状态栏：左判定 | 右标记（始终占位，宽度=卡片宽） -->
+    <div class="yzs__hero-status-bar">
+      <div class="yzs__status-judge-side">
         <span v-for="judge in judgeAreaCards(player)" :key="judge.id" class="yzs__judge-tag">{{ judgeCardShortName(judge.kind) }}</span>
-      </template>
-      <span v-else class="yzs__status-placeholder">判定</span>
-
-      <span v-if="judgeAreaCards(player).length && visibleMarks(player).length" class="yzs__status-divider" />
-
-      <template v-if="visibleMarks(player).length">
+      </div>
+      <div class="yzs__status-mark-side">
         <span
           v-for="mark in visibleMarks(player)"
           :key="mark.name"
@@ -225,8 +218,7 @@ const isProtectSeat = computed(
         >
           {{ mark.name }}{{ mark.count }}
         </span>
-      </template>
-      <span v-else class="yzs__status-placeholder">标记</span>
+      </div>
     </div>
 
     <!-- 可选目标/技能面板 -->

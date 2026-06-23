@@ -156,6 +156,7 @@ export interface YzsEvent {
   heal?: number
   amount?: number
   skill_id?: string
+  success?: boolean
 }
 
 export interface YzsSeatSlot {

@@ -16,11 +16,13 @@ const (
 	counterTuxiDrawSkip        = "tuxi_draw_skip"
 	counterQuhuUsed            = "quhu_used"
 
-	ResponseModeSkillJijiang   = "skill_jijiang"
-	ResponseModeSkillRende     = "skill_rende"
-	ResponseModeSkillGuicai    = "skill_guicai"
-	ResponseModeSkillFankui    = "skill_fankui"
+	ResponseModeSkillJijiang      = "skill_jijiang"
+	ResponseModeSkillRende        = "skill_rende"
+	ResponseModeSkillGuicai       = "skill_guicai"
+	ResponseModeSkillGuicaiGuidao = "skill_guicai_guidao" // 同时有鬼才+鬼道时合并询问
+	ResponseModeSkillFankui       = "skill_fankui"
 	ResponseModeSkillPojunDiscard = "skill_pojun_discard"
+	ResponseModeJudgeFlipped      = "judge_flipped" // 判定翻牌后、改判前的中间阶段
 )
 
 type (
@@ -538,6 +540,21 @@ func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) erro
 				return ErrInvalidCard
 			}
 			return g.ApplyGuidaoReplace(seat, req.CardIDs[0], events)
+		}
+		if g.Pending != nil && g.Pending.ResponseMode == ResponseModeSkillGuicaiGuidao && g.Pending.TargetIndex == seat {
+			// 同时有鬼才+鬼道，按用户选的技能路由
+			if req.SkillID == SkillGuicai {
+				if len(req.CardIDs) == 0 {
+					return ErrInvalidCard
+				}
+				return g.ApplyGuicaiReplace(seat, req.CardIDs[0], events)
+			}
+			if req.SkillID == SkillGuidao {
+				if len(req.CardIDs) == 0 {
+					return ErrInvalidCard
+				}
+				return g.ApplyGuidaoReplace(seat, req.CardIDs[0], events)
+			}
 		}
 		if g.Pending != nil && g.Pending.ResponseMode == ResponseModeSkillLeijiOffer && g.Pending.TargetIndex == seat && req.SkillID == SkillLeiji {
 			return g.StartLeijiJudge(seat, events)

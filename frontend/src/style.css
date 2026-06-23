@@ -4522,32 +4522,40 @@ body {
   font-weight: 500;
 }
 
-/* 外部状态栏：判定区 + 分隔线 + 标记区（始终占位） */
+/* 外部状态栏：判定区 | 标记区（始终占位，宽度与卡片一致） */
 .yzs__hero-status-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
   margin-top: 4px;
+  width: 140px;
   min-height: 22px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.03);
-  border: 1px dashed rgba(15, 23, 42, 0.1);
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 .yzs__hero-status-bar--active {
-  border-style: solid;
-  border-color: rgba(15, 23, 42, 0.12);
-  background: rgba(15, 23, 42, 0.04);
+  /* 有内容时无额外样式，保持透明 */
 }
-.yzs__status-placeholder {
-  font-size: 10px;
-  color: #cbd5e1;
-  font-weight: 500;
+
+/* 判定区占左半，标记区占右半，中间分隔 */
+.yzs__status-judge-side {
+  flex: 0 0 50%;
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+  align-items: center;
+}
+.yzs__status-mark-side {
+  flex: 0 0 50%;
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
 }
 .yzs__status-divider {
   width: 1px;
   height: 14px;
-  background: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.15);
   flex-shrink: 0;
 }
 
@@ -4565,12 +4573,7 @@ body {
   border: 1px solid rgba(168, 85, 247, 0.2);
 }
 
-/* 标记 */
-.yzs__hero-marks {
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
-}
+/* 标记标签 */
 .yzs__equip-tag--mark {
   background: rgba(245, 158, 11, 0.16);
   color: #b45309;
@@ -4578,8 +4581,6 @@ body {
   padding: 1px 5px;
   border-radius: 3px;
   font-weight: 600;
-}
-  color: #b45309;
 }
 
 .yzs__target-card-row {

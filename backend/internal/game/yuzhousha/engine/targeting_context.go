@@ -31,6 +31,9 @@ func (t gameTargetCtx) HandCount(seat int) int {
 	}
 	return p.HandCount
 }
+func (t gameTargetCtx) HasJudgeKind(target int, kind string) bool {
+	return t.g.Players[target].hasJudgeKind(kind)
+}
 
 func (t gameTargetCtx) TargetBlocked(target int, cardKind string) bool {
 	if t.g.vineBlocksTrick(target, cardKind) {

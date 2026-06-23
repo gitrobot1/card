@@ -467,10 +467,10 @@ const isYinghunDiscard = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_yinghun_discard',
 )
 const isGuicai = computed(
-  () => isResponse.value && state.value?.pending?.response_mode === 'skill_guicai',
+  () => isResponse.value && (state.value?.pending?.response_mode === 'skill_guicai' || state.value?.pending?.response_mode === 'skill_guicai_guidao'),
 )
 const isGuidao = computed(
-  () => isResponse.value && state.value?.pending?.response_mode === 'skill_guidao',
+  () => isResponse.value && (state.value?.pending?.response_mode === 'skill_guidao' || state.value?.pending?.response_mode === 'skill_guicai_guidao'),
 )
 const isLeijiOffer = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_leiji_offer',
@@ -574,6 +574,10 @@ const isWuxiekOffer = computed(
       state.value?.pending?.response_mode === 'wuxiek_lebu' ||
       state.value?.pending?.response_mode === 'wuxiek_bingliang' ||
       state.value?.pending?.response_mode === 'wuxiek_shandian'),
+)
+/** 仅群体锦囊的无懈窗口（南蛮/万箭/桃园/五谷），才显示"本轮都不出" */
+const isAoeWuxiekOffer = computed(
+  () => isResponse.value && state.value?.pending?.response_mode === 'wuxiek_trick',
 )
 const canPlayWuxiek = computed(
   () =>
@@ -980,6 +984,7 @@ const { centerHint } = useYzsHints({
   isYinghunChoice,
   isYinghunDiscard,
   isWuxiekOffer,
+  isAoeWuxiekOffer,
     isWuguPick,
     isWuguActive,
     isWuguBoardVisible,
@@ -1273,7 +1278,7 @@ function startPollFallback() {
     } catch {
       // ignore poll errors
     }
-  }, 5000)
+  }, 2000)
 }
 
 watch(wsGameConnected, (open) => {
@@ -2325,6 +2330,7 @@ onMounted(() => {
   wuguPickedCards,
   wuguRevealedAllCache,
   isWuxiekOffer,
+  isAoeWuxiekOffer,
     isYijiGive,
     isYijiOffer,
     isYinghunChoice,
