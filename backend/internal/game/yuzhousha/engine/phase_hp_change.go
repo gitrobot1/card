@@ -42,13 +42,14 @@ func (g *Game) handleHPChange(ctx HPChangeContext, events *[]GameEvent) {
 	// 触发血量变化钩子
 	g.runHPChangedHooks(seat, ctx.OldHP, ctx.NewHP, ctx.Delta, ctx.Reason, ctx.Source, ctx.SkillID, events)
 
-	// 注意：不在此处触发濒死。濒死应由 applyDamageWithHook 的调用者
-	// 通过 afterDamageApplied 统一处理，以便传递正确的 DamageResume（含 AoeResume）。
+	// 参考 noname damage.content step 5: if (hp<=0) player.dying(event)
+	// 濒死统一由 ApplyDamageAndCheckDeath 在扣血后自动处理。
 	// handleHPChange 作为底层函数，只负责通知血量变化和触发钩子。
 }
 
 // applyDamageWithHook 应用伤害并触发钩子（推荐使用的伤害函数）。
 // 与 applyDamage 的区别：这个函数会额外处理血量流失和血量变化钩子。
+// 重构后：扣血后自动检查濒死（参考 noname damage.content → if hp<=0 → dying()）。
 func (g *Game) applyDamageWithHook(source, target, amount int, damageCard Card, events *[]GameEvent) int {
 	if amount <= 0 || target < 0 || target >= len(g.Players) {
 		return 0
@@ -75,6 +76,13 @@ func (g *Game) applyDamageWithHook(source, target, amount int, damageCard Card, 
 	}
 
 	return actualDamage
+}
+
+// ApplyDamageAndCheckDeath 应用伤害并自动检查濒死/死亡。
+// 内部使用 StartDamageEvent（完整 GameEvent 生命周期）。
+// 返回 true 表示进入了濒死流程。
+func (g *Game) ApplyDamageAndCheckDeath(source, target, amount int, damageCard Card, resume DamageResume, events *[]GameEvent) bool {
+	return g.applyDamageAndCheckDeathImpl(source, target, amount, damageCard, resume, events)
 }
 
 // applyHPLossWithHook 应用血量流失（非伤害扣血）并触发钩子。

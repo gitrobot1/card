@@ -11,7 +11,8 @@ func (g *Game) ApplyTieqi(seat int, events *[]GameEvent) error {
 	if pending == nil || !pending.TieqiPending || pending.SourceIndex != seat {
 		return ErrWrongPhase
 	}
-	return g.startJudge(seat, skill.JudgeTieqi, guicaiResumeTieqi, events)
+	// 铁骑判定：红色成功（参考 noname: 铁骑 → 判定红色）
+	return g.startJudge(seat, skill.JudgeTieqi, judgeFuncTieqi, guicaiResumeTieqi, events)
 }
 
 func (g *Game) SkipTieqi(seat int, events *[]GameEvent) error {

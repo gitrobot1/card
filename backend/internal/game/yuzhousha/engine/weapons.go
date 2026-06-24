@@ -63,7 +63,20 @@ func (g *Game) appendWeaponSkillEvent(events *[]GameEvent, source, target int, m
 }
 
 func (g *Game) offerGuanYuFollowUp(source, target int, events *[]GameEvent) bool {
-	if !g.hasWeaponKind(source, CardWeapon3) || g.countShaInHand(source) == 0 {
+	// 参考 noname: filter → event.target.isIn() && player.canUse("sha", event.target, false) && player.hasSha()
+	if !g.hasWeaponKind(source, CardWeapon3) {
+		return false
+	}
+	// 目标必须还活着
+	if g.Players[target].HP <= 0 {
+		return false
+	}
+	// 必须有杀
+	if g.countShaInHand(source) == 0 {
+		return false
+	}
+	// 必须能对目标使用杀（帷幕等阻止）
+	if g.targetBlockedBySkill(target, CardSha) {
 		return false
 	}
 	g.Phase = PhaseResponse
@@ -157,6 +170,25 @@ func (g *Game) finishQilinBow(seat int, events *[]GameEvent) error {
 	g.Message = fmt.Sprintf("%s 继续出牌", g.Players[returnIndex].Name)
 	g.resetTimer()
 	return nil
+}
+
+// equipMap 返回玩家装备区所有牌的 ID→装备槽映射。
+func (g *Game) equipMap(seat int) map[string]string {
+	m := make(map[string]string)
+	p := &g.Players[seat]
+	if p.Weapon != nil {
+		m[p.Weapon.ID] = EquipWeapon
+	}
+	if p.Armor != nil {
+		m[p.Armor.ID] = EquipArmor
+	}
+	if p.PlusHorse != nil {
+		m[p.PlusHorse.ID] = EquipPlusHorse
+	}
+	if p.MinusHorse != nil {
+		m[p.MinusHorse.ID] = EquipMinusHorse
+	}
+	return m
 }
 
 // isOppositeGender 判断两名角色是否异性（至少一方向有 gender 字段且不同）。
@@ -284,12 +316,27 @@ func (g *Game) resumeShaFromChixiong(events *[]GameEvent) {
 }
 
 // offerGuanshifu 尝试发动贯石斧：source 的杀被 target 用闪抵消后，
-// 若 source 装备贯石斧且手牌≥2，可弃两张手牌令此杀依然命中。
+// 若 source 装备贯石斧且手牌+装备≥2，可弃两张牌令此杀依然命中。
+// 参考 noname: guanshi_skill, filter: countCards("he") >= min (he = hand + equip)
 func (g *Game) offerGuanshifu(source, target int, pendingCard Card, damage int, returnIndex int, events *[]GameEvent) bool {
 	if !g.hasWeaponKind(source, CardWeapon9) {
 		return false
 	}
-	if len(g.Players[source].Hand) < 2 {
+	// 手牌+装备总数≥2（参考 noname: countCards("he") >= 2，he = hand + equip）
+	heCount := len(g.Players[source].Hand)
+	if g.Players[source].Weapon != nil {
+		heCount++
+	}
+	if g.Players[source].Armor != nil {
+		heCount++
+	}
+	if g.Players[source].PlusHorse != nil {
+		heCount++
+	}
+	if g.Players[source].MinusHorse != nil {
+		heCount++
+	}
+	if heCount < 2 {
 		return false
 	}
 	g.Phase = PhaseResponse
@@ -302,13 +349,15 @@ func (g *Game) offerGuanshifu(source, target int, pendingCard Card, damage int, 
 		Card:         pendingCard,
 		Damage:       damage,
 	}
-	g.Message = fmt.Sprintf("【贯石斧】%s 可弃两张手牌，令此杀依然命中 %s", g.Players[source].Name, g.Players[target].Name)
+	g.Message = fmt.Sprintf("【贯石斧】%s 可弃两张牌，令此杀依然命中 %s", g.Players[source].Name, g.Players[target].Name)
 	g.appendWeaponSkillEvent(events, source, target, g.Message)
 	g.resetTimer()
 	return true
 }
 
-// resolveGuanshifuDiscard 发动者确认弃两张牌，令杀命中。
+// resolveGuanshifuDiscard 发动者确认弃两张牌（手牌或装备），令杀命中。
+// 参考 noname: chooseToDiscard(2, "he") — he = hand + equip
+// 限制：不能弃掉唯一的贯石斧（若装备区只有一张贯石斧且无其他贯石斧技能）
 func (g *Game) resolveGuanshifuDiscard(seat int, cardIDs []string, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return ErrGameOver
@@ -319,25 +368,60 @@ func (g *Game) resolveGuanshifuDiscard(seat int, cardIDs []string, events *[]Gam
 	if len(cardIDs) != 2 {
 		return ErrInvalidCard
 	}
-	// 验证两张牌都在手牌中
-	idxMap := make(map[string]int)
-	for i, c := range g.Players[seat].Hand {
-		idxMap[c.ID] = i
+	// 不能弃掉唯一的贯石斧（参考 noname: 必须保留至少一张贯石斧）
+	guanshiCount := g.countGuanshifu(seat)
+	if guanshiCount <= 1 {
+		for _, id := range cardIDs {
+			if g.Players[seat].Weapon != nil && g.Players[seat].Weapon.ID == id {
+				return ErrInvalidCard // 唯一的贯石斧不能弃
+			}
+		}
 	}
+	// 构建手牌+装备的索引映射
+	handIdx := make(map[string]int)
+	for i, c := range g.Players[seat].Hand {
+		handIdx[c.ID] = i
+	}
+	equipMap := g.equipMap(seat)
+
+	var discarded []Card
 	for _, id := range cardIDs {
-		if _, ok := idxMap[id]; !ok {
+		if idx, ok := handIdx[id]; ok {
+			// 先标记，稍后按索引从大到小移除
+			discarded = append(discarded, g.Players[seat].Hand[idx])
+		} else if equipZone, ok := equipMap[id]; ok {
+			card := g.removeEquipCard(seat, equipZone, events)
+			g.notifyEquipLost(seat, card, "discard", events)
+			discarded = append(discarded, card)
+		} else {
 			return ErrInvalidCard
 		}
 	}
-	// 按索引从大到小移除，避免索引偏移
-	indices := []int{idxMap[cardIDs[0]], idxMap[cardIDs[1]]}
-	if indices[0] < indices[1] {
-		indices[0], indices[1] = indices[1], indices[0]
+	// 移除手牌（按索引从大到小）
+	handIDs := make(map[string]bool)
+	for _, d := range discarded {
+		handIDs[d.ID] = true
 	}
-	var discarded1, discarded2 Card
-	discarded1 = g.removeHandCard(seat, indices[0], events)
-	discarded2 = g.removeHandCard(seat, indices[1], events)
-	g.DiscardPile = append(g.DiscardPile, discarded1, discarded2)
+	handIndices := make([]int, 0)
+	for i, c := range g.Players[seat].Hand {
+		if handIDs[c.ID] {
+			handIndices = append(handIndices, i)
+		}
+	}
+	// 从大到小排序
+	for i := 0; i < len(handIndices); i++ {
+		for j := i + 1; j < len(handIndices); j++ {
+			if handIndices[i] < handIndices[j] {
+				handIndices[i], handIndices[j] = handIndices[j], handIndices[i]
+			}
+		}
+	}
+	for _, idx := range handIndices {
+		g.removeHandCard(seat, idx, events)
+	}
+	for _, d := range discarded {
+		g.DiscardPile = append(g.DiscardPile, d)
+	}
 
 	target := g.Pending.EffectTarget
 	damage := g.Pending.Damage
@@ -347,13 +431,6 @@ func (g *Game) resolveGuanshifuDiscard(seat int, cardIDs []string, events *[]Gam
 	pendingCard := g.Pending.Card
 	returnIndex := g.Pending.ReturnIndex
 	g.Pending = nil
-	g.applyDamageWithHook(seat, target, damage, pendingCard, events)
-	*events = append(*events, GameEvent{
-		Type:        "weapon_skill",
-		PlayerIndex: seat,
-		TargetIndex: target,
-		Message:     fmt.Sprintf("【贯石斧】%s 弃两张牌，杀依然命中 %s", g.Players[seat].Name, g.Players[target].Name),
-	})
 	resume := DamageResume{
 		Mode:        damageResumeShaHit,
 		Card:        pendingCard,
@@ -361,11 +438,15 @@ func (g *Game) resolveGuanshifuDiscard(seat int, cardIDs []string, events *[]Gam
 		OfferQilin:  true,
 		IgnoreArmor: false,
 	}
-	if g.Players[target].HP <= 0 {
-		if g.afterDamageApplied(seat, target, damage, pendingCard, resume, events) {
-			return nil
-		}
+	if g.ApplyDamageAndCheckDeath(seat, target, damage, pendingCard, resume, events) {
+		return nil
 	}
+	*events = append(*events, GameEvent{
+		Type:        "weapon_skill",
+		PlayerIndex: seat,
+		TargetIndex: target,
+		Message:     fmt.Sprintf("【贯石斧】%s 弃两张牌，杀依然命中 %s", g.Players[seat].Name, g.Players[target].Name),
+	})
 	g.damageAftermath = nil
 	g.resumeAfterDamageNoSkill(resume, target, seat, events)
 	return nil
@@ -389,4 +470,83 @@ func (g *Game) passGuanshifu(seat int, events *[]GameEvent) error {
 
 func (g *Game) isWeapon9Pending() bool {
 	return g.Pending != nil && g.Pending.ResponseMode == ResponseModeWeapon9
+}
+
+// countGuanshifu 统计玩家拥有的贯石斧数量（装备区1 + 技能途径获得的）。
+// 参考 noname: player.hasSkill("guanshi_skill", null, false) 判断是否有额外技能。
+func (g *Game) countGuanshifu(seat int) int {
+	count := 0
+	if g.hasWeaponKind(seat, CardWeapon9) {
+		count++
+	}
+	// TODO: 将来如果有技能可以获得贯石斧技能，在此累加
+	return count
+}
+
+// ============================================================================
+// 丈八蛇矛（Zhangba）：2张手牌当杀使用或打出
+// 参考 noname: zhangba_skill, viewAs: { name: "sha" }, selectCard: 2
+// ============================================================================
+
+// canZhangbaSha 检查玩家是否能用丈八蛇矛出杀（手牌≥2）。
+func (g *Game) canZhangbaSha(seat int) bool {
+	if !g.hasWeaponKind(seat, CardWeapon10) {
+		return false
+	}
+	return len(g.Players[seat].Hand) >= 2
+}
+
+// TryZhangbaSha 丈八蛇矛出杀：选2张手牌当杀使用（导出供 service 调用）。
+// 前端传入两个手牌ID，后端验证并创建虚拟杀牌。
+func (g *Game) TryZhangbaSha(seat int, targetIndex int, cardIDs []string, events *[]GameEvent) error {
+	if !g.hasWeaponKind(seat, CardWeapon10) {
+		return ErrInvalidCard
+	}
+	if len(cardIDs) != 2 {
+		return ErrInvalidCard
+	}
+	// 验证两张牌都在手牌中且不重复
+	idxMap := make(map[string]int)
+	for i, c := range g.Players[seat].Hand {
+		idxMap[c.ID] = i
+	}
+	if cardIDs[0] == cardIDs[1] {
+		return ErrInvalidCard
+	}
+	idx1, ok1 := idxMap[cardIDs[0]]
+	idx2, ok2 := idxMap[cardIDs[1]]
+	if !ok1 || !ok2 {
+		return ErrInvalidCard
+	}
+	// 按索引从大到小移除，避免索引偏移
+	if idx1 < idx2 {
+		idx1, idx2 = idx2, idx1
+	}
+	card1 := g.removeHandCard(seat, idx1, events)
+	card2 := g.removeHandCard(seat, idx2, events)
+	g.DiscardPile = append(g.DiscardPile, card1, card2)
+	g.syncCounts()
+
+	// 创建虚拟杀牌（参考 noname: viewAs: { name: "sha" }）
+	// 丈八蛇矛的杀无花色、无点数（丈八杀不被仁王盾阻挡，不参与拼点）
+	shaCard := Card{
+		ID:         fmt.Sprintf("zhangba_%s_%s", card1.ID, card2.ID),
+		Kind:       CardSha,
+		Name:       "杀",
+		Suit:       "", // 无色
+		Rank:       0,  // 无点数
+		Label:      "丈八杀",
+		DamageType: DamageTypeNormal,
+	}
+
+	msg := fmt.Sprintf("%s 发动【丈八蛇矛】，将 %s 和 %s 当【杀】使用", g.Players[seat].Name, card1.Label, card2.Label)
+	g.appendWeaponSkillEvent(events, seat, targetIndex, msg)
+	*events = append(*events, GameEvent{
+		Type:        "zhangba_sha",
+		PlayerIndex: seat,
+		TargetIndex: targetIndex,
+		Message:     msg,
+	})
+
+	return g.playShaWithCard(seat, shaCard, targetIndex, PlayTarget{}, events)
 }

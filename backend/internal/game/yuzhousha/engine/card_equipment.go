@@ -223,8 +223,10 @@ func (g *Game) startTiesuoAoe(source, amount int, card Card, remaining []int, ev
 	// 重置连环状态
 	g.setChained(seat, false)
 
-	// 链式加成
+	// 链式加成（藤甲加伤等）
 	dmg := g.adjustDamageAmount(source, seat, amount, card, card.DamageType == DamageTypeFire, false)
+	// 白银狮子：每个传导目标独立检查（伤害 > 1 时锁定为 1）
+	g.baiyinReduceDamage(seat, &dmg)
 	Logf("startTiesuoAoe: seat=%d(%s) incoming=%d dmg=%d remaining=%v",
 		seat, g.Players[seat].Name, amount, dmg, rest)
 
@@ -238,17 +240,6 @@ func (g *Game) startTiesuoAoe(source, amount int, card Card, remaining []int, ev
 		Message:     g.Message,
 	})
 
-	// 扣血
-	g.applyDamageWithHook(source, seat, dmg, card, events)
-	*events = append(*events, GameEvent{
-		Type:        "trick_hit",
-		PlayerIndex: source,
-		TargetIndex: seat,
-		Damage:      dmg,
-		Message:     fmt.Sprintf("%s 受到【铁索连环】%d 点伤害", g.Players[seat].Name, dmg),
-	})
-
-	// ===== 完全类比万箭齐发 resolvePendingMiss 的濒死/技能链/AOE恢复模式 =====
 	// 保存队列到 g.Pending，濒死时 startDyingWindow 自动保存到 SavedPending
 	g.Pending = &PendingCombat{
 		SourceIndex:  source,
@@ -261,14 +252,19 @@ func (g *Game) startTiesuoAoe(source, amount int, card Card, remaining []int, ev
 		RequiredKind: "tiesuo",
 	}
 
-	if g.Players[seat].HP <= 0 {
-		Logf("startTiesuoAoe: seat=%d HP<=0, starting dying, rest=%v", seat, rest)
-		dyingResume := DamageResume{}
-		g.setAoeResume(&dyingResume, source, dmg, card, rest, true)
-		if g.afterDamageApplied(source, seat, dmg, card, dyingResume, events) {
-			return
-		}
+	// 构建带 AoeResume 的 DamageResume，扣血+自动濒死
+	dyingResume := DamageResume{}
+	g.setAoeResume(&dyingResume, source, dmg, card, rest, true)
+	if g.ApplyDamageAndCheckDeath(source, seat, dmg, card, dyingResume, events) {
+		return
 	}
+	*events = append(*events, GameEvent{
+		Type:        "trick_hit",
+		PlayerIndex: source,
+		TargetIndex: seat,
+		Damage:      dmg,
+		Message:     fmt.Sprintf("%s 受到【铁索连环】%d 点伤害", g.Players[seat].Name, dmg),
+	})
 
 	// 未死亡：类比万箭，走 continueAfterDamage 技能链
 	g.clearPending()

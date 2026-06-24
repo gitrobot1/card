@@ -33,6 +33,10 @@ const (
 	DeckKindArmorVine = "armor_vine"
 	DeckKindHuoGong   = "huogong"
 	DeckKindTieSuo    = "tiesuo"
+	DeckKindJieDao    = "jiedao"    // 借刀杀人
+	DeckKindWeapon10    = "weapon_10"      // 丈八蛇矛
+	DeckKindArmorRenwang = "armor_renwang" // 仁王盾
+	DeckKindArmorBaiyin  = "armor_baiyin"  // 白银狮子
 	DeckKindPlusHorse = "plus_horse"
 	DeckKindMinusHorse = "minus_horse"
 )
@@ -83,6 +87,7 @@ func BasicDeckSpecs() []DeckSpec {
 		{DeckKindNanMan, 2},
 		{DeckKindWanJian, 2},
 		{DeckKindJueDou, 2},
+		{DeckKindJieDao, 2},
 		{DeckKindLeBu, 2},
 		{DeckKindBingLiang, 2},
 		{DeckKindShanDian, 1},
@@ -97,8 +102,11 @@ func BasicDeckSpecs() []DeckSpec {
 		{DeckKindWeapon7, 1},
 		{DeckKindWeapon8, 1},
 		{DeckKindWeapon9, 1},
+		{DeckKindWeapon10, 1},
 		{DeckKindArmor, 3},
 		{DeckKindArmorVine, 2},
+		{DeckKindArmorRenwang, 1},
+		{DeckKindArmorBaiyin, 1},
 		{DeckKindHuoGong, 2},
 		{DeckKindTieSuo, 2},
 		{DeckKindPlusHorse, 2},

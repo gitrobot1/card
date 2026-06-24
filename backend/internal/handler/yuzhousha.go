@@ -18,11 +18,13 @@ type YuzhoushaHandler struct {
 }
 
 type yzsPlayRequest struct {
-	CardID          string `json:"card_id"`
-	TargetIndex     int    `json:"target_index"`
-	SecondTargetIndex *int `json:"second_target_index"`
-	TargetZone      string `json:"target_zone"`
-	TargetCardID    string `json:"target_card_id"`
+	CardID               string  `json:"card_id"`
+	TargetIndex          int     `json:"target_index"`
+	SecondTargetIndex    *int    `json:"second_target_index"`
+	TargetZone           string  `json:"target_zone"`
+	TargetCardID         string  `json:"target_card_id"`
+	ZhangbaSecondCardID  string  `json:"zhangba_second_card_id"`  // 丈八蛇矛第二张牌
+	FangtianExtraTargets []int   `json:"fangtian_extra_targets"`  // 方天画戟额外目标列表
 }
 
 type yzsRespondRequest struct {
@@ -250,11 +252,22 @@ func (h *YuzhoushaHandler) PlayCard(c *gin.Context) {
 	if req.SecondTargetIndex != nil {
 		secondSeat = *req.SecondTargetIndex
 	}
+	// 丈八蛇矛：两张手牌当杀
+	if req.ZhangbaSecondCardID != "" {
+		state, err := h.Games.PlayZhangbaSha(c.Param("gameId"), userID, req.CardID, req.ZhangbaSecondCardID, req.TargetIndex)
+		if err != nil {
+			writeYuzhoushaError(c, err)
+			return
+		}
+		h.writeGameResponse(c, c.Param("gameId"), userID, state)
+		return
+	}
 	state, err := h.Games.PlayCard(c.Param("gameId"), userID, req.CardID, engine.PlayTarget{
-		SeatIndex:       req.TargetIndex,
-		SecondSeatIndex: secondSeat,
-		Zone:            req.TargetZone,
-		CardID:          req.TargetCardID,
+		SeatIndex:            req.TargetIndex,
+		SecondSeatIndex:      secondSeat,
+		Zone:                 req.TargetZone,
+		CardID:               req.TargetCardID,
+		FangtianExtraTargets: req.FangtianExtraTargets,
 	})
 	if err != nil {
 		writeYuzhoushaError(c, err)

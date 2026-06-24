@@ -376,6 +376,8 @@ export interface YuzhoushaPlayTarget {
   secondTargetIndex?: number
   targetZone?: string
   targetCardId?: string
+  zhangbaSecondCardId?: string   // 丈八蛇矛：第二张手牌ID
+  fangtianExtraTargets?: number[] // 方天画戟：额外目标列表
 }
 
 export function playYuzhoushaCard(
@@ -392,6 +394,8 @@ export function playYuzhoushaCard(
           second_target_index: target.secondTargetIndex,
           target_zone: target.targetZone,
           target_card_id: target.targetCardId,
+          zhangba_second_card_id: target.zhangbaSecondCardId,
+          fangtian_extra_targets: target.fangtianExtraTargets,
         }
   return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/play`, {
     method: 'POST',

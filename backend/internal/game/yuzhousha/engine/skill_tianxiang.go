@@ -158,11 +158,17 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 		damage = 1
 	}
 	damage = g.adjustDamageAmount(source, target, damage, card, card.Kind == CardHuoGong, resume.IgnoreArmor)
+	// 白银狮子：伤害值 > 1 时锁定为 1（参考 noname: baiyin_skill, trigger.num = 1）
+	if !resume.IgnoreArmor {
+		g.baiyinReduceDamage(target, &damage)
+	}
 	if !resume.SkipTianxiang && g.canOfferTianxiang(target, damage) {
 		return g.offerTianxiangWindow(source, target, damage, card, resume, events)
 	}
 
-	g.applyDamageWithHook(source, target, damage, card, events)
+	if g.ApplyDamageAndCheckDeath(source, target, damage, card, resume, events) {
+		return nil
+	}
 	victim := &g.Players[target]
 
 	eventType := "trick_hit"
@@ -213,13 +219,6 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 		}
 	}
 
-	if victim.HP <= 0 {
-		if g.afterDamageApplied(source, target, damage, card, resume, events) {
-			// 濒死启动：Pending 仍保留（含 AoeQueue+RequiredKind），
-			// 濒死救回 → resume.AoeResume 恢复；濒死死亡 → SavedPending 恢复
-			return nil
-		}
-	}
 	// 未濒死：清理 Pending
 	if hasTiesuoAoe {
 		g.clearPending()
@@ -238,6 +237,12 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 	}
 	if resume.LeijiResumeShan {
 		return g.finishShanDodgeSuccess(resume.LeijiShanSeat, resume.LeijiSaved, events, "")
+	}
+
+	// 方天画戟：当前目标受伤结算完毕，处理下一个额外目标
+	if g.Pending != nil && len(g.Pending.FangtianQueue) > 0 {
+		g.continueFangtianAfterTarget(source, events)
+		return nil
 	}
 
 	g.Phase = PhasePlaying

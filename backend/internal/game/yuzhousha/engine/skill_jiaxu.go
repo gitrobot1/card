@@ -155,7 +155,9 @@ func (g *Game) passLuanwu(seat int, events *[]GameEvent) error {
 	}
 	owner := g.Pending.SourceIndex
 	g.Pending = nil
-	g.applyDamageWithHook(owner, seat, 1, Card{Kind: CardJueDou, Name: "乱武"}, events)
+	if g.ApplyDamageAndCheckDeath(owner, seat, 1, Card{Kind: CardJueDou, Name: "乱武"}, DamageResume{ResumeLuanwu: true, LuanwuOwner: owner}, events) {
+		return nil
+	}
 	msg := fmt.Sprintf("%s 未出【杀】，受到【乱武】1 点伤害", g.Players[seat].Name)
 	*events = append(*events, GameEvent{
 		Type:        "skill_luanwu_damage",
@@ -165,9 +167,6 @@ func (g *Game) passLuanwu(seat int, events *[]GameEvent) error {
 		SkillID:     skill.IDLuanwu,
 		Message:     msg,
 	})
-	if g.afterDamageApplied(owner, seat, 1, Card{Name: "乱武"}, DamageResume{ResumeLuanwu: true, LuanwuOwner: owner}, events) {
-		return nil
-	}
 	return g.finishLuanwu(owner, events)
 }
 

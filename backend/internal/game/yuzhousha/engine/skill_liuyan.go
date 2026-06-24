@@ -263,8 +263,11 @@ func isEquipCard(kind string) bool {
 		CardWeapon7:      true,
 		CardWeapon8:      true,
 		CardWeapon9:      true,
+		CardWeapon10:     true,
 		CardArmor:         true,
 		CardArmorVine:    true,
+		CardArmorRenwang: true,
+		CardArmorBaiyin:  true,
 		CardPlusHorse:    true,
 		CardMinusHorse:  true,
 	}

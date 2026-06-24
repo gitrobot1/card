@@ -41,6 +41,7 @@ const (
 	CardWuxiek    = "wuxiek"
 	CardHuoGong   = "huogong"
 	CardTieSuo    = "tiesuo"
+	CardJieDao    = "jiedao"   // 借刀杀人
 
 	// 属性杀
 	CardShaFire    = "sha_fire"
@@ -77,6 +78,7 @@ const (
 	ResponseModeWeapon9     = "weapon_9"
 	ResponseModeGuoHe       = "guohe"
 	ResponseModeTanNang     = "tannang"
+	ResponseModeJieDao      = "jiedao"       // 借刀杀人：被借刀者选择出杀或给武器
 
 	CardWeapon1    = "weapon_1"
 	CardWeapon2    = "weapon_2"
@@ -84,8 +86,11 @@ const (
 	CardWeapon4    = "weapon_4"
 	CardWeapon5    = "weapon_5"
 	CardWeapon6    = "weapon_6"
-	CardArmor      = "armor"
-	CardArmorVine  = "armor_vine"
+	CardWeapon10   = "weapon_10"  // 丈八蛇矛
+	CardArmor       = "armor"        // 八卦阵
+	CardArmorVine   = "armor_vine"   // 藤甲
+	CardArmorRenwang = "armor_renwang" // 仁王盾
+	CardArmorBaiyin  = "armor_baiyin"  // 白银狮子
 	CardPlusHorse  = "plus_horse"
 	CardMinusHorse = "minus_horse"
 

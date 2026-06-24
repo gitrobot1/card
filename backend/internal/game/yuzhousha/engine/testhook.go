@@ -122,7 +122,7 @@ func (g *Game) RespondCardForTest(seat int, cardID string, events *[]GameEvent) 
 }
 
 func (g *Game) AfterJudgeFlipForTest(judgeSeat int, card Card, events *[]GameEvent) error {
-	return g.afterJudgeFlip(judgeSeat, skill.JudgeLeiji, guicaiResumeLeiji, card, events)
+	return g.afterJudgeFlip(judgeSeat, skill.JudgeLeiji, judgeFuncLeiji, guicaiResumeLeiji, card, events)
 }
 
 func (g *Game) SetLeijiContextForTest(shanSeat int) {

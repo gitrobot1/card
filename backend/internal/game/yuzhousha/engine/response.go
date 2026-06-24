@@ -185,7 +185,8 @@ func (g *Game) TryBaguaJudge(seat int, events *[]GameEvent) error {
 		return ErrAlreadyActed
 	}
 
-	return g.startJudge(seat, skill.JudgeBagua, guicaiResumeBagua, events)
+	// 八卦阵判定：红色成功（视为打出闪）
+	return g.startJudge(seat, skill.JudgeBagua, judgeFuncBagua, guicaiResumeBagua, events)
 }
 
 func (g *Game) RespondWuxiek(seat int, cardID string, events *[]GameEvent) error {
@@ -214,6 +215,9 @@ func (g *Game) respondWuxiekWithCard(seat int, cardObj Card, handIdx int, zone s
 	}
 	if g.Phase != PhaseResponse || g.Pending == nil {
 		return ErrNoPendingCombat
+	}
+	if !g.CanBeWuxied(g.Pending, g.Pending.Card.Kind) {
+		return ErrInvalidCard // 此锦囊不可被无懈
 	}
 	if !g.CanRespondWuxiek(seat) {
 		return ErrNotYourTurn
@@ -499,6 +503,10 @@ func (g *Game) PassResponse(seat int, events *[]GameEvent) error {
 	if g.Pending.ResponseMode == ResponseModeHuoGong && seat == g.Pending.TargetIndex {
 		return g.resolveHuoGongFail(seat, events)
 	}
+	if g.Pending.ResponseMode == ResponseModeJieDao && seat == g.Pending.TargetIndex {
+		// 借刀杀人跳过 = 交出武器
+		return g.ApplyJieDaoGiveWeapon(seat, events)
+	}
 	if g.Pending.ResponseMode == ResponseModeDying {
 		return g.passDying(seat, events)
 	}
@@ -593,7 +601,13 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 		if damage <= 0 {
 			damage = 1
 		}
-		g.applyDamageWithHook(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, events)
+		// 构建带 AoeResume 的 DamageResume（参考 noname: damage step 5 自动濒死 + AOE 恢复）
+		aoeResume := DamageResume{}
+		g.setAoeResume(&aoeResume, pending.SourceIndex, damage, pending.Card, pending.AoeQueue, false)
+		if g.ApplyDamageAndCheckDeath(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, aoeResume, events) {
+			// 濒死阶段启动，startDyingWindow 已保存当前 Pending 到 SavedPending
+			return nil
+		}
 		*events = append(*events, GameEvent{
 			Type:        "trick_hit",
 			PlayerIndex: pending.SourceIndex,
@@ -601,20 +615,9 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 			Damage:      damage,
 			Message:     g.damageMessage(&g.Players[pending.TargetIndex], pending.Card.Name, damage),
 		})
-		if g.Players[pending.TargetIndex].HP <= 0 {
-			dyingResume := DamageResume{}
-			g.setAoeResume(&dyingResume, pending.SourceIndex, damage, pending.Card, pending.AoeQueue, false)
-			Logf("resolvePendingMiss: dyingResume AoeResume.Active=%v Rest=%v Card=%s",
-				dyingResume.AoeResume.Active, dyingResume.AoeResume.Rest, dyingResume.AoeResume.Card.Kind)
-			if g.afterDamageApplied(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, dyingResume, events) {
-				// 濒死阶段启动，startDyingWindow 已保存当前 Pending 到 SavedPending
-				// 不要清空 Pending，等濒死结束恢复
-				return nil
-			}
-			if g.IsFinished() {
-				g.Pending = nil
-				return nil
-			}
+		if g.IsFinished() {
+			g.Pending = nil
+			return nil
 		}
 		g.clearPending()
 		// 先处理伤害技能链（刚烈等），技能链完毕后由 resumeAfterDamageNoSkill 恢复 AOE

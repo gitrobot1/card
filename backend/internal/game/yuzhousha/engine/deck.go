@@ -65,14 +65,22 @@ func cardName(kind string) string {
 		return "雌雄双股剑"
 	case CardWeapon9:
 		return "贯石斧"
+	case CardWeapon10:
+		return "丈八蛇矛"
 	case CardArmor:
 		return "八卦阵"
 	case CardArmorVine:
 		return "藤甲"
+	case CardArmorRenwang:
+		return "仁王盾"
+	case CardArmorBaiyin:
+		return "白银狮子"
 	case CardHuoGong:
 		return "火攻"
 	case CardTieSuo:
 		return "铁索连环"
+	case CardJieDao:
+		return "借刀杀人"
 	case CardPlusHorse:
 		return "+1马"
 	case CardMinusHorse:
@@ -98,7 +106,7 @@ func trickScope(kind string) string {
 	case CardNanMan, CardWanJian:
 		return TrickScopeAoe
 	case CardGuoHe, CardTanNang, CardJueDou, CardLeBu, CardBingLiang, CardShanDian,
-		CardWuGu, CardTaoYuan, CardWuZhong, CardWuxiek, CardHuoGong, CardTieSuo:
+		CardWuGu, CardTaoYuan, CardWuZhong, CardWuxiek, CardHuoGong, CardTieSuo, CardJieDao:
 		return TrickScopeSingle
 	default:
 		return ""

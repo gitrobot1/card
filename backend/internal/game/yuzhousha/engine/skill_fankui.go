@@ -158,7 +158,11 @@ func (g *Game) applyShandianJudgeResult(seat int, judgeCard Card, events *[]Game
 		}
 		p := &g.Players[seat]
 		source := g.opponentOf(seat)
-		g.applyDamageWithHook(source, seat, 3, lightning, events)
+		if g.ApplyDamageAndCheckDeath(source, seat, 3, lightning, DamageResume{
+			Mode: damageResumeLightning,
+		}, events) {
+			return nil
+		}
 		*events = append(*events, GameEvent{
 			Type:        "trick_hit",
 			PlayerIndex: source,
@@ -167,13 +171,6 @@ func (g *Game) applyShandianJudgeResult(seat int, judgeCard Card, events *[]Game
 			Message:     fmt.Sprintf("%s 受到【闪电】3 点伤害，体力 %d/%d", p.Name, p.HP, p.MaxHP),
 		})
 		g.Pending = nil
-		if p.HP <= 0 {
-			if g.afterDamageApplied(source, seat, 3, lightning, DamageResume{
-				Mode: damageResumeLightning,
-			}, events) {
-				return nil
-			}
-		}
 		if g.continueAfterDamage(source, seat, 3, lightning, DamageResume{
 			Mode: damageResumeLightning,
 		}, events) {

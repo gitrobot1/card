@@ -68,7 +68,7 @@ func (g *Game) respondHuoGongDiscard(seat int, cardID string, events *[]GameEven
 
 	// 弃牌成功 → 对目标造成 1 点火焰伤害
 	damage := g.adjustDamageAmount(source, target, 1, card, true, false)
-	g.applyDamageWithHook(source, target, damage, card, events)
+	g.ApplyDamageAndCheckDeath(source, target, damage, card, DamageResume{}, events)
 	*events = append(*events, GameEvent{
 		Type:        "trick_hit",
 		PlayerIndex: source,
@@ -99,14 +99,6 @@ func (g *Game) respondHuoGongDiscard(seat int, cardID string, events *[]GameEven
 			AoeQueue:     chainSeats,
 			ReturnIndex:  source,
 			RequiredKind: "tiesuo",
-		}
-	}
-	if g.Players[target].HP <= 0 {
-		if g.afterDamageApplied(source, target, damage, fireCard, DamageResume{}, events) {
-			return nil
-		}
-		if g.IsFinished() {
-			return nil
 		}
 	}
 	// 未濒死：清理 Pending 并启动传导

@@ -26,6 +26,14 @@ const {
   handleSeatTarget,
   tiesuoMode,
   tiesuoTargets,
+  jiedaoMode,
+  jiedaoWeaponHolder,
+  jiedaoShaTarget,
+  isJiedaoWeaponHolderTarget,
+  isJiedaoShaTargetable,
+  fangtianMode,
+  fangtianTargets,
+  isFangtianTargetable,
   equippedCards,
   equipTagTitle,
   equipTagLabel,
@@ -64,12 +72,43 @@ const isTiesuoTargetable = computed(
 const isTiesuoSelected = computed(
   () => tiesuoMode.value && tiesuoTargets.value.includes(props.seat),
 )
+// 借刀杀人模式
+const isJiedaoTargetable = computed(() => {
+  if (!jiedaoMode.value) return false
+  // 第一步：还没选被借刀者 → 有武器的存活角色可点
+  if (jiedaoWeaponHolder.value === null) return isJiedaoWeaponHolderTarget(props.seat)
+  // 第二步：选了被借刀者但还没选出杀目标 → 攻击范围内的存活角色可点
+  if (jiedaoShaTarget.value === null) return isJiedaoShaTargetable(props.seat)
+  return false
+})
+const isJiedaoSelected = computed(() => {
+  return jiedaoWeaponHolder.value === props.seat || jiedaoShaTarget.value === props.seat
+})
+// 借刀杀人的选择步骤标签
+const jiedaoStepLabel = computed(() => {
+  if (!jiedaoMode.value) return ''
+  if (jiedaoWeaponHolder.value === null) return '被借刀'
+  if (jiedaoShaTarget.value === null) return '出杀目标'
+  return ''
+})
+const isJiedaoWeaponHolder = computed(() => jiedaoWeaponHolder.value === props.seat)
+
 // 横置状态：从 skill_counters.chained 判断
 const isChained = computed(
   () => !!player.value?.skill_counters?.chained,
 )
+const isFangtianSelected = computed(() => fangtianTargets.value.includes(props.seat))
+
 function onSeatClick() {
   if (isTiesuoTargetable.value) {
+    handleSeatTarget(props.seat)
+    return
+  }
+  if (isJiedaoTargetable.value) {
+    handleSeatTarget(props.seat)
+    return
+  }
+  if (isFangtianTargetable(props.seat)) {
     handleSeatTarget(props.seat)
     return
   }
@@ -140,6 +179,10 @@ const isProtectSeat = computed(
         { 'yzs__hero-card--targetable': isSeatTargetable(seat) },
         { 'yzs__hero-card--tiesuo-targetable': isTiesuoTargetable },
         { 'yzs__hero-card--tiesuo-selected': isTiesuoSelected },
+        { 'yzs__hero-card--jiedao-targetable': isJiedaoTargetable },
+        { 'yzs__hero-card--jiedao-selected': isJiedaoSelected },
+        { 'yzs__hero-card--fangtian-targetable': isFangtianTargetable(props.seat) },
+        { 'yzs__hero-card--fangtian-selected': isFangtianSelected },
         { 'yzs__hero-card--chained': isChained },
         { 'yzs__hero-card--dead': (player?.hp ?? 0) <= 0 },
       ]"
@@ -164,7 +207,7 @@ const isProtectSeat = computed(
 
         <!-- 装备区（4行固定占位） -->
         <div class="yzs__hero-equips">
-          <div class="yzs__equip-line" :class="{ 'yzs__equip-line--filled': !!player?.weapon }" :title="player?.weapon ? equipTagTitle(player.weapon) : '武器'">
+          <div class="yzs__equip-line" :class="{ 'yzs__equip-line--filled': !!player?.weapon, 'yzs__equip-line--jiedao-holder': isJiedaoWeaponHolder }" :title="player?.weapon ? equipTagTitle(player.weapon) : '武器'">
             <template v-if="player?.weapon">
               <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(player.weapon.suit)}`">{{ suitSymbol(player.weapon.suit) }}</span>
               <span class="yzs__equip-name">{{ equipTagLabel(player.weapon) }}</span>

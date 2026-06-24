@@ -10,6 +10,7 @@ const (
 	TargetBingliang = "bingliang"
 	TargetHuogong  = "huogong"
 	TargetTiesuo   = "tiesuo"
+	TargetJieDao   = "jiedao"    // 借刀杀人
 )
 
 // TargetContext extends Context with combat/targeting queries for play validation.
@@ -94,6 +95,13 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 			return ctx.CanAttack(source, target)
 		}
 		return true
+	case TargetJieDao:
+		// 借刀杀人：目标必须有武器，且不能是自己
+		if source == target {
+			return false
+		}
+		// 简化校验：目标存活且不是自己即可（具体武器和攻击范围检查在 resolveJieDao 中）
+		return true
 	default:
 		if needsOpponentTarget(cardKind) {
 			if limuActive {
@@ -107,7 +115,7 @@ func IsValidPlayTarget(ctx TargetContext, source, target int, cardKind string) b
 
 func needsOpponentTarget(kind string) bool {
 	switch kind {
-	case TargetGuohe, TargetTannang, TargetJuedou, TargetLebu, TargetBingliang, TargetHuogong, TargetTiesuo:
+	case TargetGuohe, TargetTannang, TargetJuedou, TargetLebu, TargetBingliang, TargetHuogong, TargetTiesuo, TargetJieDao:
 		return true
 	default:
 		return false

@@ -38,6 +38,9 @@ type Game struct {
 	leijiSavedPending *PendingCombat
 	leijiShanSeat    int
 	pendingDamageResume *DamageResume
+	phaseStack       *PhaseStack    // 阶段栈：电梯式阶段管理
+	eventManager     *EventManager  // 事件管理器：GameEvent 生命周期栈
+	RoundNumber      int            // 当前轮数（参考 noname game.roundNumber）
 	Message          string
 	WinnerIndex      *int
 	DrawPile         []Card
@@ -62,6 +65,8 @@ type Game struct {
 	judgeFlippedReason     skill.JudgeReason
 	judgeFlippedResume     string
 	judgeFlippedCandidates []int
+	// 判定结果：mod.judge 修改后的完整结果（供 applyPhaseJudgeResult 使用 KeepCard 等标记）
+	judgeResult *skill.JudgeResult
 }
 
 type PublicState struct {
@@ -235,6 +240,8 @@ func weaponRange(kind string) int {
 		return 2
 	case CardWeapon9:
 		return 3
+	case CardWeapon10:
+		return 3 // 丈八蛇矛攻击范围 3
 	default:
 		return 1
 	}

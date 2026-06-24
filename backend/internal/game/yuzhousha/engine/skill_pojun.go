@@ -70,6 +70,25 @@ func (g *Game) advanceShaBeforeTargetResponse(events *[]GameEvent) error {
 		}
 		return g.enterPojunPlacing(events)
 	}
+	// 仁王盾：黑色【杀】对装备者无效（青釭剑可无视）
+	// 参考 noname: renwang_skill, trigger: { target: "shaBegin" }, content: trigger.cancel()
+	if !p.IgnoreArmor && g.hasRenwangArmor(p.TargetIndex) && renwangBlocksSha(p.Card) {
+		msg := fmt.Sprintf("【仁王盾】%s 的黑色【杀】对 %s 无效", g.Players[p.SourceIndex].Name, g.Players[p.TargetIndex].Name)
+		*events = append(*events, GameEvent{
+			Type:        "renwang_block",
+			PlayerIndex: p.SourceIndex,
+			TargetIndex: p.TargetIndex,
+			Card:        &p.Card,
+			Message:     msg,
+		})
+		g.Pending = nil
+		g.Phase = PhasePlaying
+		g.TurnStep = StepPlay
+		g.CurrentTurn = p.ReturnIndex
+		g.Message = msg
+		g.resetTimer()
+		return nil
+	}
 	// 雌雄双股剑：出杀指定目标后，若目标为异性则触发
 	if g.tryOfferChixiongOnSha(events) {
 		return nil

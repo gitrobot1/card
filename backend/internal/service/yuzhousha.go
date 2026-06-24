@@ -194,6 +194,13 @@ func (s *YuzhoushaService) PlayCard(gameID string, userID uint64, cardID string,
 	})
 }
 
+// PlayZhangbaSha 丈八蛇矛：两张手牌当杀使用。
+func (s *YuzhoushaService) PlayZhangbaSha(gameID string, userID uint64, card1ID, card2ID string, targetIndex int) (engine.PublicState, error) {
+	return s.act(gameID, userID, func(g *engine.Game, seat int, ev *[]engine.GameEvent) error {
+		return g.TryZhangbaSha(seat, targetIndex, []string{card1ID, card2ID}, ev)
+	})
+}
+
 func (s *YuzhoushaService) RespondShan(gameID string, userID uint64, cardID string) (engine.PublicState, error) {
 	return s.RespondCard(gameID, userID, cardID)
 }

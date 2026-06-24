@@ -146,6 +146,20 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 		}
 		return skill.HookResult{}
 
+	case skill.HookModJudge:
+		// mod.judge 被动修改：遍历所有玩家的技能，按座位顺序执行
+		// 参考 noname: game.checkMod(player, event.result, "judge", player)
+		if call.ModJudge == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.ModJudge
+		for _, h := range g.playerSkillHandlers(ctx.Seat) {
+			if err := h.OnModJudge(rt, ctx); err != nil {
+				return skill.HookResult{Err: err}
+			}
+		}
+		return skill.HookResult{}
+
 	case skill.HookCardsDiscarded:
 		if call.Discarded == nil {
 			return skill.HookResult{}
@@ -190,6 +204,17 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 		for _, h := range g.playerSkillHandlers(ctx.Victim) {
 			if err := h.OnAfterDeath(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookBlocksWuxiek:
+		// 检查是否有技能阻止无懈可击（参考 noname: playernowuxie）
+		// 遍历所有存活玩家，任一玩家的技能可阻止则返回 true
+		seat := call.Seat
+		for _, h := range g.playerSkillHandlers(seat) {
+			if h.BlocksWuxiek(rt, seat) {
+				return skill.HookResult{Bool: true}
 			}
 		}
 		return skill.HookResult{}
@@ -342,6 +367,26 @@ func (g *Game) runJudgeResultHooks(ctx skill.JudgeCtx, events *[]GameEvent) {
 	_ = g.runSkillHooks(events, skill.HookCall{
 		Kind: skill.HookJudgeResult, Judge: &ctx,
 	})
+}
+
+// runModJudgeHooks 执行 mod.judge 被动修改（参考 noname: game.checkMod(player, event.result, "judge", player)）。
+// 遍历所有玩家的技能，按座位顺序依次调用 OnModJudge，技能可修改 result 的 suit/number/color/bool。
+func (g *Game) runModJudgeHooks(seat int, reason skill.JudgeReason, result *skill.JudgeResult, events *[]GameEvent) {
+	ctx := skill.ModJudgeCtx{Seat: seat, Reason: reason, Result: result}
+	_ = g.runSkillHooks(events, skill.HookCall{
+		Kind: skill.HookModJudge, ModJudge: &ctx,
+	})
+}
+
+// runJudgeFixingHooks 执行 judgeFixing 最终确认（参考 noname: event.trigger("judgeFixing")）。
+// 在所有修改完成后触发，给技能最后一次确认/修改判定结果的机会。
+func (g *Game) runJudgeFixingHooks(seat int, reason skill.JudgeReason, result *skill.JudgeResult, events *[]GameEvent) {
+	// judgeFixing 通过 OnJudgeResult 钩子实现（参考 noname: judgeFixing 后执行 callback）
+	// 当前标准包没有必须依赖 judgeFixing 的技能，预留接口供扩展包使用。
+	_ = seat
+	_ = reason
+	_ = result
+	_ = events
 }
 
 func (g *Game) runCardsDiscardedHooks(seat int, reason string, cards []Card, events *[]GameEvent) {

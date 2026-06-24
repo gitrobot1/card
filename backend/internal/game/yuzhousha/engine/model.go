@@ -4,10 +4,11 @@ import "github.com/time/card/backend/internal/game/yuzhousha/skill"
 
 // GameEvent 对局事件（推送给前端）。
 type GameEvent struct {
-	Type        string `json:"type"`
-	PlayerIndex int    `json:"player_index"`
-	TargetIndex int    `json:"target_index"`
-	Card        *Card  `json:"card,omitempty"`
+	Type              string `json:"type"`
+	PlayerIndex       int    `json:"player_index"`
+	TargetIndex       int    `json:"target_index"`
+	SecondTargetIndex int    `json:"second_target_index,omitempty"` // 借刀杀人第二个目标
+	Card              *Card  `json:"card,omitempty"`
 	Message     string `json:"message,omitempty"`
 	Damage      int    `json:"damage,omitempty"`
 	Heal        int    `json:"heal,omitempty"`
@@ -79,6 +80,8 @@ type Player struct {
 	ShaExtraUsedThisTurn bool     `json:"sha_extra_used_this_turn,omitempty"`
 	SkipPlay        bool      `json:"skip_play"`
 	SkipDraw        bool      `json:"skip_draw"`
+	SkipPhases      *SkipList `json:"-"` // 阶段跳过列表（参考 noname skipList，逐步替代 SkipPlay/SkipDraw）
+	TurnedOver      bool      `json:"turned_over"` // 是否翻面（参考 noname 翻面机制，翻面则跳过整个回合）
 	Drunk           bool      `json:"drunk"`
 	Weapon          *Card     `json:"weapon,omitempty"`
 	Armor           *Card     `json:"armor,omitempty"`
@@ -90,10 +93,11 @@ type Player struct {
 }
 
 type PlayTarget struct {
-	SeatIndex       int
-	SecondSeatIndex int // 铁索连环双目标的第二个目标（0 表示无）
-	Zone            string
-	CardID          string
+	SeatIndex            int
+	SecondSeatIndex      int    // 铁索连环双目标/借刀杀人出杀目标（0 表示无）
+	FangtianExtraTargets []int  // 方天画戟额外目标列表
+	Zone                 string
+	CardID               string
 }
 
 // PendingCombat 等待目标响应的杀、锦囊或无懈可击窗口。
@@ -160,6 +164,20 @@ type PendingCombat struct {
 
 	// 无懈可击链：记录所有打出的无懈可击顺序（最后一张是最新的）
 	WuxiekChain []WuxiekEntry `json:"-"`
+	// 借刀杀人：出杀目标（被借刀者需要对谁出杀）
+	JieDaoShaTarget int `json:"-"`
+	// 方天画戟：额外目标队列和当前索引
+	FangtianQueue []int `json:"-"`
+	FangtianIndex int   `json:"-"`
+	// 不可无懈标记（参考 noname: card.storage.nowuxie / event.getParent().nowuxie）
+	// 设为 true 时，此锦囊不可被无懈可击抵消，整个无懈队列直接跳过。
+	//
+	// 使用示例：
+	//   // 某扩展包锦囊自带不可无懈属性
+	//   pending.NoWuxie = true
+	//   // 技能创造的虚拟锦囊不可无懈
+	//   g.Pending.NoWuxie = true
+	NoWuxie bool `json:"-"`
 }
 
 // WuxiekEntry 无懈可击链中的一条记录

@@ -166,9 +166,9 @@ func (g *Game) PassDdzJudgeCancel(seat int, events *[]GameEvent) error {
 		candidates := g.collectModifyJudgeSeats(judgeSeat)
 		if len(candidates) > 0 {
 			g.Pending = saved
-			return g.offerNextModifyJudge(judgeSeat, reason, resume, judgeCard, candidates, 0, events)
+			return g.offerNextModifyJudge(judgeSeat, reason, nil, resume, judgeCard, candidates, 0, events)
 		}
-		return g.completeJudgeResume(resume, judgeSeat, reason, judgeCard, events)
+		return g.completeJudgeResume(judgeSeat, reason, nil, resume, judgeCard, events)
 	}
 }
 

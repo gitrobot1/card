@@ -406,6 +406,14 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 			_ = g.resolveHuoGongFail(seat, events)
 			return true
 		}
+		if pending.ResponseMode == ResponseModeJieDao {
+			seat := pending.TargetIndex
+			if g.Players[seat].IsAI {
+				g.jieDaoAIChoose(seat, events)
+				return true
+			}
+			return false
+		}
 		if pending.ResponseMode == ResponseModeSkillFankui {
 			seat := pending.TargetIndex
 			if !g.Players[seat].IsAI {
@@ -465,7 +473,7 @@ func RunAIActionStep(g *Game, events *[]GameEvent) bool {
 		resume := g.judgeFlippedResume
 		candidates := g.judgeFlippedCandidates
 		g.judgeFlippedCard = nil
-		g.offerNextModifyJudge(judgeSeat, reason, resume, card, candidates, 0, events)
+		g.offerNextModifyJudge(judgeSeat, reason, nil, resume, card, candidates, 0, events)
 		return g.Pending != nil
 	} else if g.Phase == PhasePlaying && g.TurnStep == StepPrepare && g.Players[g.CurrentTurn].IsAI {
 		seat := g.CurrentTurn
@@ -536,7 +544,7 @@ func runAIPlayPhase(g *Game, seat int, events *[]GameEvent) bool {
 		return true
 	}
 
-	for _, kind := range []string{CardWeapon9, CardWeapon8, CardWeapon7, CardWeapon6, CardWeapon5, CardWeapon4, CardWeapon3, CardWeapon2, CardWeapon1, CardArmorVine, CardArmor, CardPlusHorse, CardMinusHorse} {
+	for _, kind := range []string{CardWeapon9, CardWeapon8, CardWeapon7, CardWeapon6, CardWeapon5, CardWeapon4, CardWeapon3, CardWeapon2, CardWeapon1, CardWeapon10, CardArmorVine, CardArmor, CardArmorRenwang, CardArmorBaiyin, CardPlusHorse, CardMinusHorse} {
 		idx := firstCardKind(p.Hand, kind)
 		if idx < 0 || !shouldAIEquip(p, kind) {
 			continue

@@ -55,6 +55,14 @@ func (s stubTargetCtx) HandCount(seat int) int {
 	return 1
 }
 
+func (s stubTargetCtx) HasJudgeKind(target int, kind string) bool {
+	return false
+}
+
+func (s stubTargetCtx) TrickIgnoresDistance(source int, trickKind string) bool {
+	return false
+}
+
 func (s stubTargetCtx) LimuActive(source int) bool {
 	return false
 }

@@ -27,7 +27,7 @@ async function flyBoltIfTargeted(ctx: EventReplayContext) {
 
   await tick()
 
-  // 群体锦囊（万箭齐发、南蛮入侵、桃园结义、五谷丰登）：一次性并发飞线到所有存活玩家
+  // 群体锦囊（万箭齐发、南蛮入侵、桃园结义、五谷丰登、方天画戟）：一次性并发飞线到所有目标
   if (event.type === 'play_trick') {
     const aoeKinds = ['wanjian', 'nanman', 'taoyuan', 'wugu']
     if (event.card?.kind && aoeKinds.includes(event.card.kind)) {
@@ -40,9 +40,30 @@ async function flyBoltIfTargeted(ctx: EventReplayContext) {
       return
     }
   }
+  // 方天画戟：一次性飞线到所有目标（类似南蛮入侵）
+  if (event.type === 'play_sha' && (event as any).fangtian_targets) {
+    const targets = (event as any).fangtian_targets as number[]
+    if (targets.length > 0) {
+      await Promise.all(targets.map((t) => runShaFlyBolt(source, t)))
+      return
+    }
+  }
 
   // 对自己用的锦囊（无中生有）：无飞线
   if (event.type === 'play_trick' && event.card?.kind === 'wuzhong') {
+    return
+  }
+
+  // 借刀杀人：双飞线（使用者 → 被借刀者 → 出杀目标）
+  if (event.type === 'play_trick' && event.card?.kind === 'jiedao') {
+    if (target != null && target !== source) {
+      await runShaFlyBolt(source, target)
+      await tick()
+      const secondTarget = (event as any).second_target_index
+      if (secondTarget != null && secondTarget !== target && secondTarget >= 0) {
+        await runShaFlyBolt(target, secondTarget)
+      }
+    }
     return
   }
 
@@ -380,6 +401,29 @@ const drawPhaseSkipHandler: EventReplayHandler = {
       }
     }
     await sleep(600)
+    tableActionHint.value = ''
+  },
+}
+
+/** 出牌阶段被跳过（乐不思蜀生效） */
+const playPhaseSkipHandler: EventReplayHandler = {
+  types: ['play_phase_skip'],
+  match: (e) => e.type === 'play_phase_skip',
+  async replay(ctx) {
+    const { event, state, centerMessage, tableActionHint, sleep } = ctx
+    if (event.message) {
+      centerMessage.value = event.message
+      tableActionHint.value = event.message
+    }
+    if (state.value && event.player_index != null) {
+      state.value = {
+        ...state.value,
+        players: state.value.players.map((p) =>
+          p.index === event.player_index ? { ...p, skip_play: false } : p,
+        ),
+      }
+    }
+    await sleep(800)
     tableActionHint.value = ''
   },
 }
@@ -1031,6 +1075,7 @@ export const eventReplayerHandlers: EventReplayHandler[] = [
   lebuSkipHandler,
   bingliangSkipHandler,
   drawPhaseSkipHandler,
+  playPhaseSkipHandler,
   wuguPickHandler,
   shandianJudgeHandler,
   huogongRevealHandler,

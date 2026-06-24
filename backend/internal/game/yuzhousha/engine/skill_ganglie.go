@@ -41,7 +41,8 @@ func (g *Game) StartGanglieJudge(seat int, events *[]GameEvent) error {
 	}
 	a.GanglieLeft--
 	g.Pending = nil
-	return g.startJudge(seat, skill.JudgeGanglie, guicaiResumeGanglie, events)
+	// 刚烈判定：红桃失败(-2)，其他成功(2)（参考 noname: ganglie judge）
+	return g.startJudge(seat, skill.JudgeGanglie, judgeFuncGanglie, guicaiResumeGanglie, events)
 }
 
 func (g *Game) PassGanglieOffer(seat int, events *[]GameEvent) error {
@@ -99,17 +100,14 @@ func (g *Game) GanglieTakeDamage(source int, events *[]GameEvent) error {
 	}
 	owner := g.Pending.GanglieOwner
 	g.Pending = nil
-	g.applyDamageWithHook(owner, source, 1, Card{Name: "刚烈"}, events)
+	if g.ApplyDamageAndCheckDeath(owner, source, 1, Card{Name: "刚烈"}, DamageResume{}, events) {
+		g.damageAftermath = nil
+		return nil
+	}
 	msg := fmt.Sprintf("%s 受到【刚烈】1 点伤害", g.Players[source].Name)
 	*events = append(*events, GameEvent{
 		Type: "ganglie_damage", PlayerIndex: owner, TargetIndex: source, Damage: 1, Message: msg,
 	})
-	if g.Players[source].HP <= 0 {
-		if g.afterDamageApplied(owner, source, 1, Card{Name: "刚烈"}, DamageResume{}, events) {
-			g.damageAftermath = nil
-			return nil
-		}
-	}
 	if g.advanceDamageAftermath(events) {
 		return nil
 	}

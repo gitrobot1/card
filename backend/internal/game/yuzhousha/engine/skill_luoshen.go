@@ -40,7 +40,8 @@ func (g *Game) StartLuoshen(seat int, events *[]GameEvent) error {
 	if !ok {
 		return ErrInvalidCard
 	}
-	return g.afterJudgeFlip(seat, skill.JudgeLuoshen, guicaiResumeLuoshen, card, events)
+	// 洛神判定：黑色获得（参考 noname: luoshen → 黑色成功）
+	return g.afterJudgeFlip(seat, skill.JudgeLuoshen, judgeFuncLuoshen, guicaiResumeLuoshen, card, events)
 }
 
 func (g *Game) applyLuoshenJudgeResult(seat int, judgeCard Card, events *[]GameEvent) error {

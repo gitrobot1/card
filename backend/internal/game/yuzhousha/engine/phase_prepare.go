@@ -400,17 +400,17 @@ func (g *Game) peekDeckSkillID() string {
 }
 
 // enterJudgePhase 进入判定阶段，处理判定区中的所有延时锦囊
+// 参考 noname phaseJudge: 创建 phaseJudge 事件，content 中循环处理判定区牌
 func (g *Game) enterJudgePhase(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return nil
 	}
-	
+
 	// 检查是否有判定区的牌需要处理
 	if g.judgeAreaCount(seat) == 0 {
-		// 没有判定牌，直接进入摸牌阶段
 		return g.advanceToDrawPhase(seat, events)
 	}
-	
+
 	// 进入判定阶段
 	g.TurnStep = StepJudge
 	g.Pending = nil
@@ -421,28 +421,41 @@ func (g *Game) enterJudgePhase(seat int, events *[]GameEvent) error {
 		PlayerIndex: seat,
 		Message:     g.Message,
 	})
-	
-	// 开始处理第一张判定牌
-	return g.processNextJudgeCard(seat, events)
+
+	// 创建 phaseJudge 事件（参考 noname: player.phaseJudge()）
+	// content: 循环处理判定区牌（step 1→2→3→goto(1)）
+	judgeEv := g.NewGameEvent("phaseJudge", seat)
+	judgeEv.Content = func(g *Game, ev *GameEventInstance, evs *[]GameEvent) error {
+		return g.processNextJudgeCard(seat, evs)
+	}
+	return g.StartEvent(judgeEv, events)
 }
 
 // processNextJudgeCard 处理判定区中的下一张牌
+// 参考 noname phaseJudge: 取牌 → 无懈窗口 → 判定 → 结果 → 循环
 func (g *Game) processNextJudgeCard(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return nil
 	}
-	
+
 	// 检查是否还有判定牌需要处理
 	if g.judgeAreaCount(seat) == 0 {
 		// 所有判定牌处理完毕，进入摸牌阶段
 		return g.advanceToDrawPhase(seat, events)
 	}
-	
-	// 获取第一张判定牌（按照标准规则：乐不思蜀 → 兵粮寸断 → 闪电）
-	// 这里简单处理：按判定区数组顺序处理
-	judgeCard := g.Players[seat].JudgeArea[0]
-	
-	// 先触发"判定前"的无懈可击窗口
+
+	// 获取最后一张判定牌（后进先出，参考 noname: cards.pop()）
+	lastIdx := len(g.Players[seat].JudgeArea) - 1
+	judgeCard := g.Players[seat].JudgeArea[lastIdx]
+
+	// Push 当前状态，进入无懈窗口（参考 noname: trigger("phaseJudge") → 无懈介入）
+	g.PushPhase(PhaseResponse, StepJudge, nil, PhaseResume{
+		OnResume: func(g *Game, ev *[]GameEvent) error {
+			// 无懈窗口结束 → 执行判定翻牌（参考 noname: phaseJudge step 2）
+			return g.executeJudge(seat, judgeCard, ev)
+		},
+	})
+
 	return g.startJudgeWuxiekWindow(seat, judgeCard, events)
 }
 
@@ -521,8 +534,7 @@ func (g *Game) createResponseQueue(startSeat int) []int {
 }
 
 // executeJudge 执行判定（无懈可击处理后）
-// 阶段2：翻牌 → 设置中间Pending → 返回
-// 阶段3（改判）由 RunAIActionStep 在下一轮驱动
+// 走完整判定流程：取牌 → 亮出 → 改判队列 → 构建result → mod.judge → judgeFixing → 结果应用
 func (g *Game) executeJudge(seat int, judgeCard Card, events *[]GameEvent) error {
 	Logf("executeJudge: seat=%d(%s) kind=%s name=%s", seat, g.Players[seat].Name, judgeCard.Kind, judgeCard.Name)
 	if g.IsFinished() {
@@ -539,7 +551,7 @@ func (g *Game) executeJudge(seat int, judgeCard Card, events *[]GameEvent) error
 		g.removeJudgeByKind(seat, CardShanDian)
 	}
 
-	// 翻判定牌
+	// 翻判定牌（参考 noname: phaseJudge step 2 → player.judge(card)）
 	reason := judgeReasonForKind(judgeCard.Kind)
 	card, ok := g.flipJudgeCard(events, seat)
 	if !ok {
@@ -555,32 +567,56 @@ func (g *Game) executeJudge(seat int, judgeCard Card, events *[]GameEvent) error
 		}
 	}
 
+	// 选择判定函数（参考 noname: player.judge(card) 的 judge 函数）
+	judgeFunc := phaseJudgeFuncForKind(judgeCard.Kind)
+
 	// 收集可改判者
 	candidates := g.collectModifyJudgeSeats(seat)
 	if len(candidates) == 0 {
-		// 无人可改判，直接进入结果阶段
-		return g.completeJudgeResume("phase_judge", seat, reason, card, events)
+		// 无人可改判 → 直接构建结果并应用
+		result := g.buildJudgeResult(seat, reason, card, judgeFunc)
+		g.runModJudgeHooks(seat, reason, result, events)
+		g.runJudgeFixingHooks(seat, reason, result, events)
+		return g.applyPhaseJudgeResult(seat, reason, card, events)
 	}
 
-	// 设置中间 Pending，等待前端展示翻牌后再进入改判阶段
-	// ActorSeat = -1 表示纯展示阶段，无人需要操作
-	g.Phase = PhaseResponse
-	g.Pending = &PendingCombat{
-		SourceIndex:    seat,
-		TargetIndex:    -1,
-		ActorSeat:      -1,
-		ResponseMode:   ResponseModeJudgeFlipped,
-		JudgeCard:      card,
-		JudgeReason:    string(reason),
-		GuicaiResume:   "phase_judge",
-		GuicaiJudgeSeat: seat,
+	// Push 当前状态，进入改判阶段（参考 noname: trigger("judge") → 改判介入）
+	g.PushPhase(PhaseResponse, StepJudge, &PendingCombat{
+		SourceIndex:      seat,
+		TargetIndex:      -1,
+		ActorSeat:        -1,
+		ResponseMode:     ResponseModeJudgeFlipped,
+		JudgeCard:        card,
+		JudgeReason:      string(reason),
+		GuicaiResume:     "phase_judge",
+		GuicaiJudgeSeat:  seat,
 		ModifyCandidates: candidates,
 		ModifyIndex:      0,
-	}
+	}, PhaseResume{
+		OnResume: func(g *Game, ev *[]GameEvent) error {
+			// 改判阶段结束 → 进入结果阶段（参考 noname: phaseJudge step 3）
+			return g.applyPhaseJudgeResult(seat, reason, card, ev)
+		},
+	})
+
 	label := suitSymbol(card.Suit) + rankLabel(card.Rank)
 	g.Message = fmt.Sprintf("%s 的【%s】判定为 %s", g.Players[seat].Name, reasonToName(reason), label)
 	g.resetTimer()
 	return nil
+}
+
+// phaseJudgeFuncForKind 根据延迟锦囊种类返回对应的判定函数。
+func phaseJudgeFuncForKind(kind string) skill.JudgeFunc {
+	switch kind {
+	case CardLeBu:
+		return judgeFuncLebu
+	case CardBingLiang:
+		return judgeFuncBingliang
+	case CardShanDian:
+		return judgeFuncShandian
+	default:
+		return nil
+	}
 }
 
 func judgeReasonForKind(kind string) skill.JudgeReason {
@@ -599,7 +635,9 @@ func judgeReasonForKind(kind string) skill.JudgeReason {
 // applyPhaseJudgeResult 鬼才窗口结束后，应用判定阶段判定结果
 func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCard Card, events *[]GameEvent) error {
 	Logf("applyPhaseJudgeResult: seat=%d(%s) reason=%s suit=%s rank=%d", seat, g.Players[seat].Name, reason, judgeCard.Suit, judgeCard.Rank)
-	// 判定牌放入弃牌堆
+	g.judgeResult = nil // 清理
+
+	// 判定牌放入弃牌堆（参考 noname: callback 阶段统一处理牌归属）
 	g.DiscardPile = append(g.DiscardPile, judgeCard)
 	g.syncCounts()
 
@@ -610,6 +648,7 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 	switch reason {
 	case skill.JudgeLebu:
 		// 乐不思蜀：不是红桃则跳过出牌阶段
+		// 参考 noname: player.skip("phaseUse") → checkSkipped() 自动跳过
 		if !isHeart {
 			g.Players[seat].SkipPlay = true
 			Logf("applyPhaseJudgeResult LEBU SKIP: seat=%d(%s) SkipPlay=true, advancing to discard", seat, g.Players[seat].Name)
@@ -617,7 +656,9 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 			g.Message = msg
 			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: false, Message: msg})
 			g.syncCounts()
-			return g.advanceToDiscardPhase(seat, events)
+			// 直接跳转到弃牌阶段（参考 noname: skipList + checkSkipped）
+			g.SkipToPhase(seat, "phaseDiscard", events)
+			return nil
 		}
 		Logf("applyPhaseJudgeResult LEBU INVALID: seat=%d(%s) isHeart=true, continue", seat, g.Players[seat].Name)
 		msg := fmt.Sprintf("%s 的【乐不思蜀】判定无效（%s）", g.Players[seat].Name, label)
@@ -647,11 +688,10 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 			msg := fmt.Sprintf("%s 的【闪电】判定生效（%s），受到 3 点雷电伤害", g.Players[seat].Name, label)
 			g.Message = msg
 			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: false, Message: msg, Damage: 3})
-			g.applyDamageWithHook(seat, seat, 3, Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}, events)
-			if g.Players[seat].HP <= 0 {
-				if g.afterDamageApplied(seat, seat, 3, Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}, DamageResume{}, events) {
-					return nil // 濒死处理中
-				}
+			// 使用统一的伤害+濒死检查接口
+			lightningCard := Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}
+			if g.ApplyDamageAndCheckDeath(seat, seat, 3, lightningCard, DamageResume{}, events) {
+				return nil // 濒死处理中
 			}
 		} else {
 			g.transferShandian(seat, judgeCard, events)
@@ -698,11 +738,17 @@ func (g *Game) handleWuxiekCounterPass(events *[]GameEvent) error {
 		g.Pending = nil
 		// 检查是否是判定牌无懈窗口
 		if g.isJudgeWuxiekMode(savedPending.ResponseMode) {
-			// 无懈抵消延时锦囊：移除判定牌，继续处理下一张
 			seat := savedPending.EffectTarget
 			judgeCard := savedPending.Card
 			g.removeJudgeCard(seat, judgeCard.ID)
-			g.DiscardPile = append(g.DiscardPile, judgeCard)
+
+			// 闪电被无懈后传给下家（参考 noname: cancel → addJudgeNext(card)）
+			if judgeCard.Kind == CardShanDian {
+				g.transferShandian(seat, judgeCard, events)
+			} else {
+				// 乐/兵被无懈后直接弃置
+				g.DiscardPile = append(g.DiscardPile, judgeCard)
+			}
 			g.syncCounts()
 			*events = append(*events, GameEvent{
 				Type:        "wuxiek_cancel_judge",
@@ -816,9 +862,23 @@ func (g *Game) runDrawPhaseStartHooks(seat int, events *[]GameEvent) {
 }
 
 // advanceToPlayPhase 从摸牌阶段进入出牌阶段
+// 参考 noname: player.skip("phaseUse") → checkSkipped() 自动跳过
 func (g *Game) advanceToPlayPhase(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return nil
+	}
+
+	// 检查是否需要跳过出牌阶段（如乐不思蜀生效）
+	if g.Players[seat].SkipPlay {
+		g.Players[seat].SkipPlay = false
+		msg := fmt.Sprintf("%s 的出牌阶段被跳过", g.Players[seat].Name)
+		g.Message = msg
+		*events = append(*events, GameEvent{
+			Type:        "play_phase_skip",
+			PlayerIndex: seat,
+			Message:     msg,
+		})
+		return g.advanceToDiscardPhase(seat, events)
 	}
 	
 	g.TurnStep = StepPlay
@@ -834,149 +894,19 @@ func (g *Game) advanceToPlayPhase(seat int, events *[]GameEvent) error {
 	return nil
 }
 
-// resolveLebuJudge 处理乐不思蜀的判定
-// 规则：判定牌不是红桃 → 跳过出牌阶段；红桃 → 无效，正常出牌
-func (g *Game) resolveLebuJudge(seat int, events *[]GameEvent) error {
-	// 翻判定牌
-	judgeCard, ok := g.flipJudgeCard(events, seat)
-	if !ok {
-		return g.processNextJudgeCard(seat, events)
-	}
 
-	// 判定牌放入弃牌堆
-	g.DiscardPile = append(g.DiscardPile, judgeCard)
-
-	// 移除判定区的乐不思蜀
-	g.removeJudgeByKind(seat, CardLeBu)
-
-	label := suitSymbol(judgeCard.Suit) + rankLabel(judgeCard.Rank)
-	// 判定结果：红桃则无效，不是红桃则生效
-	isHeart := judgeCard.Suit == "H"
-	if !isHeart {
-		// 不是红桃 → 跳过出牌阶段
-		g.Players[seat].SkipPlay = true
-		msg := fmt.Sprintf("%s 的【乐不思蜀】判定生效（%s），跳过出牌阶段", g.Players[seat].Name, label)
-		g.Message = msg
-		*events = append(*events, GameEvent{
-			Type:        "judge_result",
-			PlayerIndex: seat,
-			Card:        &judgeCard,
-			Success:     false, // 对拥有者不利
-			Message:     msg,
-		})
-		g.syncCounts()
-		// 直接跳到弃牌阶段
-		return g.advanceToDiscardPhase(seat, events)
-	}
-
-	// 红桃 → 无效，正常出牌
-	msg := fmt.Sprintf("%s 的【乐不思蜀】判定无效（%s）", g.Players[seat].Name, label)
-	g.Message = msg
-	*events = append(*events, GameEvent{
-		Type:        "judge_result",
-		PlayerIndex: seat,
-		Card:        &judgeCard,
-		Success:     true, // 对拥有者有利
-		Message:     msg,
-	})
-	g.syncCounts()
-	return g.processNextJudgeCard(seat, events)
-}
-
-// resolveBingliangJudge 处理兵粮寸断的判定
-// 规则：判定牌不是梅花 → 跳过摸牌阶段；梅花 → 无效，正常摸牌
-func (g *Game) resolveBingliangJudge(seat int, events *[]GameEvent) error {
-	// 翻判定牌
-	judgeCard, ok := g.flipJudgeCard(events, seat)
-	if !ok {
-		return g.processNextJudgeCard(seat, events)
-	}
-
-	// 判定牌放入弃牌堆
-	g.DiscardPile = append(g.DiscardPile, judgeCard)
-
-	// 移除判定区的兵粮寸断
-	g.removeJudgeByKind(seat, CardBingLiang)
-
-	label := suitSymbol(judgeCard.Suit) + rankLabel(judgeCard.Rank)
-	// 判定结果：梅花则无效，不是梅花则生效
-	isClub := judgeCard.Suit == "C"
-	if !isClub {
-		// 不是梅花 → 跳过摸牌阶段
-		g.Players[seat].SkipDraw = true
-		msg := fmt.Sprintf("%s 的【兵粮寸断】判定生效（%s），跳过摸牌阶段", g.Players[seat].Name, label)
-		g.Message = msg
-		*events = append(*events, GameEvent{
-			Type:        "judge_result",
-			PlayerIndex: seat,
-			Card:        &judgeCard,
-			Success:     false, // 对拥有者不利
-			Message:     msg,
-		})
-	} else {
-		// 梅花 → 无效
-		msg := fmt.Sprintf("%s 的【兵粮寸断】判定无效（%s）", g.Players[seat].Name, label)
-		g.Message = msg
-		*events = append(*events, GameEvent{
-			Type:        "judge_result",
-			PlayerIndex: seat,
-			Card:        &judgeCard,
-			Success:     true, // 对拥有者有利
-			Message:     msg,
-		})
-	}
-	g.syncCounts()
-	return g.processNextJudgeCard(seat, events)
-}
-
-// resolveShandianJudge 处理闪电的判定
-func (g *Game) resolveShandianJudge(seat int, events *[]GameEvent) error {
-	// 翻判定牌
-	judgeCard, ok := g.flipJudgeCard(events, seat)
-	if !ok {
-		return g.processNextJudgeCard(seat, events)
-	}
-
-	// 检查判定结果（黑桃2-9则雷击）
-	struck := isLightningStrike(judgeCard.Suit, judgeCard.Rank)
-
-	// 移除判定区的闪电
-	g.removeJudgeByKind(seat, CardShanDian)
-
-	label := suitSymbol(judgeCard.Suit) + rankLabel(judgeCard.Rank)
-	if struck {
-		// 闪电生效，造成3点雷电伤害
-		g.DiscardPile = append(g.DiscardPile, judgeCard)
-		g.syncCounts()
-
-		msg := fmt.Sprintf("%s 的【闪电】判定生效（%s），受到 3 点雷电伤害", g.Players[seat].Name, label)
-		g.Message = msg
-		*events = append(*events, GameEvent{
-			Type:        "judge_result",
-			PlayerIndex: seat,
-			Card:        &judgeCard,
-			Success:     false, // 对拥有者不利
-			Message:     msg,
-			Damage:      3,
-		})
-
-		// 应用伤害
-		g.applyDamageWithHook(seat, seat, 3, Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}, events)
-	} else {
-		// 闪电转移到下家
-		g.transferShandian(seat, judgeCard, events)
-	}
-
-	// 继续处理下一张判定牌（如果有的话）
-	return g.processNextJudgeCard(seat, events)
-}
 
 // advanceToDiscardPhase 进入弃牌阶段
+// 参考 noname: 进入弃牌阶段时自动清理 skipList 中的残留标记
 func (g *Game) advanceToDiscardPhase(seat int, events *[]GameEvent) error {
 	Logf("advanceToDiscardPhase: seat=%d(%s)", seat, g.Players[seat].Name)
 	if g.IsFinished() {
 		return nil
 	}
+
+	// 清理所有阶段跳过标记（参考 noname: skipList.remove）
+	g.Players[seat].SkipPlay = false
+	g.Players[seat].SkipDraw = false
 	
 	g.TurnStep = StepDiscard
 	g.Pending = nil
@@ -1079,11 +1009,21 @@ func (g *Game) flipJudgeCard(events *[]GameEvent, seat int) (Card, bool) {
 	return card, true
 }
 
-// transferShandian 将闪电转移到下家
+// transferShandian 将闪电转移到下一个没有闪电的玩家（参考 noname: addJudgeNext）。
+// 规则：闪电不生效时，按座位顺序传给下家；如果下家判定区已有闪电则跳过，直到找到没有闪电的玩家。
+// 示例：A→B→C→D，A闪电不生效 → B已有闪电 → 跳过B给C → C无闪电则进入C判定区。
 func (g *Game) transferShandian(seat int, shandianCard Card, events *[]GameEvent) {
-	nextSeat := g.nextTurnSeat(seat)
-	g.Players[nextSeat].JudgeArea = append(g.Players[nextSeat].JudgeArea, shandianCard)
-	
+	// 按座位顺序找到下一个没有闪电的存活玩家
+	nextSeat := seat
+	for i := 0; i < len(g.Players); i++ {
+		nextSeat = g.nextTurnSeat(nextSeat)
+		if g.Players[nextSeat].HP > 0 && !g.Players[nextSeat].hasJudgeKind(CardShanDian) {
+			break
+		}
+	}
+
+	g.setJudgeCard(nextSeat, shandianCard)
+
 	msg := fmt.Sprintf("【闪电】转移到 %s 的判定区", g.Players[nextSeat].Name)
 	g.Message = msg
 	*events = append(*events, GameEvent{

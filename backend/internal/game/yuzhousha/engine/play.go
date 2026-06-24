@@ -91,7 +91,7 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 		if g.cardPlaysAs(seat, cardObj, CardSha) && g.canUseSha(seat) && g.isValidPlayTarget(seat, target.SeatIndex, CardSha) {
 			discarded := g.removeEquipCard(seat, zone, events)
 			g.notifyEquipLost(seat, discarded, "skill", events)
-			return g.playShaWithCard(seat, discarded, target.SeatIndex, events)
+			return g.playShaWithCard(seat, discarded, target.SeatIndex, target, events)
 		}
 		// 变牌为桃（急救等）
 		if g.cardPlaysAs(seat, cardObj, CardTao) {
@@ -162,7 +162,7 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 // isEquipKind 判断是否为装备牌
 func isEquipKind(kind string) bool {
 	switch kind {
-	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardWeapon7, CardWeapon8, CardWeapon9, CardArmor, CardArmorVine, CardPlusHorse, CardMinusHorse:
+	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardWeapon7, CardWeapon8, CardWeapon9, CardWeapon10, CardArmor, CardArmorVine, CardArmorRenwang, CardArmorBaiyin, CardPlusHorse, CardMinusHorse:
 		return true
 	}
 	return false
@@ -174,11 +174,11 @@ func (g *Game) playSha(seat int, cardID string, targetIndex int, events *[]GameE
 		return ErrInvalidCard
 	}
 	played := g.removeHandCard(seat, idx, events)
-	return g.playShaWithCard(seat, played, targetIndex, events)
+	return g.playShaWithCard(seat, played, targetIndex, PlayTarget{}, events)
 }
 
 // playShaWithCard 用已移除的牌打出杀（支持装备牌变牌）
-func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, events *[]GameEvent) error {
+func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, targetSpec PlayTarget, events *[]GameEvent) error {
 	guanYuFollow := g.isGuanYuFollowPending() && seat == g.Pending.TargetIndex
 	if !guanYuFollow && !g.canUseSha(seat) {
 		return ErrAlreadyActed
@@ -296,6 +296,11 @@ func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, events *[
 		Message:     g.Message,
 	})
 	g.notifyBecameTarget(targetIndex, seat, played, events)
+	// 方天画戟：最后一张手牌出杀时，从前端传入的额外目标列表依次结算
+	// 参考 noname: fangtian_skill, mod.selectTarget: range[1] += 2
+	if g.canFangtianMultiTarget(seat) && !guanYuFollow && len(targetSpec.FangtianExtraTargets) > 0 {
+		g.startFangtianMultiSha(seat, targetSpec.FangtianExtraTargets, played, events)
+	}
 	if g.canOfferLiuli(targetIndex) {
 		g.offerLiuliWindow(targetIndex, events)
 	} else {
@@ -378,11 +383,12 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 		g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
 	}
 	*events = append(*events, GameEvent{
-		Type:        "play_trick",
-		PlayerIndex: seat,
-		TargetIndex: targetSpec.SeatIndex,
-		Card:        &played,
-		Message:     fmt.Sprintf("%s 使用【%s】", g.Players[seat].Name, played.Name),
+		Type:              "play_trick",
+		PlayerIndex:       seat,
+		TargetIndex:       targetSpec.SeatIndex,
+		SecondTargetIndex: targetSpec.SecondSeatIndex, // 借刀杀人的出杀目标
+		Card:              &played,
+		Message:           fmt.Sprintf("%s 使用【%s】", g.Players[seat].Name, played.Name),
 	})
 
 	// 图射：使用非装备牌指定目标后，若没有基本牌，摸X张牌
@@ -419,6 +425,8 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 			responder = g.opponentOf(seat)
 		}
 		return g.startWuxiekTrickWindow(seat, responder, effectTarget, played, targetSpec, events)
+	case CardJieDao:
+		return g.resolveJieDao(seat, targetSpec, played, events)
 	case CardNanMan:
 		return g.resolveNanMan(seat, events)
 	case CardWanJian:
@@ -500,6 +508,12 @@ func (g *Game) advanceToNextWuxiekResponder(events *[]GameEvent) {
 		return
 	}
 	if len(g.Pending.ResponseQueue) == 0 {
+		g.finalizeWuxiekChain(events)
+		return
+	}
+	// 如果锦囊不可被无懈，直接跳过整个队列（参考 noname: wuxieable === false / nowuxie）
+	if !g.CanBeWuxied(g.Pending, g.Pending.Card.Kind) {
+		g.Pending.ResponseQueue = nil
 		g.finalizeWuxiekChain(events)
 		return
 	}
@@ -838,6 +852,62 @@ func (g *Game) nextAliveSeat(seat int) int {
 	return seat
 }
 
+// CanBeWuxied 检查锦囊是否可被无懈可击（参考 noname _wuxie filter）。
+//
+// 不可无懈的情况（三层检查）：
+//  1. Pending.NoWuxie 标记 — 锦囊本身标记为不可无懈
+//     （对应 noname: card.storage.nowuxie / event.getParent().nowuxie）
+//     使用示例：
+//       pending.NoWuxie = true  // 某扩展包锦囊不可被无懈
+//       g.Pending.NoWuxie = true // 技能创造的虚拟锦囊不可无懈
+//
+//  2. 技能阻止 — 某角色的技能使锦囊不可被无懈
+//     （对应 noname: playernowuxie 技能标签）
+//     使用示例：
+//       Decl{BlocksWuxiek: func(r Runtime, seat int) bool { return true }}
+//       // 在 skill_hooks.go 的 HookBlocksWuxiek 分发生效
+//
+//  3. 非锦囊类型且未显式标记可无懈
+//     （对应 noname: type != "trick" && !wuxieable）
+//     基本牌/装备不可被无懈，AllowWuxiek 标记用于特殊场景（如 AOE 自无懈窗口）
+//
+// 调用点：RespondWuxiek（打出无懈时）和 advanceToNextWuxiekResponder（队列推进时）
+func (g *Game) CanBeWuxied(pending *PendingCombat, cardKind string) bool {
+	if pending == nil {
+		return false
+	}
+	// 1. NoWuxie 标记：锦囊本身不可被无懈
+	if pending.NoWuxie {
+		return false
+	}
+	// 2. 技能阻止（对应 noname: player.hasSkillTag("playernowuxie")）
+	if g.runSkillHooks(nil, skill.HookCall{
+		Kind: skill.HookBlocksWuxiek,
+		Seat: pending.EffectTarget,
+	}).Bool {
+		return false
+	}
+	// 3. 非锦囊类型且未显式标记可无懈（对应 noname: type != "trick" && !wuxieable）
+	// 当前所有可被无懈的牌都是锦囊类型，基本牌/装备不可被无懈
+	// AllowWuxiek 标记用于特殊场景（如 AOE 中的自无懈）
+	if cardKind != "" && !isTrickCard(cardKind) && !pending.AllowWuxiek {
+		return false
+	}
+	return true
+}
+
+// isTrickCard 判断是否为锦囊牌类型。
+func isTrickCard(kind string) bool {
+	switch kind {
+	case CardGuoHe, CardTanNang, CardNanMan, CardWanJian, CardJueDou,
+		CardLeBu, CardBingLiang, CardShanDian, CardWuGu, CardTaoYuan,
+		CardWuZhong, CardHuoGong, CardTieSuo, CardJieDao, CardWuxiek:
+		return true
+	default:
+		return false
+	}
+}
+
 // finalizeWuxiekChain 统计无懈可击链，决定锦囊是否生效
 func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 	if g.Pending == nil {
@@ -847,7 +917,12 @@ func (g *Game) finalizeWuxiekChain(events *[]GameEvent) {
 	source := g.Pending.SourceIndex
 	effectTarget := g.Pending.EffectTarget
 	trick := g.Pending.Card
-	spec := PlayTarget{SeatIndex: effectTarget, Zone: g.Pending.TargetZone, CardID: g.Pending.TargetCardID}
+	spec := PlayTarget{
+		SeatIndex:       effectTarget,
+		Zone:            g.Pending.TargetZone,
+		CardID:          g.Pending.TargetCardID,
+		SecondSeatIndex: g.Pending.JieDaoShaTarget, // 借刀杀人的出杀目标
+	}
 
 	// 保存 AOE 队列信息和五谷状态（在清空 Pending 之前）
 	aoeQueue := g.Pending.AoeQueue
@@ -1040,6 +1115,13 @@ func (g *Game) continueTrickAfterWuxiekPassDirect(source, target int, trick Card
 		g.Message = fmt.Sprintf("%s 使用【无中生有】，摸两张牌", g.Players[source].Name)
 		*events = append(*events, GameEvent{Type: "trick_effect", PlayerIndex: source, TargetIndex: source, Message: g.Message})
 		g.drawCards(source, 2, events)
+	case CardJieDao:
+		// 借刀杀人：无懈通过后，被借刀者选择出杀或给武器
+		shaTarget := spec.SecondSeatIndex
+		if shaTarget <= 0 {
+			shaTarget = target // 兜底：无第二目标时用主目标
+		}
+		g.resolveJieDaoEffect(source, target, shaTarget, trick, events)
 	}
 	g.resetTimer()
 }
@@ -1089,10 +1171,16 @@ func (g *Game) playEquip(seat int, cardID string, events *[]GameEvent) error {
 		return ErrInvalidCard
 	}
 	played := g.removeHandCard(seat, idx, events)
+	// 白银狮子：失去时若已受伤则回1血（参考 noname: onLose → baiyin_skill_lose）
+	wasBaiyin := g.Players[seat].Armor != nil && g.Players[seat].Armor.Kind == CardArmorBaiyin
 	old := g.setEquipment(seat, played)
 	if old != nil {
 		g.DiscardPile = append(g.DiscardPile, *old)
 		g.notifyEquipLost(seat, *old, "replace", events)
+		// 被替换的是白银狮子且装备者受伤 → 回血
+		if wasBaiyin && equipSlot(played.Kind) == EquipArmor {
+			g.handleBaiyinLose(seat, events)
+		}
 	}
 	g.Message = fmt.Sprintf("%s 装备【%s】", g.Players[seat].Name, played.Name)
 	*events = append(*events, GameEvent{
@@ -1107,9 +1195,9 @@ func (g *Game) playEquip(seat int, cardID string, events *[]GameEvent) error {
 
 func equipSlot(kind string) string {
 	switch kind {
-	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardWeapon7, CardWeapon8, CardWeapon9:
+	case CardWeapon1, CardWeapon2, CardWeapon3, CardWeapon4, CardWeapon5, CardWeapon6, CardWeapon7, CardWeapon8, CardWeapon9, CardWeapon10:
 		return EquipWeapon
-	case CardArmor, CardArmorVine:
+	case CardArmor, CardArmorVine, CardArmorRenwang, CardArmorBaiyin:
 		return EquipArmor
 	case CardPlusHorse:
 		return EquipPlusHorse

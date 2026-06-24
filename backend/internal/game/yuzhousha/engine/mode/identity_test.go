@@ -328,3 +328,5 @@ func (s identityTargetStub) PlayerHP(seat int) (int, int) {
 }
 func (s identityTargetStub) HandCount(_ int) int { return 1 }
 func (s identityTargetStub) LimuActive(_ int) bool { return false }
+func (s identityTargetStub) HasJudgeKind(_ int, _ string) bool { return false }
+func (s identityTargetStub) TrickIgnoresDistance(_ int, _ string) bool { return false }

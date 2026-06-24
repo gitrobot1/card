@@ -192,6 +192,7 @@ type Decl struct {
 	OnHPLost           func(r Runtime, ctx HPLostCtx) error  // 血量流失后（非伤害）
 	OnHPChanged        func(r Runtime, ctx HPChangedCtx) error // 血量变化后（伤害/流失/回复）
 	OnJudgeResult      func(r Runtime, ctx JudgeCtx) error
+	OnModJudge         func(r Runtime, ctx ModJudgeCtx) error // mod.judge 被动修改判定结果
 	OnCardsDiscarded   func(r Runtime, ctx CardsDiscardedCtx) error
 	OnEquipLost        func(r Runtime, ctx EquipLostCtx) error
 	DrawCountBonus     func(r Runtime, seat int) int
@@ -208,6 +209,15 @@ type Decl struct {
 	OnBecomeTarget     func(r Runtime, ctx BecomeTargetCtx) error // 成为某张牌的目标时
 	OnDeath            func(r Runtime, ctx DeathCtx) error // 阵亡时（亡语，牌还在）
 	OnAfterDeath       func(r Runtime, ctx DeathCtx) error // 阵亡后（牌已弃）
+	BlocksWuxiek       func(r Runtime, seat int) bool // 阻止无懈可击（参考 noname: playernowuxie）
+	// 返回 true 时，该玩家使用的锦囊不可被无懈可击抵消。
+	// 与 BlocksTrickTarget 的区别：BlocksTrickTarget 阻止锦囊指定目标，BlocksWuxiek 阻止别人对锦囊出无懈。
+	//
+	// 使用示例（将来扩展）：
+	//   // 某技能使该角色使用的锦囊不可被无懈
+	//   BlocksWuxiek: func(r Runtime, seat int) bool {
+	//       return r.HasSkill(seat, "some_skill_id")
+	//   }
 	HandRetainLimit    func(r Runtime, seat int) int // 0=默认按体力；更大值提高留牌上限
 	AIPriority         func(r Runtime, seat int) int
 	AIActivate   func(r Runtime, seat int) error
@@ -327,6 +337,13 @@ func (h Handler) OnJudgeResult(r Runtime, ctx JudgeCtx) error {
 	return h.Decl.OnJudgeResult(r, ctx)
 }
 
+func (h Handler) OnModJudge(r Runtime, ctx ModJudgeCtx) error {
+	if h.Decl.OnModJudge == nil {
+		return nil
+	}
+	return h.Decl.OnModJudge(r, ctx)
+}
+
 func (h Handler) OnCardsDiscarded(r Runtime, ctx CardsDiscardedCtx) error {
 	if h.Decl.OnCardsDiscarded == nil {
 		return nil
@@ -433,6 +450,14 @@ func (h Handler) OnAfterDeath(r Runtime, ctx DeathCtx) error {
 		return nil
 	}
 	return h.Decl.OnAfterDeath(r, ctx)
+}
+
+// BlocksWuxiek 返回 true 表示此技能阻止对该锦囊使用无懈可击（参考 noname: playernowuxie）。
+func (h Handler) BlocksWuxiek(r Runtime, seat int) bool {
+	if h.Decl.BlocksWuxiek == nil {
+		return false
+	}
+	return h.Decl.BlocksWuxiek(r, seat)
 }
 
 func (h Handler) HandRetainLimit(r Runtime, seat int) int {

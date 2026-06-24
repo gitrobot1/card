@@ -48,6 +48,11 @@ export interface YzsHintsDeps {
   discardNeeded: ComputedRef<number>
   tiesuoMode: Ref<boolean>
   tiesuoTargets: Ref<number[]>
+  jiedaoMode?: Ref<boolean>
+  jiedaoWeaponHolder?: Ref<number | null>
+  jiedaoShaTarget?: Ref<number | null>
+  fangtianMode?: Ref<boolean>
+  fangtianTargets?: Ref<number[]>
   activatableSkillIds: ComputedRef<Set<string>>
   myCharacterSkills: ComputedRef<YzsSkillMeta[]>
   selectedCard: ComputedRef<YzsCard | null>
@@ -138,6 +143,16 @@ export function useYzsHints(deps: YzsHintsDeps) {
       if (n === 0) return '【铁索连环】：点击1-2名角色横置/重置，或点「重铸」弃牌摸牌'
       if (n === 1) return '【铁索连环】：已选1名目标，可再点1名，或点「出牌」确认'
       return '【铁索连环】：已选2名目标，点「出牌」确认横置/重置'
+    }
+    if (deps.isMyPlay.value && deps.jiedaoMode?.value) {
+      if (!deps.jiedaoWeaponHolder?.value) return '【借刀杀人】：先选一个有武器的角色（被借刀者）'
+      if (!deps.jiedaoShaTarget?.value) return '【借刀杀人】：再选一个出杀目标（在被借刀者攻击范围内）'
+      return '【借刀杀人】：已选完目标，点「出牌」使用'
+    }
+    if (deps.isMyPlay.value && deps.fangtianMode?.value) {
+      const n = deps.fangtianTargets?.value?.length ?? 0
+      if (n === 0) return '【方天画戟】：点击1-3名角色依次出杀（攻击范围内）'
+      return `【方天画戟】：已选${n}名目标，点「出牌」依次结算`
     }
     if (deps.isMyPlay.value && deps.needsOpponentTarget(deps.selectedCard.value) && deps.shaTarget.value == null) {
       if (deps.selectedCard.value?.kind === 'bingliang') {

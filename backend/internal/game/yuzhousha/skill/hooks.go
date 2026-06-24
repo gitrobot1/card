@@ -16,6 +16,11 @@ const (
 	HookHPLost              HookKind = "hp_lost"              // 血量流失后
 	HookHPChanged           HookKind = "hp_changed"           // 血量变化后
 	HookJudgeResult         HookKind = "judge_result"
+	HookModJudge            HookKind = "mod_judge"       // mod.judge 被动修改判定结果（参考 noname: mod.judge）
+	HookJudgeFixing         HookKind = "judge_fixing"    // 判定修正后最终确认（参考 noname: judgeFixing）
+	HookBlocksWuxiek        HookKind = "blocks_wuxiek"   // 阻止无懈可击（参考 noname: playernowuxie 技能标签）
+	// 用法：技能注册 Decl{BlocksWuxiek: func(r Runtime, seat int) bool { return true }}
+	// 返回 true 时，该玩家的所有锦囊不可被无懈（类似"完杀"但针对无懈）
 	HookCardsDiscarded      HookKind = "cards_discarded"
 	HookEquipLost           HookKind = "equip_lost"
 	HookOnDeath             HookKind = "on_death"       // 阵亡时（亡语，牌还在）
@@ -75,7 +80,38 @@ type BeforeHPChangeCtx struct {
 	Cancel  bool // 监听器设为 true 可防止扣血
 }
 
-// JudgeCtx 翻判定牌后广播。
+// JudgeResult 判定完整结果（参考 noname event.result）。
+// 判定流程：取牌 → 构建 result → judge 函数计算 → mod.judge 修改 → judgeFixing → callback
+type JudgeResult struct {
+	// 判定牌信息（参考 noname: card / name / number / suit / color）
+	Card   CardView `json:"card"`   // 判定牌
+	Number int      `json:"number"` // 点数（三国杀归一化：A=1, J=11, Q=12, K=13）
+	Suit   string   `json:"suit"`   // 花色: S/H/C/D (spade/heart/club/diamond)
+	Color  string   `json:"color"`  // 颜色: red / black
+	// 判定结果
+	Judge int  `json:"judge"` // 判定函数返回值: >0 成功, <0 失败, 0 无结果
+	Bool  *bool `json:"bool"` // true=成功, false=失败, nil=无结果
+	// 来源信息
+	Seat   int         `json:"seat"`   // 判定目标座位号
+	Reason JudgeReason `json:"reason"` // 判定来源
+}
+
+// BoolPtr 辅助函数：创建 bool 指针。
+func BoolPtr(b bool) *bool { return &b }
+
+// JudgeFunc 判定函数类型（参考 noname: judge(card) → number）。
+// 返回 >0 成功，<0 失败，0 无结果。
+type JudgeFunc func(card CardView) int
+
+// ModJudgeCtx mod.judge 被动修改上下文（参考 noname: mod.judge(player, result)）。
+// 技能可在此修改判定结果的任意字段（suit/number/color/bool）。
+type ModJudgeCtx struct {
+	Seat   int         // 判定目标座位号
+	Reason JudgeReason // 判定来源
+	Result *JudgeResult // 可修改的判定结果
+}
+
+// JudgeCtx 翻判定牌后广播（旧接口，保留向后兼容）。
 type JudgeCtx struct {
 	Seat   int
 	Reason JudgeReason
@@ -157,6 +193,7 @@ type HookCall struct {
 	HPLost         *HPLostCtx
 	HPChanged      *HPChangedCtx
 	Judge          *JudgeCtx
+	ModJudge       *ModJudgeCtx
 	Discarded      *CardsDiscardedCtx
 	EquipLost      *EquipLostCtx
 }

@@ -47,7 +47,8 @@ func (g *Game) StartLeijiJudge(seat int, events *[]GameEvent) error {
 	g.leijiSavedPending = g.Pending.SavedPending
 	g.leijiShanSeat = seat
 	g.Pending = nil
-	return g.startJudge(seat, skill.JudgeLeiji, guicaiResumeLeiji, events)
+	// 雷击判定：黑色成功（参考 noname: 雷击 → 判定黑色）
+	return g.startJudge(seat, skill.JudgeLeiji, judgeFuncLeiji, guicaiResumeLeiji, events)
 }
 
 func (g *Game) PassLeijiOffer(seat int, events *[]GameEvent) error {
@@ -71,7 +72,14 @@ func (g *Game) applyLeijiJudgeResult(judgeSeat int, card Card, events *[]GameEve
 
 	target := g.opponentOf(seat)
 	lightning := Card{Kind: CardShanDian, Name: "雷击"}
-	g.applyDamageWithHook(seat, target, 2, lightning, events)
+	resume := DamageResume{
+		LeijiResumeShan: true,
+		LeijiSaved:      saved,
+		LeijiShanSeat:   seat,
+	}
+	if g.ApplyDamageAndCheckDeath(seat, target, 2, lightning, resume, events) {
+		return nil
+	}
 	msg := fmt.Sprintf("%s 【雷击】判定黑色，%s 受到 2 点雷电伤害", g.Players[seat].Name, g.Players[target].Name)
 	g.appendSkillEvent(events, skill.IDLeiji, seat, target, msg)
 	*events = append(*events, GameEvent{
@@ -82,17 +90,6 @@ func (g *Game) applyLeijiJudgeResult(judgeSeat int, card Card, events *[]GameEve
 		SkillID:     skill.IDLeiji,
 		Message:     msg,
 	})
-
-	resume := DamageResume{
-		LeijiResumeShan: true,
-		LeijiSaved:      saved,
-		LeijiShanSeat:   seat,
-	}
-	if g.Players[target].HP <= 0 {
-		if g.afterDamageApplied(seat, target, 2, lightning, resume, events) {
-			return nil
-		}
-	}
 	if g.continueAfterDamage(seat, target, 2, lightning, resume, events) {
 		return nil
 	}
@@ -137,6 +134,11 @@ func (g *Game) finishShanDodgeSuccess(seat int, pending *PendingCombat, events *
 	// 标准规则：只有杀命中后才触发雌雄双股剑
 	// 此处按标准规则，在 finalizeDamageHit 中触发；若需被闪也触发，取消下行注释
 	// g.tryOfferChixiongAfterSha(source, seat, source, events)
+	// 方天画戟：当前目标结算完毕，处理下一个额外目标
+	if g.Pending != nil && len(g.Pending.FangtianQueue) > 0 {
+		g.continueFangtianAfterTarget(source, events)
+		return nil
+	}
 	g.Phase = PhasePlaying
 	g.TurnStep = StepPlay
 	g.CurrentTurn = source

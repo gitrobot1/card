@@ -391,6 +391,15 @@ const zhihengSelectedIds = ref<string[]>([])
 const jieyinMode = ref(false)
 const jieyinSelectedIds = ref<string[]>([])
 const fanjianMode = ref(false)
+const zhangbaMode = ref(false)           // 丈八蛇矛：选2张手牌当杀
+const zhangbaSelectedIds = ref<string[]>([])
+// 借刀杀人：双目标选择模式（被借刀者 + 出杀目标）
+const jiedaoMode = ref(false)
+const jiedaoWeaponHolder = ref<number | null>(null)  // 被借刀者
+const jiedaoShaTarget = ref<number | null>(null)      // 出杀目标
+// 方天画戟：多目标杀（最后一张手牌出杀，可选1-3个目标）
+const fangtianMode = ref(false)
+const fangtianTargets = ref<number[]>([])
 // 铁索连环：多目标选择模式（1-2 个目标，或重铸）
 const tiesuoMode = ref(false)
 const tiesuoTargets = ref<number[]>([])
@@ -410,7 +419,14 @@ const yijiSelectedIds = ref<string[]>([])
 
 const activatableSkills = computed(() => state.value?.activatable_skills ?? [])
 
-const myCharacterSkills = computed(() => myPlayer.value?.character?.skills ?? [])
+const myCharacterSkills = computed(() => {
+  const skills = [...(myPlayer.value?.character?.skills ?? [])]
+  // 丈八蛇矛：装备时始终显示，手牌不够时按钮不可用
+  if (myPlayer.value?.weapon?.kind === 'weapon_10') {
+    skills.push({ id: 'zhangba', name: '丈八蛇矛', description: '将两张手牌当杀使用' })
+  }
+  return skills
+})
 
 const activatableSkillIds = computed(
   () => new Set(activatableSkills.value.map((s) => s.id)),
@@ -421,8 +437,17 @@ const wushengSkillHint = computed(() => {
   return '【武圣】已发动：可选红色牌当【杀】。点上方「取消武圣」恢复正常出牌'
 })
 
+const zhangbaSkillHint = computed(() => {
+  if (!zhangbaMode.value) return ''
+  return '【丈八蛇矛】已发动：选2张手牌当【杀】。点上方「取消丈八」恢复正常出牌'
+})
+
 const canCancelWusheng = computed(
   () => wushengMode.value && (isMyPlay.value || isMyResponse.value) && canInteract.value,
+)
+
+const canCancelZhangba = computed(
+  () => zhangbaMode.value && isMyPlay.value && canInteract.value,
 )
 
 const isJijiangRespond = computed(
@@ -604,7 +629,7 @@ function cardLabel(kind: string | undefined) {
   return YZS_CARD_LABELS[kind] ?? kind
 }
 
-const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang', 'huogong', 'tiesuo'])
+const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang', 'huogong', 'tiesuo', 'jiedao'])
 
 function needsOpponentTarget(card: YzsCard | null | undefined) {
   if (!card) return false
@@ -702,6 +727,14 @@ function handleSeatTarget(seat: number) {
     toggleTiesuoTarget(seat)
     return
   }
+  if (jiedaoMode.value && isMyPlay.value) {
+    toggleJiedaoTarget(seat)
+    return
+  }
+  if (fangtianMode.value && isMyPlay.value) {
+    toggleFangtianTarget(seat)
+    return
+  }
   _origOnTargetSeat(seat)
 }
 
@@ -788,6 +821,18 @@ function canPlayCard(card: YzsCard | null | undefined) {
     }
     if (fanjianMode.value) {
       return fanjianSelectedId.value !== ''
+    }
+    // 丈八蛇矛：选2张手牌 + 必须选目标
+    if (zhangbaMode.value) {
+      return zhangbaSelectedIds.value.length === 2 && shaTarget.value != null
+    }
+    // 借刀杀人：必须选完两个目标
+    if (jiedaoMode.value) {
+      return jiedaoWeaponHolder.value !== null && jiedaoShaTarget.value !== null
+    }
+    // 方天画戟：选1-3个目标
+    if (fangtianMode.value) {
+      return fangtianTargets.value.length >= 1 && fangtianTargets.value.length <= 3
     }
     if (qixiMode.value) {
       // 奇袭激活后走普通出牌路径：需要选牌 + 选目标
@@ -957,6 +1002,11 @@ const { centerHint } = useYzsHints({
   wushengMode,
   tiesuoMode,
   tiesuoTargets,
+  jiedaoMode,
+  jiedaoWeaponHolder,
+  jiedaoShaTarget,
+  fangtianMode,
+  fangtianTargets,
   isDealing,
   isFinished,
   isMyDiscard,
@@ -1084,6 +1134,22 @@ function clearJieyinMode() {
   jieyinSelectedIds.value = []
 }
 
+function clearFangtianMode() {
+  fangtianMode.value = false
+  fangtianTargets.value = []
+}
+
+function clearJiedaoMode() {
+  jiedaoMode.value = false
+  jiedaoWeaponHolder.value = null
+  jiedaoShaTarget.value = null
+}
+
+function clearZhangbaMode() {
+  zhangbaMode.value = false
+  zhangbaSelectedIds.value = []
+}
+
 function clearTiesuoMode() {
   tiesuoMode.value = false
   tiesuoTargets.value = []
@@ -1116,6 +1182,131 @@ function toggleTiesuoTarget(seat: number) {
   console.log('[tiesuo] toggleTiesuoTarget seat=', seat, 'after=', [...tiesuoTargets.value])
 }
 
+// 借刀杀人双目标选择：
+// 第一步：选有武器的角色（不能是自己）
+// 第二步：选该角色攻击范围内的任意角色（包括使用者自己）
+function toggleJiedaoTarget(seat: number) {
+  if (!jiedaoMode.value) return
+  const player = state.value?.players[seat]
+  if (!player || (player.hp ?? 0) <= 0) return
+
+  // 第一步：选被借刀者（必须有武器）
+  if (jiedaoWeaponHolder.value === null) {
+    if (seat === mySeat.value) return // 不能选自己
+    if (!player.weapon) return        // 必须有武器
+    jiedaoWeaponHolder.value = seat
+    jiedaoShaTarget.value = null      // 清除之前选的出杀目标
+    return
+  }
+
+  // 第二步：选出杀目标（在被借刀者攻击范围内，不能是被借刀者自己）
+  if (jiedaoShaTarget.value === null) {
+    if (seat === jiedaoWeaponHolder.value) return // 不能选被借刀者自己
+    // 检查是否在攻击范围内（简化：距离 ≤ 武器范围）
+    const holder = state.value?.players[jiedaoWeaponHolder.value]
+    const weaponRange = holder?.weapon ? getWeaponRange(holder.weapon.kind) : 1
+    const dist = getDistance(jiedaoWeaponHolder.value, seat)
+    if (dist > weaponRange) return // 不在攻击范围内
+    jiedaoShaTarget.value = seat
+    return
+  }
+
+  // 已选完两个目标，点击已选的可取消
+  if (seat === jiedaoWeaponHolder.value) {
+    jiedaoWeaponHolder.value = null
+    jiedaoShaTarget.value = null
+  } else if (seat === jiedaoShaTarget.value) {
+    jiedaoShaTarget.value = null
+  }
+}
+
+// 借刀杀人可选目标判定
+function isJiedaoWeaponHolderTarget(seat: number): boolean {
+  if (!jiedaoMode.value) return false
+  if (seat === mySeat.value) return false
+  const player = state.value?.players[seat]
+  if (!player || (player.hp ?? 0) <= 0) return false
+  return !!player.weapon // 必须有武器
+}
+
+function isJiedaoShaTargetable(seat: number): boolean {
+  if (!jiedaoMode.value || jiedaoWeaponHolder.value === null) return false
+  if (seat === jiedaoWeaponHolder.value) return false
+  const player = state.value?.players[seat]
+  if (!player || (player.hp ?? 0) <= 0) return false
+  // 检查是否在被借刀者的攻击范围内
+  const holder = state.value?.players[jiedaoWeaponHolder.value]
+  const weaponRange = holder?.weapon ? getWeaponRange(holder.weapon.kind) : 1
+  const dist = getDistance(jiedaoWeaponHolder.value, seat)
+  return dist <= weaponRange
+}
+
+// 辅助函数
+function getWeaponRange(kind: string): number {
+  const ranges: Record<string, number> = {
+    weapon_1: 1, weapon_2: 2, weapon_3: 3, weapon_4: 4, weapon_5: 5,
+    weapon_6: 2, weapon_7: 4, weapon_8: 2, weapon_9: 3, weapon_10: 3,
+  }
+  return ranges[kind] ?? 1
+}
+
+// 方天画戟：装备 weapon_4 且手牌只剩最后一张时触发
+function canFangtianTrigger(): boolean {
+  const weapon = myPlayer.value?.weapon
+  if (!weapon || weapon.kind !== 'weapon_4') return false
+  return myHand.value.length === 1 // 只剩最后一张手牌
+}
+
+function toggleFangtianTarget(seat: number) {
+  if (!fangtianMode.value) return
+  if (seat === mySeat.value) return // 不能选自己
+  const player = state.value?.players[seat]
+  if (!player || (player.hp ?? 0) <= 0) return
+  // 检查是否在攻击范围内
+  const weaponRange = getWeaponRange('weapon_4')
+  const dist = getDistance(mySeat.value, seat)
+  if (dist > weaponRange) return
+
+  const idx = fangtianTargets.value.indexOf(seat)
+  if (idx >= 0) {
+    fangtianTargets.value = fangtianTargets.value.filter((s) => s !== seat)
+  } else if (fangtianTargets.value.length < 3) {
+    fangtianTargets.value = [...fangtianTargets.value, seat]
+  }
+}
+
+// 方天画戟可选目标判定
+function isFangtianTargetable(seat: number): boolean {
+  if (!fangtianMode.value) return false
+  if (seat === mySeat.value) return false
+  const player = state.value?.players[seat]
+  if (!player || (player.hp ?? 0) <= 0) return false
+  const dist = getDistance(mySeat.value, seat)
+  return dist <= getWeaponRange('weapon_4')
+}
+
+function clearAllSkillModes() {
+  clearRendeMode()
+  clearZhihengMode()
+  clearJieyinMode()
+  clearFanjianMode()
+  clearQixiMode()
+  clearGuoseMode()
+  clearShuangxiongMode()
+  clearTiesuoMode()
+  clearZhangbaMode()
+  clearJiedaoMode()
+  clearFangtianMode()
+}
+
+function getDistance(a: number, b: number): number {
+  const n = state.value?.players.length ?? 0
+  if (n <= 1) return 0
+  const forward = (b - a + n) % n
+  const backward = (a - b + n) % n
+  return Math.min(forward, backward)
+}
+
 function clearFanjianMode() {
   fanjianMode.value = false
   fanjianSelectedId.value = ''
@@ -1146,6 +1337,9 @@ function clearSkillSelectModes() {
   clearGuoseMode()
   clearShuangxiongMode()
   clearTiesuoMode()
+  clearZhangbaMode()
+  clearJiedaoMode()
+  clearFangtianMode()
 }
 
 function clearTargeting() {
@@ -1378,6 +1572,16 @@ function selectCard(id: string) {
     return
   }
 
+  // 丈八蛇矛：选2张手牌当杀
+  if (zhangbaMode.value && isMyPlay.value) {
+    if (zhangbaSelectedIds.value.includes(id)) {
+      zhangbaSelectedIds.value = zhangbaSelectedIds.value.filter((x) => x !== id)
+    } else if (zhangbaSelectedIds.value.length < 2) {
+      zhangbaSelectedIds.value = [...zhangbaSelectedIds.value, id]
+    }
+    return
+  }
+
   if (qixiMode.value && isMyPlay.value) {
     // 奇袭激活后，黑色牌视为过河拆桥，走普通出牌路径（选牌→选目标→打出）
     if (selectedId.value === id) {
@@ -1447,10 +1651,35 @@ function selectCard(id: string) {
     selectedId.value = ''
     if (needsOpponentTarget(card)) clearTargeting()
     if (card.kind === 'tiesuo') clearTiesuoMode()
+    if (card.kind === 'jiedao') clearJiedaoMode()
     return
   }
 
   selectedId.value = id
+  // 方天画戟：最后一张手牌是杀时，进入多目标选择模式
+  if (isMyPlay.value && cardPlaysAsSha(card) && canFangtianTrigger()) {
+    fangtianMode.value = true
+    fangtianTargets.value = []
+    clearAllSkillModes()
+    return
+  }
+  // 借刀杀人：进入双目标选择模式（先选被借刀者，再选出杀目标）
+  if (isMyPlay.value && card.kind === 'jiedao') {
+    jiedaoMode.value = true
+    jiedaoWeaponHolder.value = null
+    jiedaoShaTarget.value = null
+    clearRendeMode()
+    clearZhihengMode()
+    clearJieyinMode()
+    clearFanjianMode()
+    clearQixiMode()
+    clearGuoseMode()
+    clearShuangxiongMode()
+    clearTiesuoMode()
+    clearZhangbaMode()
+    clearWushengMode()
+    return
+  }
   // 铁索连环：进入多目标选择模式
   if (isMyPlay.value && card.kind === 'tiesuo') {
     tiesuoMode.value = true
@@ -1485,6 +1714,14 @@ async function submitCancelWusheng() {
   selectedId.value = ''
   clearTargeting()
   await act(() => useYuzhoushaSkill(state.value!.id, 'wusheng'))
+  wushengMode.value = false
+}
+
+async function submitCancelZhangba() {
+  if (!canCancelZhangba.value) return
+  clearZhangbaMode()
+  selectedId.value = ''
+  clearTargeting()
 }
 
 async function submitSkill(skillId: string) {
@@ -1715,6 +1952,10 @@ function isSkillActivatable(skill: YzsSkillMeta) {
   // 武圣/奇袭 可随时 toggle（激活后可取消）
   if (skill.id === 'wusheng' && isMyPlay.value) return true
   if (skill.id === 'qixi' && isMyPlay.value) return true
+  // 丈八蛇矛：装备时显示为可激活技能
+  if (skill.id === 'zhangba' && isMyPlay.value) {
+    return myPlayer.value?.weapon?.kind === 'weapon_10' && myHand.value.length >= 2
+  }
   const ctx = makePendingContext()
   if (ctx && isMyResponse.value) {
     const handled = pendingCanSubmitSkill(ctx, skill.id)
@@ -1894,6 +2135,22 @@ async function activateSkill(skillId: string) {
     clearShuangxiongMode()
     // 等待后端 toggle 武圣状态完成
     await act(() => useYuzhoushaSkill(state.value!.id, 'wusheng'))
+    return
+  }
+  // 丈八蛇矛：激活后进入选2张牌模式
+  if (skillId === 'zhangba' && isMyPlay.value) {
+    zhangbaMode.value = !zhangbaMode.value
+    zhangbaSelectedIds.value = []
+    selectedId.value = ''
+    clearRendeMode()
+    clearZhihengMode()
+    clearJieyinMode()
+    clearFanjianMode()
+    clearQixiMode()
+    clearGuoseMode()
+    clearShuangxiongMode()
+    clearWushengMode()
+    clearTiesuoMode()
     return
   }
   if (skillId === 'shuangxiong' && isMyPlay.value) {
@@ -2100,6 +2357,46 @@ async function submitPlayCard() {
       clearTiesuoMode()
       return
     }
+    // 方天画戟：提交多目标杀
+    if (fangtianMode.value && fangtianTargets.value.length >= 1) {
+      const card = selectedCard.value
+      if (!card) return
+      const primary = fangtianTargets.value[0]
+      const extra = fangtianTargets.value.slice(1)
+      await act(() =>
+        playYuzhoushaCard(state.value!.id, card.id, {
+          targetIndex: primary,
+          fangtianExtraTargets: extra,
+        }),
+      )
+      clearFangtianMode()
+      return
+    }
+    // 借刀杀人：提交双目标
+    if (jiedaoMode.value && jiedaoWeaponHolder.value !== null && jiedaoShaTarget.value !== null) {
+      const card = selectedCard.value
+      if (!card) return
+      await act(() =>
+        playYuzhoushaCard(state.value!.id, card.id, {
+          targetIndex: jiedaoWeaponHolder.value!,
+          secondTargetIndex: jiedaoShaTarget.value!,
+        }),
+      )
+      clearJiedaoMode()
+      return
+    }
+    // 丈八蛇矛：选2张手牌当杀，对目标使用
+    if (zhangbaMode.value && zhangbaSelectedIds.value.length === 2 && shaTarget.value != null) {
+      const ids = zhangbaSelectedIds.value
+      await act(() =>
+        playYuzhoushaCard(state.value!.id, ids[0], {
+          targetIndex: shaTarget.value!,
+          zhangbaSecondCardId: ids[1],
+        }),
+      )
+      clearZhangbaMode()
+      return
+    }
     const card = selectedCard.value
     if (!card) return
 
@@ -2212,6 +2509,8 @@ onMounted(() => {
     attackRangeOf,
     blockFlashSeat,
     canCancelWusheng,
+    canCancelZhangba,
+    submitCancelZhangba,
     canInteract,
     canPlayCard,
     canPlaySha,
@@ -2360,6 +2659,14 @@ onMounted(() => {
     tiesuoTargets,
     submitTiesuoRecast,
     clearTiesuoMode,
+    jiedaoMode,
+    jiedaoWeaponHolder,
+    jiedaoShaTarget,
+    isJiedaoWeaponHolderTarget,
+    isJiedaoShaTargetable,
+    fangtianMode,
+    fangtianTargets,
+    isFangtianTargetable,
     opponent,
     opponentHandCount,
     opponentHasKongcheng,
@@ -2456,6 +2763,9 @@ onMounted(() => {
     weaponRange,
     wushengMode,
     wushengSkillHint,
+    zhangbaMode,
+    zhangbaSkillHint,
+    zhangbaSelectedIds,
     yijiGiveRemaining,
     yijiSelectedIds,
     zhihengMode,

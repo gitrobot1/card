@@ -13,8 +13,11 @@ const (
 	guicaiResumeLuoshen  = "luoshen"
 )
 
-// startJudge 翻判定牌；然后按座位顺序询问改判技能。
-func (g *Game) startJudge(judgeSeat int, reason skill.JudgeReason, resume string, events *[]GameEvent) error {
+// startJudge 判定统一入口（参考 noname: player.judge(judgeFunc) → content.judge）。
+// 完整流程：
+//   step 0: 取牌 → 亮出 → trigger("judge") 改判介入
+//   step 1: 构建 JudgeResult → judge 函数计算 → mod.judge 修改 → judgeFixing → callback
+func (g *Game) startJudge(judgeSeat int, reason skill.JudgeReason, judgeFunc skill.JudgeFunc, resume string, events *[]GameEvent) error {
 	card, ok := g.flipJudgeCard(events, judgeSeat)
 	if !ok {
 		return ErrInvalidCard
@@ -29,7 +32,7 @@ func (g *Game) startJudge(judgeSeat int, reason skill.JudgeReason, resume string
 			last.Message = fmt.Sprintf("%s 的【%s】判定为 %s", g.Players[judgeSeat].Name, judgeName, label)
 		}
 	}
-	return g.afterJudgeFlip(judgeSeat, reason, resume, card, events)
+	return g.afterJudgeFlip(judgeSeat, reason, judgeFunc, resume, card, events)
 }
 
 func reasonToName(reason skill.JudgeReason) string {
@@ -57,7 +60,7 @@ func reasonToName(reason skill.JudgeReason) string {
 
 // afterJudgeFlip 翻牌后：按座位顺序收集所有可改判者，从当前回合玩家下家开始依次询问。
 // 每人一次机会，发动后新牌继续问剩下的人，跳过则继续下一个。
-func (g *Game) afterJudgeFlip(judgeSeat int, reason skill.JudgeReason, resume string, card Card, events *[]GameEvent) error {
+func (g *Game) afterJudgeFlip(judgeSeat int, reason skill.JudgeReason, judgeFunc skill.JudgeFunc, resume string, card Card, events *[]GameEvent) error {
 	if g.offerDdzJudgeCancelWindow(judgeSeat, reason, resume, card, events) {
 		return nil
 	}
@@ -65,10 +68,10 @@ func (g *Game) afterJudgeFlip(judgeSeat int, reason skill.JudgeReason, resume st
 	// 收集所有可改判的座位（按座位顺序，从 judgeSeat 下家开始）
 	candidates := g.collectModifyJudgeSeats(judgeSeat)
 	if len(candidates) == 0 {
-		return g.completeJudgeResume(resume, judgeSeat, reason, card, events)
+		return g.completeJudgeResume(judgeSeat, reason, judgeFunc, resume, card, events)
 	}
 
-	return g.offerNextModifyJudge(judgeSeat, reason, resume, card, candidates, 0, events)
+	return g.offerNextModifyJudge(judgeSeat, reason, judgeFunc, resume, card, candidates, 0, events)
 }
 
 // collectModifyJudgeSeats 按座位顺序收集所有可改判者（从 startSeat 下家开始）
@@ -94,12 +97,12 @@ func (g *Game) collectModifyJudgeSeats(startSeat int) []int {
 }
 
 // offerNextModifyJudge 询问候选人队列中的下一个人
-func (g *Game) offerNextModifyJudge(judgeSeat int, reason skill.JudgeReason, resume string,
-	card Card, candidates []int, idx int, events *[]GameEvent) error {
+func (g *Game) offerNextModifyJudge(judgeSeat int, reason skill.JudgeReason, judgeFunc skill.JudgeFunc,
+	resume string, card Card, candidates []int, idx int, events *[]GameEvent) error {
 
 	if idx >= len(candidates) {
 		// 所有人都问完了
-		return g.completeJudgeResume(resume, judgeSeat, reason, card, events)
+		return g.completeJudgeResume(judgeSeat, reason, judgeFunc, resume, card, events)
 	}
 
 	seat := candidates[idx]
@@ -110,7 +113,7 @@ func (g *Game) offerNextModifyJudge(judgeSeat int, reason skill.JudgeReason, res
 
 	if !canGuicai && !canGuidao {
 		// 条件不再满足，跳过此人
-		return g.offerNextModifyJudge(judgeSeat, reason, resume, card, candidates, idx+1, events)
+		return g.offerNextModifyJudge(judgeSeat, reason, judgeFunc, resume, card, candidates, idx+1, events)
 	}
 
 	var respMode string
@@ -208,7 +211,7 @@ func (g *Game) resolveModifyReplace(seat int, handCardID string, skillType strin
 	// 清除 Pending，用新牌继续问剩下的人
 	g.Pending = nil
 	g.Phase = PhasePlaying
-	return g.offerNextModifyJudge(judgeSeat, reason, resume, played, candidates, nextIdx, events)
+	return g.offerNextModifyJudge(judgeSeat, reason, nil, resume, played, candidates, nextIdx, events)
 }
 
 func (g *Game) ApplyGuicaiReplace(seat int, handCardID string, events *[]GameEvent) error {
@@ -233,7 +236,7 @@ func (g *Game) passModifyJudge(seat int, events *[]GameEvent) error {
 
 	g.Pending = nil
 	g.Phase = PhasePlaying
-	return g.offerNextModifyJudge(judgeSeat, reason, resume, card, candidates, nextIdx, events)
+	return g.offerNextModifyJudge(judgeSeat, reason, nil, resume, card, candidates, nextIdx, events)
 }
 
 func (g *Game) PassGuicai(seat int, events *[]GameEvent) error {
@@ -244,11 +247,133 @@ func (g *Game) PassGuidao(seat int, events *[]GameEvent) error {
 	return g.passModifyJudge(seat, events)
 }
 
-func (g *Game) completeJudgeResume(resume string, judgeSeat int, reason skill.JudgeReason, card Card, events *[]GameEvent) error {
-	Logf("completeJudgeResume: resume=%s judgeSeat=%d(%s) reason=%s", resume, judgeSeat, g.Players[judgeSeat].Name, reason)
+// buildJudgeResult 构建完整判定结果对象（参考 noname: event.result = {card, name, number, suit, color, bool, judge}）。
+func (g *Game) buildJudgeResult(judgeSeat int, reason skill.JudgeReason, card Card, judgeFunc skill.JudgeFunc) *skill.JudgeResult {
+	cv := cardView(card)
+	result := &skill.JudgeResult{
+		Card:   cv,
+		Number: normalizeRank(card.Rank),
+		Suit:   card.Suit,
+		Color:  suitColor(card.Suit),
+		Seat:   judgeSeat,
+		Reason: reason,
+	}
+
+	// 执行判定函数（参考 noname: event.result.judge = event.judge(event.result)）
+	if judgeFunc != nil {
+		result.Judge = judgeFunc(cv)
+		if result.Judge > 0 {
+			result.Bool = skill.BoolPtr(true)
+		} else if result.Judge < 0 {
+			result.Bool = skill.BoolPtr(false)
+		}
+		// result.Judge == 0 → result.Bool = nil（无结果）
+	}
+
+	return result
+}
+
+// suitColor 返回花色对应的颜色。
+func suitColor(suit string) string {
+	switch suit {
+	case "H", "D":
+		return "red"
+	case "S", "C":
+		return "black"
+	default:
+		return ""
+	}
+}
+
+// ============================================================================
+// 判定函数（参考 noname: judge(card) → number, >0成功 <0失败 0无结果）
+// ============================================================================
+
+// judgeFuncLebu 乐不思蜀判定：红桃 → 1 (失效/成功), 其他 → -2 (生效/失败)
+func judgeFuncLebu(card skill.CardView) int {
+	if card.Suit == "H" {
+		return 1
+	}
+	return -2
+}
+
+// judgeFuncBingliang 兵粮寸断判定：梅花 → 1 (失效/成功), 其他 → -2 (生效/失败)
+func judgeFuncBingliang(card skill.CardView) int {
+	if card.Suit == "C" {
+		return 1
+	}
+	return -2
+}
+
+// judgeFuncShandian 闪电判定：黑桃2-9 → -5 (生效/失败), 其他 → 1 (失效/成功)
+func judgeFuncShandian(card skill.CardView) int {
+	if card.Suit == "S" && card.Rank >= 2 && card.Rank <= 9 {
+		return -5
+	}
+	return 1
+}
+
+// judgeFuncBagua 八卦阵判定：红色 → 1 (成功，视为出闪), 黑色 → -1 (失败)
+func judgeFuncBagua(card skill.CardView) int {
+	if card.Suit == "H" || card.Suit == "D" {
+		return 1
+	}
+	return -1
+}
+
+// judgeFuncTieqi 铁骑判定：红色 → 1 (成功), 黑色 → -1 (失败)
+func judgeFuncTieqi(card skill.CardView) int {
+	if card.Suit == "H" || card.Suit == "D" {
+		return 1
+	}
+	return -1
+}
+
+// judgeFuncGanglie 刚烈判定：红桃 → -2 (失败), 其他 → 2 (成功)
+func judgeFuncGanglie(card skill.CardView) int {
+	if card.Suit == "H" {
+		return -2
+	}
+	return 2
+}
+
+// judgeFuncLuoshen 洛神判定：黑色 → 1 (获得), 红色 → -1 (停止)
+func judgeFuncLuoshen(card skill.CardView) int {
+	if card.Suit == "S" || card.Suit == "C" {
+		return 1
+	}
+	return -1
+}
+
+// judgeFuncLeiji 雷击判定：黑色 → 2 (成功), 红色 → -2 (失败)
+func judgeFuncLeiji(card skill.CardView) int {
+	if card.Suit == "S" || card.Suit == "C" {
+		return 2
+	}
+	return -2
+}
+
+// completeJudgeResume 改判阶段结束后的统一回调。
+// 构建 JudgeResult → mod.judge 修改 → judgeFixing → 回调处理。
+func (g *Game) completeJudgeResume(judgeSeat int, reason skill.JudgeReason, judgeFunc skill.JudgeFunc, resume string, card Card, events *[]GameEvent) error {
+	Logf("completeJudgeResume: resume=%s judgeSeat=%d(%s) reason=%s card=%s", resume, judgeSeat, g.Players[judgeSeat].Name, reason, card.Label)
+
+	// 1. 构建完整判定结果（参考 noname: event.result = {card, name, number, suit, color, bool, judge}）
+	result := g.buildJudgeResult(judgeSeat, reason, card, judgeFunc)
+
+	// 2. mod.judge 被动修改（参考 noname: game.checkMod(player, event.result, "judge", player)）
+	// 技能可在此设置 result.KeepCard = true 来保留判定牌（如"获得判定牌"类技能）
+	g.runModJudgeHooks(judgeSeat, reason, result, events)
+
+	// 3. judgeFixing 最终确认（参考 noname: event.trigger("judgeFixing")）
+	g.runJudgeFixingHooks(judgeSeat, reason, result, events)
+
+	// 4. 触发旧的 OnJudgeResult 钩子（向后兼容）
 	g.runJudgeResultHooks(skill.JudgeCtx{
 		Seat: judgeSeat, Reason: reason, Card: cardView(card), IsRed: isRedSuit(card.Suit),
 	}, events)
+
+	// 5. 根据 resume 分发到具体回调
 	switch resume {
 	case guicaiResumeTieqi:
 		return g.applyTieqiJudgeResult(judgeSeat, card, events)
@@ -263,7 +388,9 @@ func (g *Game) completeJudgeResume(resume string, judgeSeat int, reason skill.Ju
 	case guicaiResumeLeiji:
 		return g.applyLeijiJudgeResult(judgeSeat, card, events)
 	case "phase_judge":
-		return g.applyPhaseJudgeResult(judgeSeat, reason, card, events)
+		// 改判阶段结束 → PopPhase 触发 OnResume 回调（applyPhaseJudgeResult）
+		// 参考 noname: phaseJudge step 3 → goto(1) 循环
+		return g.PopPhase(events)
 	default:
 		return nil
 	}

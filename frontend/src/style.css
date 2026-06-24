@@ -4359,6 +4359,42 @@ body {
   box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.55), 0 0 16px rgba(217, 119, 6, 0.4);
   background: linear-gradient(135deg, rgba(254, 215, 170, 0.3), rgba(253, 230, 138, 0.2));
 }
+
+/* 借刀杀人：可选目标高亮（绿色边框，区别于铁索橙色） */
+.yzs__hero-card--jiedao-targetable {
+  cursor: pointer;
+  border-color: #059669;
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.25);
+}
+.yzs__hero-card--jiedao-targetable:hover {
+  border-color: #047857;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.4);
+}
+.yzs__hero-card--jiedao-selected {
+  border-color: #047857;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.55), 0 0 16px rgba(5, 150, 105, 0.4);
+  background: linear-gradient(135deg, rgba(167, 243, 208, 0.3), rgba(110, 231, 183, 0.2));
+}
+.yzs__equip-line--jiedao-holder {
+  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.6);
+  border-radius: 2px;
+}
+
+/* 方天画戟：多目标杀（红色边框） */
+.yzs__hero-card--fangtian-targetable {
+  cursor: pointer;
+  border-color: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.25);
+}
+.yzs__hero-card--fangtian-targetable:hover {
+  border-color: #b91c1c;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4);
+}
+.yzs__hero-card--fangtian-selected {
+  border-color: #b91c1c;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.55), 0 0 16px rgba(220, 38, 38, 0.4);
+  background: linear-gradient(135deg, rgba(254, 202, 202, 0.3), rgba(252, 165, 165, 0.2));
+}
 .yzs__hero-card--self {
   width: 150px;
   height: 190px;

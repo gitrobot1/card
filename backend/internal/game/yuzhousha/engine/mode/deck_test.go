@@ -11,8 +11,8 @@ func TestDeckProfileFor_LegacyHasShanDian(t *testing.T) {
 	if !p.HasKind(mode.DeckKindShanDian) {
 		t.Fatal("legacy deck should include shandian")
 	}
-	if p.TotalCards() != 67 {
-		t.Fatalf("legacy total=%d want 67", p.TotalCards())
+	if p.TotalCards() != 72 {
+		t.Fatalf("legacy total=%d want 72", p.TotalCards())
 	}
 }
 
