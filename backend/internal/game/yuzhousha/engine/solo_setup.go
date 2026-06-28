@@ -865,7 +865,8 @@ func finishIdentitySoloSetup(g *Game, message string) (*Game, error) {
 	g.syncAllPlayerSkillsMeta()
 	g.setupDeck()
 	g.CurrentTurn = g.LordSeat
-	g.beginTurn(nil)
+	// 不发 beginTurn，避免重复摸牌。
+	// beginTurn 会在 finalize → AutoBeginTurnIfNeeded 中自动触发。
 	g.Message = message
 	return g, nil
 }
@@ -1095,14 +1096,9 @@ func NewSolo3pDdzWithHeroes(id string, seatHeroes [3]string) (*Game, error) {
 func finishSoloSetup(g *Game, message string) (*Game, error) {
 	g.syncAllPlayerSkillsMeta()
 	g.setupDeck()
-	// 测试：幽灵电脑依次对所有人生效一张杀（每人-1HP）
-	for i := range g.Players {
-		if g.Players[i].HP > 0 {
-			g.Players[i].HP--
-		}
-	}
 	g.CurrentTurn = 0
-	g.beginTurn(nil)
+	// 不发 beginTurn，避免重复摸牌。
+	// beginTurn 会在 finalize → AutoBeginTurnIfNeeded 中自动触发。
 	g.Message = message
 	return g, nil
 }

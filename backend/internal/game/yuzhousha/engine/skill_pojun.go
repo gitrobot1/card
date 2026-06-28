@@ -57,42 +57,24 @@ func (g *Game) advanceShaBeforeTargetResponse(events *[]GameEvent) error {
 	if p == nil || p.Card.Kind != CardSha {
 		return nil
 	}
-	if p.TieqiPending || p.ResponseMode == ResponseModeSkillLiuli {
+
+	// Step 1: HookUseCardToTarget（RoleSource）— 铁骑、破军等技能在此声明式设置 Pending 标记
+	g.runSkillHooks(events, skill.HookCall{
+		Kind: skill.HookUseCardToTarget, From: p.SourceIndex, Role: skill.RoleSource,
+		UseCard: &skill.UseCardCtx{Seat: p.SourceIndex, Target: p.TargetIndex, Card: cardView(p.Card)},
+	})
+	// Step 2: HookUseCardToTarget（RoleTarget）— 雌雄双股剑等技能在此介入
+	g.runSkillHooks(events, skill.HookCall{
+		Kind: skill.HookUseCardToTarget, Target: p.TargetIndex, Role: skill.RoleTarget,
+		UseCard: &skill.UseCardCtx{Seat: p.SourceIndex, Target: p.TargetIndex, Card: cardView(p.Card)},
+	})
+
+	// 电梯式通用暂停：若 Hook 已打开任何窗口（Take/Respond/Choice），暂停等玩家响应
+	// 不检查具体技能名——任何技能只需设 WindowKind + 自己的 ResponseMode 即可
+	if p.WindowKind != "" {
 		return nil
 	}
-	if p.ResponseMode == ResponseModeSkillPojun {
-		return nil
-	}
-	if p.PojunPlaced < p.PojunMax && g.hasSkill(p.SourceIndex, SkillPojun) {
-		if !g.hasTakeableCard(p.TargetIndex) {
-			// 目标没有可拿的牌，跳过拿牌直接继续
-			return g.finishPojunPlacement(events)
-		}
-		return g.enterPojunPlacing(events)
-	}
-	// 仁王盾：黑色【杀】对装备者无效（青釭剑可无视）
-	// 参考 noname: renwang_skill, trigger: { target: "shaBegin" }, content: trigger.cancel()
-	if !p.IgnoreArmor && g.hasRenwangArmor(p.TargetIndex) && renwangBlocksSha(p.Card) {
-		msg := fmt.Sprintf("【仁王盾】%s 的黑色【杀】对 %s 无效", g.Players[p.SourceIndex].Name, g.Players[p.TargetIndex].Name)
-		*events = append(*events, GameEvent{
-			Type:        "renwang_block",
-			PlayerIndex: p.SourceIndex,
-			TargetIndex: p.TargetIndex,
-			Card:        &p.Card,
-			Message:     msg,
-		})
-		g.Pending = nil
-		g.Phase = PhasePlaying
-		g.TurnStep = StepPlay
-		g.CurrentTurn = p.ReturnIndex
-		g.Message = msg
-		g.resetTimer()
-		return nil
-	}
-	// 雌雄双股剑：出杀指定目标后，若目标为异性则触发
-	if g.tryOfferChixiongOnSha(events) {
-		return nil
-	}
+
 	p.ResponseMode = ""
 	p.SkillID = ""
 	g.resetTimer()
@@ -198,7 +180,7 @@ func (g *Game) giveCampCardsToPlayer(seat int, events *[]GameEvent) {
 		})
 	}
 	p.CampCards = nil
-	g.syncCounts()
+	g.SyncCounts()
 }
 
 // startPojunGainIfNeeded 回合结束时，若目标有「营」中牌，获得这些牌

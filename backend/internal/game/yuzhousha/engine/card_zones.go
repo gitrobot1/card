@@ -12,18 +12,18 @@ func (g *Game) placeTakenCard(dest TakeDestination, card Card, events *[]GameEve
 	switch dest.Zone {
 	case ZoneHand:
 		p.Hand = append(p.Hand, card)
-		g.syncCounts()
+		g.SyncCounts()
 		return nil
 	case ZoneCamp:
 		p.CampCards = append(p.CampCards, card)
-		g.syncCounts()
+		g.SyncCounts()
 		return nil
 	case ZoneDiscard:
 		g.DiscardPile = append(g.DiscardPile, card)
-		g.syncCounts()
+		g.SyncCounts()
 		return nil
 	case ZoneVoid:
-		g.syncCounts()
+		g.SyncCounts()
 		return nil
 	default:
 		return fmt.Errorf("unsupported take destination zone %q", dest.Zone)

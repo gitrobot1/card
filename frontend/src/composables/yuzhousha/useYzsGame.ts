@@ -41,11 +41,13 @@ import {
   baguaYuzhoushaJudge,
   playYuzhoushaCard,
   respondYuzhoushaCard,
+  respondZhangbaSha,
   useYuzhoushaSkill,
   tickYuzhoushaGame,
 } from '../../api/games'
 import {
   YZS_CARD_LABELS,
+  type GameLogEntry,
   type YuzhoushaState,
   type YzsCard,
   type YzsSkillMeta,
@@ -107,6 +109,9 @@ const isDealing = ref(false)
 const isAnimating = ref(false)
 const selectedId = ref('')
 const selectedDiscardIds = ref<string[]>([])
+
+/** 持久化的游戏日志（右侧面板） */
+const gameLog = ref<GameLogEntry[]>([])
 const shaTarget = ref<number | null>(null)
 const selectedTargetZone = ref('')
 const selectedTargetCardId = ref('')
@@ -248,14 +253,14 @@ function isDiamondCard(card: YzsCard | null | undefined) {
 function cardPlaysAsSha(card: YzsCard | null | undefined) {
   if (!card) return false
   if (card.kind === 'sha' || card.kind === 'sha_fire' || card.kind === 'sha_thunder') return true
+  // 优先使用 ViewAs 统一判断
+  if (viewAsSkills.value.length > 0) return cardPlaysAsViaViewAs(card, 'sha')
+  // fallback 旧逻辑
   if (hasMySkill('longdan') && card.kind === 'shan') return true
   if (hasMySkill('wusheng') && isRedCard(card)) {
-    if (isMyPlay.value && !isMyResponse.value) {
-      return wushengMode.value
-    }
+    if (isMyPlay.value && !isMyResponse.value) return wushengMode.value
     return true
   }
-  // 龙魂：方块当火杀
   if (hasMySkill('longhun') && card.suit === 'D') return true
   return false
 }
@@ -263,9 +268,9 @@ function cardPlaysAsSha(card: YzsCard | null | undefined) {
 function cardPlaysAsShan(card: YzsCard | null | undefined) {
   if (!card) return false
   if (card.kind === 'shan') return true
+  if (viewAsSkills.value.length > 0) return cardPlaysAsViaViewAs(card, 'shan')
   if (hasMySkill('longdan') && card.kind === 'sha') return true
   if (hasMySkill('qingguo') && isBlackCard(card)) return true
-  // 龙魂：梅花当闪
   if (hasMySkill('longhun') && card.suit === 'C') return true
   return false
 }
@@ -273,22 +278,19 @@ function cardPlaysAsShan(card: YzsCard | null | undefined) {
 function cardPlaysAsTao(card: YzsCard | null | undefined) {
   if (!card) return false
   if (card.kind === 'tao') return true
-  // 酒：濒死时只能对自己使用（不是变牌，是酒本身的濒死效果）
   if (card.kind === 'jiu' && isDyingRescue.value && state.value?.pending?.target_index === mySeat.value) return true
+  if (viewAsSkills.value.length > 0) return cardPlaysAsViaViewAs(card, 'tao')
   if (hasMySkill('jiji') && isRedCard(card)) {
-    if (isJijiHeal.value || isDyingRescue.value) {
-      return state.value?.current_turn !== mySeat.value
-    }
+    if (isJijiHeal.value || isDyingRescue.value) return state.value?.current_turn !== mySeat.value
   }
-  // 龙魂：红桃当桃
   if (hasMySkill('longhun') && card.suit === 'H') return true
   return false
 }
 
-// cardPlaysAsWuxiek 龙魂：黑桃当无懈可击
 function cardPlaysAsWuxiek(card: YzsCard | null | undefined) {
   if (!card) return false
   if (card.kind === 'wuxiek') return true
+  if (viewAsSkills.value.length > 0) return cardPlaysAsViaViewAs(card, 'wuxiek')
   if (hasMySkill('longhun') && card.suit === 'S') return true
   return false
 }
@@ -391,8 +393,67 @@ const zhihengSelectedIds = ref<string[]>([])
 const jieyinMode = ref(false)
 const jieyinSelectedIds = ref<string[]>([])
 const fanjianMode = ref(false)
-const zhangbaMode = ref(false)           // 丈八蛇矛：选2张手牌当杀
-const zhangbaSelectedIds = ref<string[]>([])
+// [已废弃] 变牌旧模式，已被 activeViewAs 统一接管
+// const zhangbaMode = ref(false)
+// const zhangbaSelectedIds = ref<string[]>([])
+// ===== ViewAs 统一变牌系统 =====
+const viewAsSkills = computed(() => state.value?.view_as_skills ?? [])
+
+/** 当前激活的变牌技能（统一状态，替换 wushengMode/qixiMode/guoseMode/shuangxiongMode） */
+const activeViewAs = ref<{
+  skillId: string
+  asKind: string
+  selectCount: number
+  selectedIds: string[]
+} | null>(null)
+
+const viewAsSkillHint = computed(() => {
+  const av = activeViewAs.value
+  if (!av) return ''
+  const vas = viewAsSkills.value.find(v => v.skill_id === av.skillId)
+  if (!vas) return ''
+  return `【${vas.skill_name}】已发动：${vas.prompt}。已选 ${av.selectedIds.length}/${av.selectCount} 张`
+})
+
+function isCardSelectableForViewAs(card: YzsCard): boolean {
+  const av = activeViewAs.value
+  if (!av) return false
+  const vas = viewAsSkills.value.find(v => v.skill_id === av.skillId)
+  if (!vas) return false
+  // 用声明式过滤条件判断
+  if (vas.filter_kinds && vas.filter_kinds.length > 0) {
+    if (!vas.filter_kinds.includes(card.kind)) return false
+  }
+  if (vas.filter_suits && vas.filter_suits.length > 0) {
+    if (!vas.filter_suits.includes(card.suit)) return false
+  }
+  if (vas.filter_suit_color === 'red' && !isRedCard(card)) return false
+  if (vas.filter_suit_color === 'black' && !isBlackCard(card)) return false
+  return true
+}
+
+/** 统一变牌判断：用后端 view_as_skills 的声明式过滤条件判断，不硬编码任何技能名 */
+function cardPlaysAsViaViewAs(card: YzsCard | null | undefined, asKind: string): boolean {
+  if (!card) return false
+  if (card.kind === asKind) return true
+  if (asKind === 'sha' && (card.kind === 'sha_fire' || card.kind === 'sha_thunder')) return true
+  for (const vas of viewAsSkills.value) {
+    if (vas.as_kind !== asKind) continue
+    if (!vas.passive && !vas.is_active) continue
+    if (vas.filter_kinds && vas.filter_kinds.length > 0) {
+      if (!vas.filter_kinds.includes(card.kind)) continue
+    }
+    if (vas.filter_suits && vas.filter_suits.length > 0) {
+      if (!vas.filter_suits.includes(card.suit)) continue
+    }
+    if (vas.filter_suit_color === 'red' && !isRedCard(card)) continue
+    if (vas.filter_suit_color === 'black' && !isBlackCard(card)) continue
+    return true
+  }
+  return false
+}
+// ===== ViewAs 结束 =====
+
 // 借刀杀人：双目标选择模式（被借刀者 + 出杀目标）
 const jiedaoMode = ref(false)
 const jiedaoWeaponHolder = ref<number | null>(null)  // 被借刀者
@@ -404,15 +465,17 @@ const fangtianTargets = ref<number[]>([])
 const tiesuoMode = ref(false)
 const tiesuoTargets = ref<number[]>([])
 const fanjianSelectedId = ref('')
-const qixiMode = ref(false)
-const qixiSelectedId = ref('')
-const guoseMode = ref(false)
-const shuangxiongMode = ref(false)
-const shuangxiongSelectedId = ref('')
-const guoseSelectedId = ref('')
+// [已废弃] 变牌旧模式，已被 activeViewAs 统一接管
+// const qixiMode = ref(false)
+// const qixiSelectedId = ref('')
+// const guoseMode = ref(false)
+// const shuangxiongMode = ref(false)
+// const shuangxiongSelectedId = ref('')
+// const guoseSelectedId = ref('')
 const guoseTarget = ref(-1)
 const liuliSelectedId = ref('')
-const wushengMode = ref(false)
+// [已废弃] 变牌旧模式，已被 activeViewAs 统一接管
+// const wushengMode = ref(false)
 const ganglieDiscardIds = ref<string[]>([])
 const ddzCancelDiscardIds = ref<string[]>([])
 const yijiSelectedIds = ref<string[]>([])
@@ -476,6 +539,48 @@ const isDdzJudgeCancel = computed(
 const isFankui = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_fankui',
 )
+const isChixiong = computed(
+  () => isResponse.value && state.value?.pending?.response_mode === 'weapon_8',
+)
+const canSubmitChixiong = computed(() => isChixiong.value && selectedId.value !== '')
+
+async function submitChixiongDiscard() {
+  if (!state.value || !selectedId.value) return
+  await act(() => respondYuzhoushaCard(state.value!.id, selectedId.value))
+}
+
+const isGuanshifu = computed(
+  () => isResponse.value && state.value?.pending?.response_mode === 'weapon_9',
+)
+const guanshifuDiscardIds = ref<string[]>([])
+const canSubmitGuanshifu = computed(() => isGuanshifu.value && guanshifuDiscardIds.value.length === 2)
+
+function toggleGuanshifuCard(cardId: string) {
+  const idx = guanshifuDiscardIds.value.indexOf(cardId)
+  if (idx >= 0) {
+    guanshifuDiscardIds.value.splice(idx, 1)
+  } else if (guanshifuDiscardIds.value.length < 2) {
+    guanshifuDiscardIds.value = [...guanshifuDiscardIds.value, cardId]
+  }
+}
+
+async function submitGuanshifuDiscard() {
+  if (!state.value || guanshifuDiscardIds.value.length !== 2) return
+  await act(() => discardYuzhoushaCards(state.value!.id, [...guanshifuDiscardIds.value]))
+  guanshifuDiscardIds.value = []
+}
+
+async function submitGuanshifuSkip() {
+  if (!state.value) return
+  guanshifuDiscardIds.value = []
+  await act(() => passYuzhoushaResponse(state.value!.id))
+}
+
+async function submitChixiongSkip() {
+  if (!state.value) return
+  selectedId.value = ''
+  await act(() => passYuzhoushaResponse(state.value!.id))
+}
 const isTuxiTake = computed(
   () => isResponse.value && state.value?.pending?.response_mode === 'skill_tuxi',
 )
@@ -559,11 +664,18 @@ const qilinHorseOptions = computed(() => {
 const selectedCard = computed(() => {
   const c = myHand.value.find((c) => c.id === selectedId.value)
   if (c) return c
-  // 变牌模式下装备区也可被选中（武圣/奇袭/国色/双雄）
-  if (wushengMode.value || qixiMode.value || guoseMode.value || shuangxiongMode.value) {
-    return equippedCards(myPlayer.value).find((c) => c.id === selectedId.value) ?? null
+  // ViewAs 变牌模式下装备区也可被选中
+  if (activeViewAs.value) {
+    const av = activeViewAs.value
+    const vas = viewAsSkills.value.find(v => v.skill_id === av.skillId)
+    if (vas && (vas.position === 'he' || vas.position === 'e')) {
+      return equippedCards(myPlayer.value).find((c) => c.id === selectedId.value) ?? null
+    }
   }
-  // 五谷丰登/观星等：从 revealed_cards 中查找
+  // [已废弃] 旧兼容，已被 activeViewAs 替代
+  // if (wushengMode.value || qixiMode.value || guoseMode.value || shuangxiongMode.value) {
+  //   return equippedCards(myPlayer.value).find((c) => c.id === selectedId.value) ?? null
+  // }
   return state.value?.pending?.revealed_cards?.find((c) => c.id === selectedId.value) ?? null
 })
 const selfTargetKinds = new Set([
@@ -634,8 +746,17 @@ const opponentTargetKinds = new Set(['sha', 'guohe', 'tannang', 'juedou', 'lebu'
 function needsOpponentTarget(card: YzsCard | null | undefined) {
   if (!card) return false
   if (cardPlaysAsSha(card)) return true
-  // 奇袭模式下，所有黑色牌都当过河拆桥用，需要对对手目标
-  if (qixiMode.value && isBlackCard(card)) return true
+  // ViewAs 变牌模式：检查是否需要对手目标
+  if (activeViewAs.value) {
+    const av = activeViewAs.value
+    const vas = viewAsSkills.value.find(v => v.skill_id === av.skillId)
+    if (vas) {
+      // 杀/过河拆桥/顺手牵羊/决斗/乐不思蜀/兵粮寸断 需要对对手
+      if (['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang'].includes(vas.as_kind)) return true
+    }
+  }
+  // [已废弃] 旧兼容
+  // if (qixiMode.value && isBlackCard(card)) return true
   return opponentTargetKinds.has(card.kind)
 }
 
@@ -822,10 +943,8 @@ function canPlayCard(card: YzsCard | null | undefined) {
     if (fanjianMode.value) {
       return fanjianSelectedId.value !== ''
     }
-    // 丈八蛇矛：选2张手牌 + 必须选目标
-    if (zhangbaMode.value) {
-      return zhangbaSelectedIds.value.length === 2 && shaTarget.value != null
-    }
+    // [已废弃] 丈八旧模式，已被 activeViewAs 接管
+    // if (zhangbaMode.value) { return zhangbaSelectedIds.value.length === 2 && shaTarget.value != null }
     // 借刀杀人：必须选完两个目标
     if (jiedaoMode.value) {
       return jiedaoWeaponHolder.value !== null && jiedaoShaTarget.value !== null
@@ -834,17 +953,37 @@ function canPlayCard(card: YzsCard | null | undefined) {
     if (fangtianMode.value) {
       return fangtianTargets.value.length >= 1 && fangtianTargets.value.length <= 3
     }
-    if (qixiMode.value) {
-      // 奇袭激活后走普通出牌路径：需要选牌 + 选目标
-      if (!card || !isBlackCard(card)) return false
-      return shaTarget.value != null
+    // ViewAs 变牌模式：检查选牌是否满足要求
+    if (activeViewAs.value) {
+      const av = activeViewAs.value
+      if (av.selectCount > 1) {
+        // 多牌模式（丈八）：需要选满
+        return av.selectedIds.length === av.selectCount && shaTarget.value != null
+      }
+      // 单牌模式（武圣/奇袭/国色/双雄）：需要选牌 + 目标
+      const card = selectedCard.value
+      if (!card) return false
+      // 用声明式过滤条件判断
+      const vas = viewAsSkills.value.find(v => v.skill_id === av.skillId)
+      if (!vas) return false
+      if (vas.filter_kinds && vas.filter_kinds.length > 0) {
+        if (!vas.filter_kinds.includes(card.kind)) return false
+      }
+      if (vas.filter_suits && vas.filter_suits.length > 0) {
+        if (!vas.filter_suits.includes(card.suit)) return false
+      }
+      if (vas.filter_suit_color === 'red' && !isRedCard(card)) return false
+      if (vas.filter_suit_color === 'black' && !isBlackCard(card)) return false
+      // 需要对对手目标的牌型
+      if (['sha', 'guohe', 'tannang', 'juedou', 'lebu', 'bingliang'].includes(vas.as_kind)) {
+        return shaTarget.value != null
+      }
+      return true
     }
-    if (guoseMode.value) {
-      return guoseSelectedId.value !== ''
-    }
-    if (shuangxiongMode.value) {
-      return shuangxiongSelectedId.value !== ''
-    }
+    // [已废弃] 旧变牌分支，已被 activeViewAs 接管
+    // if (qixiMode.value) { ... }
+    // if (guoseMode.value) { ... }
+    // if (shuangxiongMode.value) { ... }
     if (tiesuoMode.value) {
       return tiesuoTargets.value.length >= 1 && tiesuoTargets.value.length <= 2
     }
@@ -1007,6 +1146,7 @@ const { centerHint } = useYzsHints({
   jiedaoShaTarget,
   fangtianMode,
   fangtianTargets,
+  gameLog,
   isDealing,
   isFinished,
   isMyDiscard,
@@ -1115,9 +1255,19 @@ function toastError(message: string) {
   showToast(message, 'error')
 }
 
-function clearWushengMode() {
-  wushengMode.value = false
+function clearOtherModes() {
+  activeViewAs.value = null
+  // [已废弃] 旧变量清理，已被 activeViewAs 替代
+  // wushengMode.value = false; qixiMode.value = false; guoseMode.value = false
+  // shuangxiongMode.value = false; zhangbaMode.value = false; zhangbaSelectedIds.value = []
+  rendeMode.value = false
+  zhihengMode.value = false
+  jieyinMode.value = false
+  fanjianMode.value = false
 }
+
+// [已废弃] 已被 activeViewAs 替代
+// function clearWushengMode() { wushengMode.value = false }
 
 function clearRendeMode() {
   rendeMode.value = false
@@ -1145,10 +1295,8 @@ function clearJiedaoMode() {
   jiedaoShaTarget.value = null
 }
 
-function clearZhangbaMode() {
-  zhangbaMode.value = false
-  zhangbaSelectedIds.value = []
-}
+// [已废弃] 已被 activeViewAs 替代
+// function clearZhangbaMode() { zhangbaMode.value = false; zhangbaSelectedIds.value = [] }
 
 function clearTiesuoMode() {
   tiesuoMode.value = false
@@ -1312,21 +1460,10 @@ function clearFanjianMode() {
   fanjianSelectedId.value = ''
 }
 
-function clearQixiMode() {
-  qixiMode.value = false
-  qixiSelectedId.value = ''
-}
-
-function clearGuoseMode() {
-  guoseMode.value = false
-  guoseSelectedId.value = ''
-  guoseTarget.value = -1
-}
-
-function clearShuangxiongMode() {
-  shuangxiongMode.value = false
-  shuangxiongSelectedId.value = ''
-}
+// [已废弃] 已被 activeViewAs 替代
+// function clearQixiMode() { qixiMode.value = false; qixiSelectedId.value = '' }
+// function clearGuoseMode() { guoseMode.value = false; guoseSelectedId.value = ''; guoseTarget.value = -1 }
+// function clearShuangxiongMode() { shuangxiongMode.value = false; shuangxiongSelectedId.value = '' }
 
 function clearSkillSelectModes() {
   clearRendeMode()
@@ -1429,9 +1566,21 @@ async function applyRemoteGameState(next: YuzhoushaState) {
     await applyState(next)
     return
   }
+
+  // 在 applyState 前提取 events 用于日志
+  const newEvents = next.events ?? []
+  const currentTurn = next.current_turn
+  const round = next.round ?? 0
+
   loading.value = true
   try {
     await applyState(next)
+    // 追加到持久化日志（直接使用后端 Message，不做前端转换）
+    for (const e of newEvents) {
+      if (e.message) {
+        gameLog.value = [...gameLog.value, { round, turn: currentTurn, msg: e.message }].slice(-200)
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -1572,8 +1721,23 @@ function selectCard(id: string) {
     return
   }
 
-  // 丈八蛇矛：选2张手牌当杀
-  if (zhangbaMode.value && isMyPlay.value) {
+  // ===== ViewAs 统一变牌选牌（替换 zhangbaMode/qixiMode/guoseMode/shuangxiongMode） =====
+  if (activeViewAs.value && (isMyPlay.value || isMyResponse.value)) {
+    const av = activeViewAs.value
+    const cardObj = myHand.value.find(c => c.id === id)
+    if (cardObj && isCardSelectableForViewAs(cardObj)) {
+      const idx = av.selectedIds.indexOf(id)
+      if (idx >= 0) {
+        av.selectedIds.splice(idx, 1)
+      } else if (av.selectedIds.length < av.selectCount) {
+        av.selectedIds = [...av.selectedIds, id]
+      }
+    }
+    return
+  }
+
+  // 保留旧兼容（丈八蛇矛，G6后续步骤清理）
+  if (zhangbaMode.value && (isMyPlay.value || isMyResponse.value)) {
     if (zhangbaSelectedIds.value.includes(id)) {
       zhangbaSelectedIds.value = zhangbaSelectedIds.value.filter((x) => x !== id)
     } else if (zhangbaSelectedIds.value.length < 2) {
@@ -1582,35 +1746,11 @@ function selectCard(id: string) {
     return
   }
 
-  if (qixiMode.value && isMyPlay.value) {
-    // 奇袭激活后，黑色牌视为过河拆桥，走普通出牌路径（选牌→选目标→打出）
-    if (selectedId.value === id) {
-      selectedId.value = ''
-      // 取消选中时只清 target，不清奇袭模式
-      shaTarget.value = null
-      selectedTargetZone.value = ''
-      selectedTargetCardId.value = ''
-      return
-    }
-    selectedId.value = id
-    // 选牌时只清 target，不清奇袭模式（让用户重新选目标）
-    shaTarget.value = null
-    selectedTargetZone.value = ''
-    selectedTargetCardId.value = ''
-    return
-  }
-
-  if (guoseMode.value && isMyPlay.value) {
-    if (!isDiamondCard(card)) return
-    guoseSelectedId.value = guoseSelectedId.value === id ? '' : id
-    return
-  }
-
-  if (shuangxiongMode.value && isMyPlay.value) {
-    if (!cardValidForShuangxiong(card)) return
-    shuangxiongSelectedId.value = shuangxiongSelectedId.value === id ? '' : id
-    return
-  }
+  // [已废弃] 旧变牌选牌分支，已被 activeViewAs 接管
+  // if (qixiMode.value && isMyPlay.value) { ... }
+  // if (guoseMode.value && isMyPlay.value) { ... }
+  // if (shuangxiongMode.value && isMyPlay.value) { ... }
+  // ===== ViewAs 变牌选牌结束 =====
 
   if (isLiuliOffer.value && isMyResponse.value) {
     liuliSelectedId.value = liuliSelectedId.value === id ? '' : id
@@ -1701,7 +1841,15 @@ async function act(fn: () => Promise<YuzhoushaState>, opts?: { allowAnimating?: 
   if (!opts?.allowAnimating && isAnimating.value) return
   loading.value = true
   try {
-    await applyState(await fn())
+    const next = await fn()
+    // 写入日志（单机模式不经过 applyRemoteGameState）
+    const newEvents = next.events ?? []
+    for (const e of newEvents) {
+      if (e.message) {
+        gameLog.value = [...gameLog.value, { round: next.round ?? 0, turn: next.current_turn, msg: e.message }].slice(-200)
+      }
+    }
+    await applyState(next)
   } catch (err) {
     toastError(err instanceof Error ? err.message : '操作失败')
   } finally {
@@ -1952,8 +2100,8 @@ function isSkillActivatable(skill: YzsSkillMeta) {
   // 武圣/奇袭 可随时 toggle（激活后可取消）
   if (skill.id === 'wusheng' && isMyPlay.value) return true
   if (skill.id === 'qixi' && isMyPlay.value) return true
-  // 丈八蛇矛：装备时显示为可激活技能
-  if (skill.id === 'zhangba' && isMyPlay.value) {
+  // 丈八蛇矛：装备时显示为可激活技能（出牌阶段 + 响应阶段均可）
+  if (skill.id === 'zhangba' && (isMyPlay.value || isMyResponse.value)) {
     return myPlayer.value?.weapon?.kind === 'weapon_10' && myHand.value.length >= 2
   }
   const ctx = makePendingContext()
@@ -2096,74 +2244,63 @@ async function activateSkill(skillId: string) {
     return
   }
   if (skillId === 'qixi') {
-    qixiMode.value = !qixiMode.value
-    qixiSelectedId.value = ''
+    // ViewAs 统一激活：奇袭
+    if (activeViewAs.value?.skillId === 'qixi') {
+      activeViewAs.value = null
+    } else {
+      activeViewAs.value = { skillId: 'qixi', asKind: 'guohe', selectCount: 1, selectedIds: [] }
+      await act(() => useYuzhoushaSkill(state.value!.id, 'qixi'))
+    }
+    qixiMode.value = !qixiMode.value // 保留旧兼容
     selectedId.value = ''
-    clearRendeMode()
-    clearZhihengMode()
-    clearJieyinMode()
-    clearFanjianMode()
-    clearGuoseMode()
-    clearWushengMode()
-    clearShuangxiongMode()
-    // 等待后端 toggle 奇袭状态完成（确保出牌时 counter 已生效）
-    await act(() => useYuzhoushaSkill(state.value!.id, 'qixi'))
     return
   }
   if (skillId === 'guose') {
-    guoseMode.value = true
+    activeViewAs.value = { skillId: 'guose', asKind: 'lebu', selectCount: 1, selectedIds: [] }
+    guoseMode.value = true // 保留旧兼容
     guoseSelectedId.value = ''
     selectedId.value = ''
-    clearRendeMode()
-    clearZhihengMode()
-    clearJieyinMode()
-    clearFanjianMode()
-    clearQixiMode()
-    clearShuangxiongMode()
-    clearWushengMode()
     return
   }
   if (skillId === 'wusheng' && isMyPlay.value) {
-    wushengMode.value = !wushengMode.value
+    if (activeViewAs.value?.skillId === 'wusheng') {
+      activeViewAs.value = null
+    } else {
+      activeViewAs.value = { skillId: 'wusheng', asKind: 'sha', selectCount: 1, selectedIds: [] }
+      await act(() => useYuzhoushaSkill(state.value!.id, 'wusheng'))
+    }
+    wushengMode.value = !wushengMode.value // 保留旧兼容
     selectedId.value = ''
-    clearRendeMode()
-    clearZhihengMode()
-    clearJieyinMode()
-    clearFanjianMode()
-    clearQixiMode()
-    clearGuoseMode()
-    clearShuangxiongMode()
-    // 等待后端 toggle 武圣状态完成
-    await act(() => useYuzhoushaSkill(state.value!.id, 'wusheng'))
     return
   }
-  // 丈八蛇矛：激活后进入选2张牌模式
+  // ===== ViewAs 统一激活 =====
+  const vas = viewAsSkills.value.find(v => v.skill_id === skillId)
+  if (vas && (isMyPlay.value || isMyResponse.value)) {
+    if (activeViewAs.value?.skillId === skillId) {
+      activeViewAs.value = null
+    } else {
+      activeViewAs.value = { skillId, asKind: vas.as_kind, selectCount: vas.select_card, selectedIds: [] }
+      // 需要后端 toggle 的技能（武圣/奇袭等）
+      if (skillId === 'wusheng' || skillId === 'qixi') {
+        await act(() => useYuzhoushaSkill(state.value!.id, skillId))
+      }
+    }
+    selectedId.value = ''
+    return
+  }
+  // 保留旧兼容（丈八蛇矛/shuangxiong，后续步骤清理）
   if (skillId === 'zhangba' && isMyPlay.value) {
     zhangbaMode.value = !zhangbaMode.value
     zhangbaSelectedIds.value = []
     selectedId.value = ''
-    clearRendeMode()
-    clearZhihengMode()
-    clearJieyinMode()
-    clearFanjianMode()
-    clearQixiMode()
-    clearGuoseMode()
-    clearShuangxiongMode()
-    clearWushengMode()
-    clearTiesuoMode()
+    clearOtherModes()
     return
   }
   if (skillId === 'shuangxiong' && isMyPlay.value) {
-    shuangxiongMode.value = true
+    activeViewAs.value = { skillId: 'shuangxiong', asKind: 'juedou', selectCount: 1, selectedIds: [] }
+    shuangxiongMode.value = true // 保留旧兼容
     shuangxiongSelectedId.value = ''
     selectedId.value = ''
-    clearRendeMode()
-    clearZhihengMode()
-    clearJieyinMode()
-    clearFanjianMode()
-    clearQixiMode()
-    clearGuoseMode()
-    clearWushengMode()
     return
   }
   void submitSkill(skillId)
@@ -2316,30 +2453,26 @@ async function submitPlayCard() {
       await submitSkill('fanjian')
       return
     }
-    if (qixiMode.value && selectedCard.value && shaTarget.value != null) {
-      const card = selectedCard.value
-      if (isBlackCard(card)) {
-        // 黑色牌视为过河拆桥
+    // ViewAs 单牌变牌提交（奇袭/国色/双雄等）
+    if (activeViewAs.value && activeViewAs.value.selectCount === 1 && selectedCard.value) {
+      if (shaTarget.value != null) {
         await act(() =>
-          playYuzhoushaCard(state.value!.id, card.id, {
+          playYuzhoushaCard(state.value!.id, selectedCard.value!.id, {
             targetIndex: shaTarget.value!,
             targetZone: selectedTargetZone.value || undefined,
             targetCardId: selectedTargetCardId.value || undefined,
           }),
         )
-        clearQixiMode()
-        return
+      } else {
+        await act(() => playYuzhoushaCard(state.value!.id, selectedCard.value!.id, mySeat.value))
       }
-      // 非黑色牌：不走奇袭逻辑，继续往下走普通出牌（杀/闪等）
-    }
-    if (guoseMode.value && guoseSelectedId.value !== '') {
-      await submitSkill('guose')
+      activeViewAs.value = null
       return
     }
-    if (shuangxiongMode.value && shuangxiongSelectedId.value !== '') {
-      await submitSkill('shuangxiong')
-      return
-    }
+    // [已废弃] 旧变牌提交分支，已被 activeViewAs 接管
+    // if (qixiMode.value && selectedCard.value && shaTarget.value != null) { ... }
+    // if (guoseMode.value && guoseSelectedId.value !== '') { ... }
+    // if (shuangxiongMode.value && shuangxiongSelectedId.value !== '') { ... }
     // 铁索连环：提交1-2个目标，或重铸
     if (tiesuoMode.value) {
       const card = selectedCard.value
@@ -2385,26 +2518,46 @@ async function submitPlayCard() {
       clearJiedaoMode()
       return
     }
-    // 丈八蛇矛：选2张手牌当杀，对目标使用
-    if (zhangbaMode.value && zhangbaSelectedIds.value.length === 2 && shaTarget.value != null) {
-      const ids = zhangbaSelectedIds.value
-      await act(() =>
-        playYuzhoushaCard(state.value!.id, ids[0], {
-          targetIndex: shaTarget.value!,
-          zhangbaSecondCardId: ids[1],
-        }),
-      )
-      clearZhangbaMode()
-      return
+    // ===== ViewAs 统一变牌提交（替换 zhangbaMode/wushengMode/qixiMode 硬编码） =====
+    if (activeViewAs.value) {
+      const av = activeViewAs.value
+      if (av.selectedIds.length === av.selectCount) {
+        if (av.selectCount === 2) {
+          // 多牌合一（丈八蛇矛等）
+          if (isMyResponse.value) {
+            await act(() => respondZhangbaSha(state.value!.id, [av.selectedIds[0], av.selectedIds[1]]))
+          } else if (shaTarget.value != null) {
+            await act(() =>
+              playYuzhoushaCard(state.value!.id, av.selectedIds[0], {
+                targetIndex: shaTarget.value!,
+                zhangbaSecondCardId: av.selectedIds[1],
+              }),
+            )
+          }
+        } else {
+          // 单牌变牌（武圣/奇袭/国色等）
+          if (isMyResponse.value) {
+            await act(() => respondYuzhoushaCard(state.value!.id, av.selectedIds[0]))
+          } else if (shaTarget.value != null) {
+            await act(() => playYuzhoushaCard(state.value!.id, av.selectedIds[0], shaTarget.value!))
+          } else if (isMyPlay.value) {
+            await act(() => playYuzhoushaCard(state.value!.id, av.selectedIds[0], mySeat.value))
+          }
+        }
+        activeViewAs.value = null
+        return
+      }
     }
+
+    // [已废弃] 旧丈八提交，已被 activeViewAs 接管
+    // if (zhangbaMode.value && zhangbaSelectedIds.value.length === 2) { ... }
+
     const card = selectedCard.value
     if (!card) return
 
-    if (cardPlaysAsSha(card) && shaTarget.value != null) {
-      await act(() => playYuzhoushaCard(state.value!.id, card.id, shaTarget.value!))
-      clearWushengMode()
-      return
-    }
+    // [已废弃] 旧武圣提交，已被 activeViewAs 接管
+    // if (cardPlaysAsSha(card) && shaTarget.value != null) { ... clearWushengMode() ... }
+    // ===== ViewAs 变牌提交结束 =====
 
     if (card.kind === 'tao') {
       await act(() => playYuzhoushaCard(state.value!.id, card.id, mySeat.value))
@@ -2459,6 +2612,13 @@ async function loadGame(gameId: string) {
   loading.value = true
   try {
     const next = await getYuzhoushaState(gameId)
+    // 写入初始日志
+    const newEvents = next.events ?? []
+    for (const e of newEvents) {
+      if (e.message) {
+        gameLog.value = [...gameLog.value, { round: next.round ?? 0, turn: next.current_turn, msg: e.message }].slice(-200)
+      }
+    }
     await runInitialDealAnimation(next)
   } catch (err) {
     toastError(err instanceof Error ? err.message : '加载对局失败')
@@ -2517,6 +2677,8 @@ onMounted(() => {
     canPlayWuxiek,
     canSubmitBagua,
     canSubmitCancel,
+    canSubmitChixiong,
+    canSubmitGuanshifu,
     canSubmitEndTurn,
     canSubmitFankui,
     canSubmitGanglieDiscard,
@@ -2590,6 +2752,8 @@ onMounted(() => {
     isDealing,
     isDiamondCard,
     isDyingRescue,
+    isChixiong,
+    isGuanshifu,
     isFanjianSuit,
     isFankui,
     isFinished,
@@ -2729,6 +2893,12 @@ onMounted(() => {
     submitCancelResponse,
     submitPassAllWuxiek,
     submitCancelWusheng,
+    submitChixiongDiscard,
+    submitChixiongSkip,
+    guanshifuDiscardIds,
+    toggleGuanshifuCard,
+    submitGuanshifuDiscard,
+    submitGuanshifuSkip,
     submitEndTurn,
     submitFanjianSuit,
     submitGanglieDiscard,
@@ -2761,6 +2931,10 @@ onMounted(() => {
     turnDeadline,
     tuxiTargetOptions,
     weaponRange,
+    viewAsSkills,
+    activeViewAs,
+    viewAsSkillHint,
+    clearOtherModes,
     wushengMode,
     wushengSkillHint,
     zhangbaMode,

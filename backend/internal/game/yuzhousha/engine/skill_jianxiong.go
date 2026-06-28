@@ -64,7 +64,7 @@ func (g *Game) ApplyJianxiong(seat int, events *[]GameEvent) error {
 		return ErrInvalidCard
 	}
 	g.Players[seat].Hand = append(g.Players[seat].Hand, card)
-	g.syncCounts()
+	g.SyncCounts()
 	a.OfferJianxiong = false
 	g.Pending = nil
 	msg := fmt.Sprintf("%s 发动【奸雄】，获得 %s", g.Players[seat].Name, card.Name)

@@ -29,6 +29,48 @@ func renwangBlocksSha(shaCard Card) bool {
 	return skill.IsBlackSuit(shaCard.Suit)
 }
 
+func init() {
+	// 仁王盾装备技能（TagEquipSkill：装备时注入角色 SkillIDs，Hook 自然触发）
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: EquipSkillRenwang, Name: "仁王盾", Kind: skill.KindPassive,
+			Desc: "锁定技，黑色【杀】对你无效。",
+		},
+		Tags:       []skill.SkillTag{skill.TagEquipSkill},
+		OnShaBegin: renwangEquipOnShaBegin,
+	})
+}
+
+// renwangEquipOnShaBegin 仁王盾 OnShaBegin 回调（HookShaBegin RoleTarget 广播触发）。
+// 检查黑色杀并取消。参考 noname: renwang_skill, trigger: { target: "shaBegin" }
+func renwangEquipOnShaBegin(r skill.Runtime, ctx skill.ShaCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+	pending := g.Pending
+	if pending == nil || pending.Card.Kind != CardSha {
+		return nil
+	}
+	if pending.IgnoreArmor || !renwangBlocksSha(pending.Card) {
+		return nil
+	}
+
+	msg := fmt.Sprintf("【仁王盾】%s 的黑色【杀】对 %s 无效", g.Players[pending.SourceIndex].Name, g.Players[pending.TargetIndex].Name)
+	*gr.events = append(*gr.events, GameEvent{
+		Type:        "renwang_block",
+		PlayerIndex: pending.SourceIndex,
+		TargetIndex: pending.TargetIndex,
+		Card:        &pending.Card,
+		Message:     msg,
+	})
+	g.Pending = nil
+	g.Phase = PhasePlaying
+	g.TurnStep = StepPlay
+	g.CurrentTurn = pending.ReturnIndex
+	g.Message = msg
+	g.resetTimer()
+	return nil
+}
+
 // ============================================================================
 // 白银狮子（Baiyin）：伤害值>1时锁定为1，失去时若已受伤则回1血
 // 参考 noname: baiyin_skill + baiyin_skill_lose
@@ -59,7 +101,7 @@ func (g *Game) handleBaiyinLose(seat int, events *[]GameEvent) {
 		return // 满血不回复
 	}
 	p.HP++
-	g.syncCounts()
+	g.SyncCounts()
 	msg := fmt.Sprintf("【白银狮子】%s 失去防具，回复 1 点体力", p.Name)
 	*events = append(*events, GameEvent{
 		Type:        "baiyin_recover",

@@ -1,6 +1,10 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/time/card/backend/internal/game/yuzhousha/skill"
+)
 
 func (g *Game) drawCards(seat, count int, events *[]GameEvent) {
 	p := &g.Players[seat]
@@ -21,7 +25,7 @@ func (g *Game) drawCards(seat, count int, events *[]GameEvent) {
 			Message:     fmt.Sprintf("%s 摸牌", p.Name),
 		})
 	}
-	g.syncCounts()
+	g.SyncCounts()
 }
 
 func (g *Game) refillDrawPile() {
@@ -38,6 +42,17 @@ func (g *Game) beginTurn(events *[]GameEvent) {
 		events = &[]GameEvent{}
 	}
 	seat := g.CurrentTurn
+
+	// 跳过已死亡玩家（HP <= 0），找到下一个存活玩家
+	if g.AliveHP(seat) <= 0 {
+		next := g.nextTurnSeat(seat)
+		if next == seat {
+			// 没有其他存活玩家，游戏应该结束
+			return
+		}
+		g.CurrentTurn = next
+		seat = next
+	}
 
 	// 初始化阶段栈和事件管理器（每个回合开始时重置）
 	g.phaseStack = NewPhaseStack()
@@ -134,6 +149,39 @@ func (g *Game) beginTurn(events *[]GameEvent) {
 	}
 
 	g.StartEvent(phaseEv, events)
+
+	// 回合事件完成。不在这里自动推进到下一回合。
+	// 每个回合是独立的"电梯旅程"：beginTurn 启动，阶段执行完毕后由外部
+	// （前端 NextTurn / AI finalize）发起新的 beginTurn。
+}
+
+// AutoBeginTurnIfNeeded 检测是否需要为新回合初始化状态。
+// 由 finalize 在每次操作后调用。如果当前回合玩家的 TurnStep 为空
+// （说明 finishPhaseLoop 已切换 CurrentTurn 但新回合还没初始化），
+// 则初始化新回合状态（重置出杀次数、醉酒等），然后进入出牌阶段。
+func (g *Game) AutoBeginTurnIfNeeded(events *[]GameEvent) {
+	if g.IsFinished() || g.Phase != PhasePlaying {
+		return
+	}
+	if g.TurnStep != "" || g.Pending != nil {
+		return
+	}
+	seat := g.CurrentTurn
+	if g.AliveHP(seat) <= 0 {
+		return
+	}
+
+	// 初始化新回合状态（不执行完整回合循环，只重置状态）
+	g.phaseStack = NewPhaseStack()
+	g.eventManager = NewEventManager()
+	g.Players[seat].ShaUsedThisTurn = false
+	g.Players[seat].ShaExtraUsedThisTurn = false
+	g.Players[seat].Drunk = false
+	g.TurnStep = StepStart
+
+	// 调用 beginTurn 初始化回合（创建 phaseEv，执行摸牌，进入出牌阶段）
+	// 人类玩家在出牌阶段暂停，AI 自动完成整个回合循环
+	g.beginTurn(events)
 }
 
 // ============================================================================
@@ -160,15 +208,25 @@ func (g *Game) isNewRound() bool {
 // 阶段钩子触发（预留，供后续 trigger 系统接入）
 // ============================================================================
 
-// triggerPhaseHook 触发阶段钩子（预留接口）。
-// 当前为空实现，后续接入 trigger 系统后，会遍历所有监听此事件名的技能并执行。
-// 参考 noname: event.trigger(eventName)
+// triggerPhaseHook 触发阶段钩子（参考 noname: event.trigger(eventName)）。
+// 通过 HookCall 分发到注册了对应 HookKind 的技能。
 func (g *Game) triggerPhaseHook(seat int, hookName string, events *[]GameEvent) {
-	// TODO: 接入 trigger 系统后，替换为：
-	// g.eventManager.Current().trigger(hookName)
-	_ = seat
-	_ = hookName
-	_ = events
+	switch hookName {
+	case "phaseBeforeStart":
+		g.runSkillHooks(events, skill.HookCall{Kind: skill.HookPhaseBeforeStart, Seat: seat, Role: skill.RolePlayer})
+	case "phaseBeforeEnd":
+		g.runSkillHooks(events, skill.HookCall{Kind: skill.HookPhaseBeforeEnd, Seat: seat, Role: skill.RolePlayer})
+	case "phaseBeginStart":
+		g.runSkillHooks(events, skill.HookCall{Kind: skill.HookPhaseBeginStart, Seat: seat, Role: skill.RolePlayer})
+	case "phaseBegin":
+		g.runSkillHooks(events, skill.HookCall{Kind: skill.HookPhaseBegin, Seat: seat, Role: skill.RolePlayer})
+	case "phaseChange":
+		g.runSkillHooks(events, skill.HookCall{Kind: skill.HookPhaseChange, Seat: seat, Role: skill.RolePlayer})
+	case "phaseEnd":
+		g.runSkillHooks(events, skill.HookCall{Kind: skill.HookPhaseEnd, Seat: seat, Role: skill.RolePlayer})
+	case "roundStart":
+		g.runSkillHooks(events, skill.HookCall{Kind: skill.HookRoundStart, Seat: seat, Role: skill.RoleGlobal})
+	}
 }
 func (g *Game) EndPlay(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
@@ -183,7 +241,15 @@ func (g *Game) EndPlay(seat int, events *[]GameEvent) error {
 	if g.TurnStep != StepPlay {
 		return ErrWrongPhase
 	}
-	// 标记当前阶段事件完成（参考 noname: event.finish() → 进入 End→After → 下一阶段）
+	// 人类玩家：手动推进到弃牌阶段（跳过 FinishCurrentPhaseEvent，直接调用 runPhaseStep）
+	// 找到当前阶段在 phaseList 中的索引，推进到下一个阶段
+	for i, phase := range phaseList {
+		if phase.StepKey == StepPlay {
+			g.runPhaseStep(seat, i+1, events)
+			return nil
+		}
+	}
+	// fallback
 	return g.FinishCurrentPhaseEvent(events)
 }
 
@@ -228,7 +294,7 @@ func (g *Game) DiscardCards(seat int, cardIDs []string, events *[]GameEvent) err
 		g.DiscardPile = append(g.DiscardPile, played)
 		discarded = append(discarded, played)
 	}
-	g.syncCounts()
+	g.SyncCounts()
 
 	discardMsg := fmt.Sprintf("%s 弃牌", p.Name)
 	for i := range discarded {
@@ -259,7 +325,7 @@ func (g *Game) autoDiscard(seat int, events *[]GameEvent) {
 		g.DiscardPile = append(g.DiscardPile, c)
 		discarded = append(discarded, c)
 	}
-	g.syncCounts()
+	g.SyncCounts()
 	discardMsg := fmt.Sprintf("%s 弃牌", p.Name)
 	for i := range discarded {
 		*events = append(*events, GameEvent{

@@ -45,10 +45,11 @@ func (g *Game) gundamZhanjiang(seat int, events *[]GameEvent) {
 		if p.Weapon != nil && p.Weapon.Kind == CardWeapon2 {
 			// 获得青釭剑
 			sword := *p.Weapon
+			g.removeEquipSkill(i, sword.Kind) // TagEquipSkill: 移除装备技能
 			p.Weapon = nil
 			g.notifyEquipLost(i, sword, "taken", events)
 			g.Players[seat].Hand = append(g.Players[seat].Hand, sword)
-			g.syncCounts()
+			g.SyncCounts()
 			msg := fmt.Sprintf("%s 发动【斩将】，获得 %s 的【青釭剑】", g.Players[seat].Name, p.Name)
 			g.Message = msg
 			*events = append(*events, GameEvent{

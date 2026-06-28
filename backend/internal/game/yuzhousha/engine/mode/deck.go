@@ -224,12 +224,10 @@ var deckProfiles = map[string]DeckProfile{
 
 // DeckProfileFor 返回模式对应的牌堆配置；未知模式用 legacy（与改前 NewBasicDeck 一致）。
 func DeckProfileFor(modeID string) DeckProfile {
-	// TODO: 测试完成后恢复
-	return DeckProfile{
-		ID:              "test_tricks",
-		Specs:           TestTrickDeckSpecs(),
-		InitialHandSize: 6,
+	if p, ok := deckProfiles[modeID]; ok {
+		return p
 	}
+	return deckProfiles[DeckProfileLegacy]
 }
 
 // TotalCards 牌堆总张数。

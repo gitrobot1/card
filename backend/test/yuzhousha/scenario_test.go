@@ -287,3 +287,138 @@ func TestScenario_LebuWuxiekOnJudgeCancelsSkip(t *testing.T) {
 		t.Fatalf("expected lebu cancelled, judge=%+v skip=%v", g.Players[1].JudgeArea, g.Players[1].SkipPlay)
 	}
 }
+
+// TestScenario_SimaYiShaXiahouDun 司马懿杀夏侯惇场景：
+// 司马懿 HP=1 手牌=[酒(黑桃2), 杀]
+// 夏侯惇 HP=1 手牌=[桃, 杀]
+// 司马懿出杀 → 夏侯惇出闪？不，夏侯惇没有闪 → 受到1点伤害 → HP=0濒死
+// → 夏侯惇用桃自救 → 刚烈判定 → 司马懿鬼才改判 → 根据判定结果：
+//   - 非红桃 → 司马懿弃2牌或扣1血 → 司马懿HP=1扣血→HP=0濒死→酒自救→最终HP=1
+func TestScenario_SimaYiShaXiahouDun(t *testing.T) {
+	g, err := engine.NewSolo1v1("sc-sima-xiahou", "司马懿", engine.CharSimaYi, engine.CharXiahouDun)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 司马懿 HP=1 手牌=[酒(黑桃2), 杀]
+	g.Players[0].Hand = []engine.Card{
+		{ID: "jiu-sima", Kind: engine.CardJiu, Name: "酒", Suit: "S", Rank: 2, Label: "黑桃2"},
+		{ID: "sha-sima", Kind: engine.CardSha, Name: "杀"},
+	}
+	g.Players[0].HP = 1
+
+	// 夏侯惇 HP=1 手牌=[桃, 杀]
+	g.Players[1].Hand = []engine.Card{
+		{ID: "tao-xiahou", Kind: engine.CardTao, Name: "桃"},
+		{ID: "sha-xiahou", Kind: engine.CardSha, Name: "杀"},
+	}
+	g.Players[1].HP = 1
+
+	// 牌堆：刚烈判定牌（黑桃3 → 刚烈生效）
+	g.DrawPile = []engine.Card{
+		{ID: "judge1", Suit: "S", Kind: engine.CardSha, Name: "杀", Label: "黑桃3"},
+	}
+
+	setupPlayingTurn(g, 0)
+
+	t.Logf("司马懿 Skills=%v, 夏侯惇 Skills=%v", g.Players[0].Character.SkillIDs, g.Players[1].Character.SkillIDs)
+	t.Logf("=== 初始: 司马懿 HP=%d 手牌=%d, 夏侯惇 HP=%d 手牌=%d ===",
+		g.Players[0].HP, len(g.Players[0].Hand), g.Players[1].HP, len(g.Players[1].Hand))
+
+	var events []engine.GameEvent
+
+	// 1. 司马懿出杀
+	if err := g.PlaySha(0, "sha-sima", 1, &events); err != nil {
+		t.Fatalf("PlaySha 失败: %v", err)
+	}
+	t.Logf("出杀后: Pending=%s", g.Pending.ResponseMode)
+
+	// 2. 夏侯惇没有闪 → PassResponse（杀命中）
+	if err := g.PassResponse(1, &events); err != nil {
+		t.Fatalf("夏侯惇 PassResponse 失败: %v", err)
+	}
+	t.Logf("夏侯惇无闪后: HP=%d Pending=%s", g.Players[1].HP, pendingMode(g))
+
+	// 3. 夏侯惇 HP=0 → 濒死窗口
+	assertPendingMode(t, g, engine.ResponseModeDying)
+	t.Logf("濒死窗口: Actor=%d", g.PendingActorSeat())
+
+	// 4. 夏侯惇自己出桃自救
+	if err := g.RespondCard(1, "tao-xiahou", &events); err != nil {
+		t.Fatalf("夏侯惇出桃失败: %v", err)
+	}
+	t.Logf("夏侯惇自救后: HP=%d Pending=%s", g.Players[1].HP, pendingMode(g))
+
+	// 5. 刚烈窗口
+	assertPendingMode(t, g, engine.ResponseModeSkillGanglieOffer)
+	t.Logf("刚烈窗口: Actor=%d", g.PendingActorSeat())
+
+	// 6. 夏侯惇发动刚烈
+	if err := g.UseSkill(1, engine.UseSkillRequest{SkillID: engine.SkillGanglie}, &events); err != nil {
+		t.Fatalf("发动刚烈失败: %v", err)
+	}
+	t.Logf("刚烈判定后: Pending=%s", pendingMode(g))
+
+	// 7. 鬼才改判窗口（司马懿，当前回合角色优先）
+	if g.Pending == nil || g.Pending.ResponseMode != engine.ResponseModeSkillGuicai {
+		t.Fatalf("期望鬼才窗口，实际 Pending=%v", pendingMode(g))
+	}
+	t.Logf("鬼才窗口: 判定牌=%s(黑桃→刚烈生效)", g.Pending.JudgeCard.Label)
+
+	// 8. ★ 司马懿的正确选择：pass鬼才
+	// 改判黑桃→黑桃没意义，不如保留酒用于濒死自救。
+	if err := g.PassGuicai(0, &events); err != nil {
+		t.Fatalf("PassGuicai 失败: %v", err)
+	}
+	t.Logf("司马懿pass鬼才后: Pending=%s", pendingMode(g))
+
+	// 9. 刚烈判定黑桃 → 生效 → 司马懿手牌<2 → 扣血
+	assertPendingMode(t, g, engine.ResponseModeSkillGanglieChoice)
+	t.Logf("刚烈choice: 司马懿手牌=%d(只剩杀)", len(g.Players[0].Hand))
+
+	// 10. 司马懿扣血
+	if err := g.GanglieTakeDamage(0, &events); err != nil {
+		t.Fatalf("刚烈扣血失败: %v", err)
+	}
+	t.Logf("刚烈扣血后: 司马懿 HP=%d Pending=%s", g.Players[0].HP, pendingMode(g))
+
+	// 11. 司马懿 HP=0 → 濒死 → 用酒自救
+	assertPendingMode(t, g, engine.ResponseModeDying)
+	t.Logf("司马懿濒死: 用酒自救")
+
+	if err := g.RespondCard(0, "jiu-sima", &events); err != nil {
+		t.Fatalf("司马懿酒自救失败: %v", err)
+	}
+	t.Logf("司马懿自救后: HP=%d Pending=%s", g.Players[0].HP, pendingMode(g))
+
+	// 12. 反馈窗口：司马懿（seat=0）从夏侯惇拿牌
+	// 司马懿有反馈技能！ActorSeat=0(司马懿), SubjectSeat=1(夏侯惇)
+	t.Logf("反馈Pending: RespMode=%s ActorSeat=%d TargetIdx=%d SrcIdx=%d WinKind=%s",
+		g.Pending.ResponseMode, g.Pending.ActorSeat, g.Pending.TargetIndex, g.Pending.SourceIndex, g.Pending.WindowKind)
+	assertPendingMode(t, g, engine.ResponseModeSkillFankui)
+
+	// 司马懿(seat=0)从夏侯惇手牌拿"sha-sima"（夏侯惇手牌里的杀）
+	if err := g.FankuiTakeFrom(0, "hand", "sha-xiahou", &events); err != nil {
+		t.Fatalf("反馈拿牌失败: %v", err)
+	}
+	t.Logf("反馈拿牌后: 司马懿手牌=%d, 夏侯惇手牌=%d", len(g.Players[0].Hand), len(g.Players[1].Hand))
+
+	t.Logf("=== 最终: 司马懿 HP=%d 手牌=%d, 夏侯惇 HP=%d 手牌=%d ===",
+		g.Players[0].HP, len(g.Players[0].Hand), g.Players[1].HP, len(g.Players[1].Hand))
+
+	// 司马懿: 刚烈扣1血→濒死→酒自救→HP=1, 反馈拿夏侯惇的杀→手牌+1
+	if g.Players[0].HP != 1 {
+		t.Errorf("司马懿 HP=%d, want 1", g.Players[0].HP)
+	}
+	// 夏侯惇: HP=1, 手牌=0(杀被反馈拿走)
+	if g.Players[1].HP != 1 {
+		t.Errorf("夏侯惇 HP=%d, want 1", g.Players[1].HP)
+	}
+}
+
+func pendingMode(g *engine.Game) string {
+	if g.Pending == nil {
+		return "<nil>"
+	}
+	return g.Pending.ResponseMode
+}

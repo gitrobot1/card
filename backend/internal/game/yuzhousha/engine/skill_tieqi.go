@@ -20,6 +20,7 @@ func (g *Game) SkipTieqi(seat int, events *[]GameEvent) error {
 		return ErrWrongPhase
 	}
 	g.Pending.TieqiPending = false
+	g.Pending.WindowKind = "" // 清除电梯暂停标记
 	g.Message = fmt.Sprintf("%s 未发动【铁骑】", g.Players[seat].Name)
 	g.resetTimer()
 	return g.advanceShaBeforeTargetResponse(events)

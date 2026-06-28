@@ -1,6 +1,65 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/time/card/backend/internal/game/yuzhousha/skill"
+)
+
+func init() {
+	// 雌雄双股剑（TagEquipSkill → OnUseCardToTarget）
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: EquipSkillChixiong, Name: "雌雄双股剑", Kind: skill.KindPassive,
+			Desc: "当你使用【杀】指定一名异性角色为目标后，你可以令其选择弃置一张手牌或令你摸一张牌。",
+		},
+		Tags:              []skill.SkillTag{skill.TagEquipSkill},
+		OnUseCardToTarget: chixiongEquipOnUseCardToTarget,
+	})
+	// 青龙偃月刀（TagEquipSkill → OnShaMiss）
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: EquipSkillGuanYu, Name: "青龙偃月刀", Kind: skill.KindPassive,
+			Desc: "当你使用的【杀】被【闪】抵消后，你可以对相同的目标再使用一张【杀】。",
+		},
+		Tags:        []skill.SkillTag{skill.TagEquipSkill},
+		OnShaMiss:   guanyuEquipOnShaMiss,
+	})
+	// 贯石斧（TagEquipSkill → OnShaMiss）
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: EquipSkillGuanshi, Name: "贯石斧", Kind: skill.KindPassive,
+			Desc: "当你使用的【杀】被【闪】抵消后，你可以弃置两张牌令此杀强制命中。",
+		},
+		Tags:        []skill.SkillTag{skill.TagEquipSkill},
+		OnShaMiss:   guanshiEquipOnShaMiss,
+	})
+	// 麒麟弓（TagEquipSkill → OnShaHit）
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: EquipSkillQilin, Name: "麒麟弓", Kind: skill.KindPassive,
+			Desc: "当你使用的【杀】对目标造成伤害后，你可以弃置其装备区的一张坐骑牌。",
+		},
+		Tags:        []skill.SkillTag{skill.TagEquipSkill},
+		OnShaHit:    qilinEquipOnShaHit,
+	})
+}
+
+// chixiongEquipOnUseCardToTarget 雌雄双股剑 OnUseCardToTarget 回调（HookUseCardToTarget RoleSource 广播触发）。
+// 参考 noname: chixiong_skill, trigger: { target: "useCardToTarget" }
+func chixiongEquipOnUseCardToTarget(r skill.Runtime, ctx skill.UseCardCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+	// 幂等性：已有活跃窗口 → 不重复触发；已完成 → 不重复触发
+	if g.Pending != nil && g.Pending.WindowKind != "" {
+		return nil
+	}
+	if g.Pending != nil && g.Pending.Extra["chixiong_done"] == 1 {
+		return nil
+	}
+	_ = g.tryOfferChixiongOnSha(gr.events)
+	return nil
+}
 
 func (g *Game) weaponKind(seat int) string {
 	if seat < 0 || seat >= len(g.Players) || g.Players[seat].Weapon == nil {
@@ -201,7 +260,7 @@ func isOppositeGender(a, b Character) bool {
 
 // tryOfferChixiongOnSha 在出杀指定目标后尝试发动雌雄双股剑。
 // 由 advanceShaBeforeTargetResponse 调用。
-// 若触发，保存当前杀 Pending 到 SavedPending，并将 Pending 改为 Weapon8 响应窗口。
+// AI目标自动处理；人类目标弹出选择窗口。
 func (g *Game) tryOfferChixiongOnSha(events *[]GameEvent) bool {
 	p := g.Pending
 	if p == nil || p.Card.Kind != CardSha {
@@ -215,13 +274,15 @@ func (g *Game) tryOfferChixiongOnSha(events *[]GameEvent) bool {
 	if !isOppositeGender(g.Players[source].Character, g.Players[target].Character) {
 		return false
 	}
-	// 保存当前杀流程的 Pending 到 SavedPending
-	saved := *p
-	saved.SavedPending = p.SavedPending // 保留原有的 SavedPending 链
-	p.SavedPending = &saved
+
+	// 标记已完成（幂等性：防止 advanceShaBeforeTargetResponse 重入时再次触发）
+	if p.Extra == nil {
+		p.Extra = map[string]int{}
+	}
+	p.Extra["chixiong_done"] = 1
 
 	if len(g.Players[target].Hand) == 0 {
-		// 目标无手牌，直接让 source 摸一张，然后恢复杀流程
+		// 目标无手牌，直接让 source 摸一张，杀流程继续
 		g.drawCards(source, 1, events)
 		*events = append(*events, GameEvent{
 			Type:        "weapon_skill",
@@ -229,14 +290,39 @@ func (g *Game) tryOfferChixiongOnSha(events *[]GameEvent) bool {
 			TargetIndex: target,
 			Message:     fmt.Sprintf("【雌雄双股剑】%s 无手牌，%s 摸一张牌", g.Players[target].Name, g.Players[source].Name),
 		})
-		g.resumeShaFromChixiong(events)
 		return true
 	}
-	// 进入窗口：target 选择弃一张手牌，或跳过让 source 摸牌
+
+	// AI目标自动弃牌
+	if g.Players[target].IsAI {
+		hand := g.Players[target].Hand
+		discarded := g.removeHandCard(target, len(hand)-1, events)
+		g.DiscardPile = append(g.DiscardPile, discarded)
+		*events = append(*events, GameEvent{
+			Type:        "weapon_skill",
+			PlayerIndex: source,
+			TargetIndex: target,
+			Card:        &discarded,
+			Message:     fmt.Sprintf("【雌雄双股剑】%s 弃置%s", g.Players[target].Name, discarded.Label),
+		})
+		return true
+	}
+
+	// 人类目标：保存当前杀流程，进入选择窗口（弃牌或跳过让源摸牌）
+	saved := *p
+	saved.SavedPending = p.SavedPending
+	p.SavedPending = &saved
 	p.ResponseMode = ResponseModeWeapon8
+	p.WindowKind = WindowKindRespond // 标记窗口类型：通用暂停检测用
+	if p.Extra == nil {
+		p.Extra = map[string]int{}
+	}
+	p.Extra["chixiong_done"] = 1 // 标记已完成：防 Hook 重复触发
 	p.SourceIndex = source
 	p.TargetIndex = target
 	p.ReturnIndex = source
+	p.ActorSeat = target
+	p.SubjectSeat = target
 	g.Phase = PhaseResponse
 	g.Message = fmt.Sprintf("【雌雄双股剑】%s 需弃一张手牌，或跳过让 %s 摸一张牌",
 		g.Players[target].Name, g.Players[source].Name)
@@ -447,8 +533,10 @@ func (g *Game) resolveGuanshifuDiscard(seat int, cardIDs []string, events *[]Gam
 		TargetIndex: target,
 		Message:     fmt.Sprintf("【贯石斧】%s 弃两张牌，杀依然命中 %s", g.Players[seat].Name, g.Players[target].Name),
 	})
-	g.damageAftermath = nil
-	g.resumeAfterDamageNoSkill(resume, target, seat, events)
+	// 走统一伤害技能链（卖血技等），技能链完毕后恢复出牌
+	if g.continueAfterDamage(seat, target, damage, pendingCard, resume, events) {
+		return nil
+	}
 	return nil
 }
 
@@ -496,6 +584,87 @@ func (g *Game) canZhangbaSha(seat int) bool {
 	return len(g.Players[seat].Hand) >= 2
 }
 
+// CanZhangbaRespond 检查玩家在响应阶段（决斗/南蛮）是否能用丈八蛇矛出杀。
+func (g *Game) CanZhangbaRespond(seat int) bool {
+	if !g.hasWeaponKind(seat, CardWeapon10) {
+		return false
+	}
+	if g.Phase != PhaseResponse || g.Pending == nil {
+		return false
+	}
+	if g.Pending.RequiredKind != CardSha {
+		return false
+	}
+	if !g.CanRespondSeat(seat) {
+		return false
+	}
+	return len(g.Players[seat].Hand) >= 2
+}
+
+// RespondZhangbaSha 响应阶段丈八蛇矛：2张手牌当杀打出（决斗/南蛮）。
+func (g *Game) RespondZhangbaSha(seat int, cardIDs []string, events *[]GameEvent) error {
+	if !g.CanZhangbaRespond(seat) {
+		return ErrInvalidCard
+	}
+	if len(cardIDs) != 2 {
+		return ErrInvalidCard
+	}
+	// 验证两张牌都在手牌中且不重复
+	idxMap := make(map[string]int)
+	for i, c := range g.Players[seat].Hand {
+		idxMap[c.ID] = i
+	}
+	if cardIDs[0] == cardIDs[1] {
+		return ErrInvalidCard
+	}
+	idx1, ok1 := idxMap[cardIDs[0]]
+	idx2, ok2 := idxMap[cardIDs[1]]
+	if !ok1 || !ok2 {
+		return ErrInvalidCard
+	}
+	// 按索引从大到小移除
+	if idx1 < idx2 {
+		idx1, idx2 = idx2, idx1
+	}
+	card1 := g.removeHandCard(seat, idx1, events)
+	card2 := g.removeHandCard(seat, idx2, events)
+	g.DiscardPile = append(g.DiscardPile, card1, card2)
+	g.SyncCounts()
+
+	msg := fmt.Sprintf("%s 发动【丈八蛇矛】，将 %s 和 %s 当【杀】打出", g.Players[seat].Name, card1.Label, card2.Label)
+	g.appendWeaponSkillEvent(events, seat, -1, msg)
+	*events = append(*events, GameEvent{
+		Type:        "zhangba_respond",
+		PlayerIndex: seat,
+		Message:     msg,
+	})
+
+	// 模拟 RespondCard 的后续流程（但不移除牌，因为已移除）
+	pending := g.Pending
+	g.markShaInPlayPhase(seat)
+
+	if g.consumeWushuangResponse(pending, seat, CardSha) {
+		return nil
+	}
+
+	if pending.Card.Kind == CardJueDou {
+		source := pending.SourceIndex
+		g.Pending = &PendingCombat{
+			SourceIndex:  seat,
+			TargetIndex:  source,
+			ReturnIndex:  pending.ReturnIndex,
+			Card:         pending.Card,
+			RequiredKind: CardSha,
+			Damage:       pending.Damage,
+		}
+		g.Message = fmt.Sprintf("【决斗】继续，%s 需出杀", g.Players[source].Name)
+		g.resetTimer()
+		return nil
+	}
+
+	return g.resolvePendingDodgeSuccess(seat, pending, events, "")
+}
+
 // TryZhangbaSha 丈八蛇矛出杀：选2张手牌当杀使用（导出供 service 调用）。
 // 前端传入两个手牌ID，后端验证并创建虚拟杀牌。
 func (g *Game) TryZhangbaSha(seat int, targetIndex int, cardIDs []string, events *[]GameEvent) error {
@@ -525,7 +694,7 @@ func (g *Game) TryZhangbaSha(seat int, targetIndex int, cardIDs []string, events
 	card1 := g.removeHandCard(seat, idx1, events)
 	card2 := g.removeHandCard(seat, idx2, events)
 	g.DiscardPile = append(g.DiscardPile, card1, card2)
-	g.syncCounts()
+	g.SyncCounts()
 
 	// 创建虚拟杀牌（参考 noname: viewAs: { name: "sha" }）
 	// 丈八蛇矛的杀无花色、无点数（丈八杀不被仁王盾阻挡，不参与拼点）
@@ -549,4 +718,30 @@ func (g *Game) TryZhangbaSha(seat int, targetIndex int, cardIDs []string, events
 	})
 
 	return g.playShaWithCard(seat, shaCard, targetIndex, PlayTarget{}, events)
+}
+
+// guanyuEquipOnShaMiss 青龙偃月刀 OnShaMiss 回调（HookShaMiss RoleSource 广播触发）。
+func guanyuEquipOnShaMiss(r skill.Runtime, ctx skill.ShaCtx) error {
+	gr := r.(*gameSkillRuntime)
+	_ = gr.g.offerGuanYuFollowUp(ctx.Source, ctx.Target, gr.events)
+	return nil
+}
+
+// guanshiEquipOnShaMiss 贯石斧 OnShaMiss 回调（HookShaMiss RoleSource 广播触发）。
+func guanshiEquipOnShaMiss(r skill.Runtime, ctx skill.ShaCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+	// 从 Pending 获取完整 Card（非 CardView）
+	if g.Pending == nil || g.Pending.Card.Kind != CardSha {
+		return nil
+	}
+	_ = g.offerGuanshifu(ctx.Source, ctx.Target, g.Pending.Card, ctx.Damage, ctx.Source, gr.events)
+	return nil
+}
+
+// qilinEquipOnShaHit 麒麟弓 OnShaHit 回调（HookShaHit RoleSource 广播触发）。
+func qilinEquipOnShaHit(r skill.Runtime, ctx skill.ShaCtx) error {
+	gr := r.(*gameSkillRuntime)
+	_ = gr.g.offerQilinBow(ctx.Source, ctx.Target, ctx.Source, gr.events)
+	return nil
 }

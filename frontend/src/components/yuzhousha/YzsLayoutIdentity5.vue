@@ -8,6 +8,10 @@ const { crossSeats } = useYzsGameInject()
 
 <template>
   <div class="yzs__arena yzs__arena--identity5">
+    <!-- 占位槽：顶部左右各1列 -->
+    <div class="yzs__slot-ghost" style="grid-area: p1" />
+    <div class="yzs__slot-ghost" style="grid-area: p4" />
+
     <YzsSeatPanel
       v-for="cs in crossSeats"
       :key="cs.seat"

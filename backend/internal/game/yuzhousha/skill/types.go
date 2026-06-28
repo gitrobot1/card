@@ -11,6 +11,18 @@ const (
 	KindLimited   Kind = "limited"
 )
 
+// SkillTag 技能行为标记（参考 noname: forced/limited/awaken/lord/equipSkill）。
+// 用于控制技能的触发方式、生命周期和 UI 展示。
+type SkillTag string
+
+const (
+	TagForced     SkillTag = "forced"      // 锁定技：自动触发不询问（noname: forced）
+	TagLimited    SkillTag = "limited"     // 限定技：一局一次（noname: limited）
+	TagAwaken     SkillTag = "awaken"      // 觉醒技：条件满足自动觉醒（noname: awaken）
+	TagLord       SkillTag = "lord"        // 主公技（noname: lord）
+	TagEquipSkill SkillTag = "equipSkill"  // 装备附带技能：卸下装备时自动移除（noname: equipSkill）
+)
+
 // Meta 对外公开的技能元数据。
 type Meta struct {
 	ID   string `json:"id"`
@@ -32,6 +44,56 @@ type CharacterDef struct {
 	Pack        string   `json:"pack,omitempty"`
 	AccentColor string   `json:"accent_color,omitempty"`
 	PortraitURL string   `json:"portrait_url,omitempty"`
+}
+
+// ViewAsConfig 变牌配置（参考 noname viewAs 机制）。
+// 声明一个技能如何将牌"视为"另一种牌使用或打出。
+// 系统不知道你有什么技能，只需告诉玩家"需要出什么牌"，
+// 玩家的技能通过 ViewAs 自动把符合条件的牌标记为可用。
+type ViewAsConfig struct {
+	AsKind     string   `json:"as_kind"`     // 视为的牌类型（CardSha/CardShan/CardTao 等）
+	SelectCard int      `json:"select_card"`  // 需要选几张牌（默认1，丈八蛇矛=2）
+	Position   string   `json:"position"`     // 可选牌位置："h"=仅手牌, "he"=手牌+装备, "e"=仅装备
+	Prompt     string   `json:"prompt"`       // UI 提示文本
+	// FilterCard 哪些牌可选（返回 true 表示可选）。nil 表示所有牌可选。
+	// 复杂过滤逻辑用此函数；简单过滤用 FilterSuits/FilterSuitColor/FilterKinds 声明即可。
+	FilterCard func(r Runtime, seat int, card CardView) bool
+	// ViewAsFilter 是否有可用的牌（过滤前检查）。返回 false 时此技能不显示。nil 表示始终可用。
+	ViewAsFilter func(r Runtime, seat int) bool
+	// OnResolve 选完牌后的处理逻辑。返回处理后的牌信息。
+	OnResolve func(r Runtime, seat int, cardIDs []string, asKind string) (CardView, error)
+	// IsActive 技能是否处于激活状态（如武圣已点击激活）。nil 表示不需要激活（始终生效，如龙胆）。
+	IsActive func(r Runtime, seat int) bool
+
+	// ===== 声明式过滤条件（用于前端渲染，无需硬编码技能名）=====
+	// FilterSuits 过滤花色：为空表示不限花色（如 ["H","D"] 表示红色）
+	FilterSuits []string
+	// FilterSuitColor 过滤花色颜色："red"=红色, "black"=黑色, ""=不限
+	FilterSuitColor string
+	// FilterKinds 过滤牌类型：为空表示不限类型（如 ["shan"] 表示闪当杀，龙胆）
+	FilterKinds []string
+	// Passive 被动技能（始终生效，不需要激活）
+	Passive bool
+}
+
+// ViewAsSkillInfo 前端渲染变牌技能所需的信息。
+// 前端不需要知道具体技能名，只需比对 filter 条件来决定哪些牌可选。
+type ViewAsSkillInfo struct {
+	SkillID    string   `json:"skill_id"`
+	SkillName  string   `json:"skill_name"`
+	AsKind     string   `json:"as_kind"`
+	SelectCard int      `json:"select_card"`
+	Position   string   `json:"position"`
+	Prompt     string   `json:"prompt"`
+	IsActive   bool     `json:"is_active"`
+	// FilterSuits 过滤花色：为空表示不限花色，非空表示仅限这些花色（如 ["H","D"] 表示红色）
+	FilterSuits []string `json:"filter_suits,omitempty"`
+	// FilterSuitColor 过滤花色颜色："red"=红色, "black"=黑色, ""=不限
+	FilterSuitColor string `json:"filter_suit_color,omitempty"`
+	// FilterKinds 过滤牌类型：为空表示不限类型（如 ["shan"] 表示闪当杀，龙胆）
+	FilterKinds []string `json:"filter_kinds,omitempty"`
+	// Passive 被动技能（始终生效，不需要激活）
+	Passive bool `json:"passive"`
 }
 
 // ActivateReq 主动技请求。
@@ -81,6 +143,7 @@ type Runtime interface {
 	CardPlaysAs(seat int, cardKind, asKind, suit string) bool
 	HandPlaysAs(seat int, asKind string) bool
 	HasBlackCard(seat int) bool
+	CardSuit(seat int, cardID string) string // 返回指定手牌的花色
 	AlivePlayerCount() int
 	DrawPileCount() int
 	DrawCards(seat, count int) error
@@ -174,8 +237,19 @@ type Runtime interface {
 type Decl struct {
 	Meta Meta
 
+	// ===== 技能标记 =====
+	Tags     []SkillTag `json:"tags,omitempty"` // 技能行为标记（forced/limited/equipSkill 等）
+	Priority int        `json:"priority"`       // 优先级：数字越大越先执行（默认 0）
+	FirstDo  bool       `json:"firstDo"`        // 始终最先执行（如无懈可击）
+	LastDo   bool       `json:"lastDo"`         // 始终最后执行
+
 	PreparePhase PreparePhaseDecl
 	PeekDeck     *PeekDeckConfig
+
+	// ViewAs 变牌技能配置（参考 noname viewAs 机制）。
+	// nil 表示不是变牌技能。非 nil 时，系统在需要出对应类型的牌时
+	// 自动将此技能列为可选，玩家选中后走 OnResolve 流程。
+	ViewAs *ViewAsConfig `json:"view_as,omitempty"`
 
 	CanActivate  func(r Runtime, seat int) bool
 	Activate     func(r Runtime, seat int, req ActivateReq) error
@@ -206,10 +280,41 @@ type Decl struct {
 	ExtraResponsesNeeded func(r Runtime, source int, cardKind string) int
 	SkipsDiscardPhase  func(r Runtime, seat int) bool
 	OnCardResolved     func(r Runtime, ctx CardResolvedCtx) error
-	OnBecomeTarget     func(r Runtime, ctx BecomeTargetCtx) error // 成为某张牌的目标时
+	OnBecomeTarget      func(r Runtime, ctx BecomeTargetCtx) error // 成为某张牌的目标时
+	OnBecomeShaTarget   func(r Runtime, ctx BecomeTargetCtx) error // 成为杀的目标后（琉璃等，仁王盾检查之后）
 	OnDeath            func(r Runtime, ctx DeathCtx) error // 阵亡时（亡语，牌还在）
 	OnAfterDeath       func(r Runtime, ctx DeathCtx) error // 阵亡后（牌已弃）
 	BlocksWuxiek       func(r Runtime, seat int) bool // 阻止无懈可击（参考 noname: playernowuxie）
+
+	// ===== 阶段/回合钩子 =====
+	OnPhaseBeforeStart func(r Runtime, seat int) error // 回合开始前（noname: phaseBeforeStart）
+	OnPhaseBeforeEnd   func(r Runtime, seat int) error // 回合开始阶段结束前（noname: phaseBeforeEnd）
+	OnPhaseBeginStart  func(r Runtime, seat int) error // 回合开始(beginStart)（noname: phaseBeginStart）
+	OnPhaseBegin       func(r Runtime, seat int) error // 回合正式开始（noname: phaseBegin）
+	OnPhaseChange      func(r Runtime, seat int) error // 阶段切换（noname: phaseChange）
+	OnPhaseEnd         func(r Runtime, seat int) error // 回合结束（noname: phaseEnd）
+	OnTurnBegin        func(r Runtime, seat int) error // 回合开始（noname: turnBegin）
+	// OnTurnEnd 已在上面第 217 行定义
+	OnRoundStart       func(r Runtime, seat int) error // 新一轮开始（noname: roundStart）
+
+	// ===== 杀流程钩子 =====
+	OnShaBegin func(r Runtime, ctx ShaCtx) error // 杀开始结算（noname: shaBegin）
+	OnShaMiss  func(r Runtime, ctx ShaCtx) error // 杀被闪（noname: shaMiss）
+	OnShaHit   func(r Runtime, ctx ShaCtx) error // 杀命中（noname: shaHit）
+
+	// ===== 伤害流程钩子 =====
+	OnDamageBegin func(r Runtime, ctx DamageCtx) error // 伤害开始（noname: damageBegin）
+	OnDamageEnd   func(r Runtime, ctx DamageCtx) error // 伤害结束（noname: damageEnd）
+
+	// ===== 交互式改判 =====
+	// CanModifyJudge 返回该座位是否可以进行交互式改判（鬼才/鬼道等需要询问替换牌）。
+	// 返回的 skillID 用于 UI 显示技能名，返回 false 表示该座位不能改判。
+	// 与 OnModJudge（被动修改）的区别：CanModifyJudge 是主动交互式改判，需要等待玩家选择替换牌。
+	CanModifyJudge func(r Runtime, seat int) (canModify bool, skillID string)
+
+	// ===== 锦囊使用钩子 =====
+	OnUseCard         func(r Runtime, ctx UseCardCtx) error // 使用牌（noname: useCard）
+	OnUseCardToTarget func(r Runtime, ctx UseCardCtx) error // 牌指定目标（noname: useCardToTarget）
 	// 返回 true 时，该玩家使用的锦囊不可被无懈可击抵消。
 	// 与 BlocksTrickTarget 的区别：BlocksTrickTarget 阻止锦囊指定目标，BlocksWuxiek 阻止别人对锦囊出无懈。
 	//
@@ -231,6 +336,12 @@ type Handler struct {
 func (h Handler) Meta() Meta { return h.Decl.Meta }
 
 func (h Handler) PeekDeckConfig() *PeekDeckConfig { return h.Decl.PeekDeck }
+
+// ViewAs 返回技能的变牌配置（nil 表示不是变牌技能）。
+func (h Handler) ViewAs() *ViewAsConfig { return h.Decl.ViewAs }
+
+// HasViewAs 检查技能是否有变牌能力。
+func (h Handler) HasViewAs() bool { return h.Decl.ViewAs != nil }
 
 func (h Handler) CanActivate(r Runtime, seat int) bool {
 	if h.Decl.CanActivate == nil {
@@ -436,6 +547,13 @@ func (h Handler) OnBecomeTarget(r Runtime, ctx BecomeTargetCtx) error {
 		return nil
 	}
 	return h.Decl.OnBecomeTarget(r, ctx)
+}
+
+func (h Handler) OnBecomeShaTarget(r Runtime, ctx BecomeTargetCtx) error {
+	if h.Decl.OnBecomeShaTarget == nil {
+		return nil
+	}
+	return h.Decl.OnBecomeShaTarget(r, ctx)
 }
 
 func (h Handler) OnDeath(r Runtime, ctx DeathCtx) error {

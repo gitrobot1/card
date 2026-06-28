@@ -73,7 +73,7 @@ func (g *Game) YijiGiveCards(seat, target int, cardIDs []string, events *[]GameE
 		given = append(given, g.removeHandCard(seat, idx, events))
 	}
 	g.Players[target].Hand = append(g.Players[target].Hand, given...)
-	g.syncCounts()
+	g.SyncCounts()
 	g.Pending.YijiGiveRemaining -= len(given)
 	msg := fmt.Sprintf("%s 发动【遗计】，交给 %s %d 张牌", g.Players[seat].Name, g.Players[target].Name, len(given))
 	g.appendSkillEvent(events, skill.IDYiji, seat, target, msg)

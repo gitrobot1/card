@@ -80,6 +80,7 @@ func runTieSuo6pRound(t *testing.T, round int) {
 	g.CurrentTurn = 0
 	g.Phase = engine.PhasePlaying
 	g.TurnStep = engine.StepPlay
+	g.Pending = nil
 
 	// 同步技能元数据
 	for i := range g.Players {
@@ -116,11 +117,17 @@ func runTieSuo6pRound(t *testing.T, round int) {
 	// 用 AI 自动驱动整个流程
 	step := 0
 	maxSteps := 300
+	idleCount := 0
 	for step < maxSteps && !g.IsFinished() {
 		acted := engine.RunAIActionStep(g, &events)
 		step++
-		if !acted && g.Phase == engine.PhasePlaying && g.TurnStep == engine.StepPlay && g.Pending == nil {
-			break
+		if !acted && g.Phase == engine.PhasePlaying && g.Pending == nil {
+			idleCount++
+			if idleCount >= 3 {
+				break
+			}
+		} else {
+			idleCount = 0
 		}
 		if !acted && g.Phase == engine.PhaseResponse && g.Pending != nil {
 			actor := g.PendingActorSeat()

@@ -1,6 +1,10 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/time/card/backend/internal/game/yuzhousha/skill"
+)
 
 // DamageResume 伤害结算后恢复对局流程的上下文（反馈、麒麟弓等挂起后需 resume）。
 type DamageResume struct {
@@ -29,11 +33,27 @@ type DamageResume struct {
 	}
 }
 
-// DamageAftermath 一次伤害事件触发的可选技能链（奸雄 → 刚烈×N → 反馈×N）。
+// DamageSkillEntry 通用伤害技能队列条目。
+// 卖血技通过 OnDamageEnd Hook 回调将自己加入 DamageAftermath.SkillQueue，
+// 不再需要引擎层硬编码技能名。
+type DamageSkillEntry struct {
+	SkillID string                                 // 技能ID
+	Left    int                                    // 剩余可执行次数（刚烈/反馈按伤害点数）
+	OnOffer func(g *Game, a *DamageAftermath, entry *DamageSkillEntry, events *[]GameEvent) bool
+}
+
+// DamageAftermath 一次伤害事件触发的技能队列。
+// 技能通过 OnDamageEnd Hook 声明式入队，advanceDamageAftermath 通用排队执行。
+// 执行顺序由入队顺序决定（参考 noname: arrangeTrigger 按 priority 排序）。
+//
+// OfferJianxiong/OfferYiji/GanglieLeft/FankuiLeft 保留为向后兼容字段，
+// apply/pass 函数内部仍通过它们检查状态，后续可逐步迁移到 SkillQueue 驱动。
 type DamageAftermath struct {
 	Source, Target int
 	Card           Card
 	Resume         DamageResume
+	SkillQueue     []DamageSkillEntry // 通用技能队列
+	// 向后兼容字段（apply/pass 函数引用）
 	OfferJianxiong bool
 	OfferYiji      bool
 	GanglieLeft    int
@@ -45,31 +65,46 @@ const (
 	damageResumeLightning = fankuiResumeLightning
 )
 
+// initDamageAftermath 初始化伤害技能链。
+// 技能队列通过 HookDamageEnd → OnDamageEnd → enqueue 声明式填充，
+// 引擎层零硬编码技能名。新增卖血技只需在 Decl 加 OnDamageEnd 回调。
 func (g *Game) initDamageAftermath(source, target, damage int, card Card, resume DamageResume) {
 	if damage <= 0 {
-		g.damageAftermath = nil
-		return
+		return // 不清空旧的 DamageAftermath
 	}
 	a := &DamageAftermath{
 		Source: source, Target: target, Card: card, Resume: resume,
 	}
-	if g.hasSkill(target, SkillJianxiong) && g.damageCardObtainable(card) {
-		a.OfferJianxiong = true
+
+	// 先设置 damageAftermath（enqueue 函数需要访问 a.Card 等字段）
+	oldAftermath := g.damageAftermath
+	g.damageAftermath = a
+
+	// 清空残留的 pendingDamageSkills（防止上次异常退出遗留数据）
+	g.pendingDamageSkills = nil
+
+	// 声明式收集卖血技能：通过 HookDamageEnd 广播
+	// 技能在 OnDamageEnd 回调中调用 enqueueXxxSkill → 填充 g.pendingDamageSkills
+	// 引擎层不知道有什么技能，全部由技能自行声明
+	g.runSkillHooks(nil, skill.HookCall{
+		Kind: skill.HookDamageEnd, Seat: target, Role: skill.RolePlayer,
+		Damage: &skill.DamageCtx{Source: source, Target: target, Amount: damage, Card: cardView(card)},
+	})
+
+	// 从 Hook 回调中收集技能队列
+	if len(g.pendingDamageSkills) > 0 {
+		a.SkillQueue = g.pendingDamageSkills
+		g.pendingDamageSkills = nil
 	}
-	if g.hasSkill(target, SkillGanglie) {
-		a.GanglieLeft = damage
-	}
-	if g.hasSkill(target, SkillYiji) {
-		a.OfferYiji = true
-	}
-	if g.hasSkill(target, SkillFankui) && g.hasTakeableCard(source) {
-		a.FankuiLeft = damage
-	}
-	if !a.OfferJianxiong && !a.OfferYiji && a.GanglieLeft == 0 && a.FankuiLeft == 0 {
-		g.damageAftermath = nil
+
+	if len(a.SkillQueue) == 0 {
+		// 无技能链的伤害（如刚烈扣血），恢复旧 DamageAftermath
+		Logf("initDamageAftermath: no skills, keeping old")
+		g.damageAftermath = oldAftermath
 		return
 	}
-	g.damageAftermath = a
+	Logf("initDamageAftermath: SET new Source=%d(%s) Target=%d(%s), skills=%d",
+		source, g.Players[source].Name, target, g.Players[target].Name, len(a.SkillQueue))
 }
 
 // continueAfterDamage 扣血后的统一入口：濒死判定 → 铁索传导 → 伤害技能链 → 武器 follow-up → 恢复出牌。
@@ -136,32 +171,25 @@ func (g *Game) advanceDamageAftermath(events *[]GameEvent) bool {
 	if a == nil {
 		return false
 	}
+	Logf("advanceDamageAftermath: Source=%d(%s) Target=%d(%s) queueLen=%d",
+		a.Source, g.Players[a.Source].Name, a.Target, g.Players[a.Target].Name, len(a.SkillQueue))
 	if g.Players[a.Target].HP <= 0 {
 		if g.afterDamageApplied(a.Source, a.Target, 1, a.Card, a.Resume, events) {
 			g.damageAftermath = nil
 			return true
 		}
 	}
-	if a.OfferJianxiong {
-		if g.offerJianxiongWindow(a, events) {
-			return true
+	// 通用技能队列：依次执行（由入队顺序决定优先级）
+	for len(a.SkillQueue) > 0 {
+		entry := &a.SkillQueue[0]
+		if entry.Left <= 0 {
+			a.SkillQueue = a.SkillQueue[1:]
+			continue
 		}
-		a.OfferJianxiong = false
-	}
-	if a.OfferYiji {
-		if g.offerYijiWindow(a, events) {
-			return true
+		if entry.OnOffer(g, a, entry, events) {
+			return true // 等待玩家响应
 		}
-		a.OfferYiji = false
-	}
-	for a.GanglieLeft > 0 {
-		if g.offerGanglieWindow(a, events) {
-			return true
-		}
-		a.GanglieLeft--
-	}
-	if a.FankuiLeft > 0 && g.hasTakeableCard(a.Source) {
-		return g.offerFankuiFromAftermath(a, events)
+		a.SkillQueue = a.SkillQueue[1:]
 	}
 	g.damageAftermath = nil
 	return g.resumeAfterDamageNoSkill(a.Resume, a.Target, a.Source, events)
@@ -198,9 +226,7 @@ func (g *Game) resumeAfterDamageNoSkill(resume DamageResume, target, source int,
 		_ = g.finishShanDodgeSuccess(resume.LeijiShanSeat, resume.LeijiSaved, events, "")
 		return true
 	}
-	if resume.OfferQilin && resume.Card.Kind == CardSha && g.offerQilinBow(source, target, resume.ReturnIndex, events) {
-		return true
-	}
+	// 麒麟弓已迁移到 TagEquipSkill → OnShaHit(RoleSource) Decl Hook
 	switch resume.Mode {
 	case damageResumeShaHit:
 		g.Phase = PhasePlaying
@@ -224,4 +250,97 @@ func (g *Game) finishDamageAftermathChain(events *[]GameEvent) bool {
 	}
 	g.damageAftermath = nil
 	return g.resumeAfterDamageNoSkill(a.Resume, a.Target, a.Source, events)
+}
+
+// ============================================================================
+// DamageSkillEntry.OnOffer 工厂函数（通用技能队列的 offer 适配器）
+// 每个卖血技通过 OnDamageEnd Hook → 调用对应的 enqueue 函数 → 入队
+// ============================================================================
+
+// enqueueJianxiongSkill 奸雄入队：获得造成伤害的牌。
+func (g *Game) enqueueJianxiongSkill(target int) {
+	if !g.hasSkill(target, SkillJianxiong) {
+		return
+	}
+	a := g.damageAftermath
+	if a == nil || !g.damageCardObtainable(a.Card) {
+		return
+	}
+	entry := DamageSkillEntry{
+		SkillID: skill.IDJianxiong,
+		Left:    1,
+		OnOffer: func(g *Game, a *DamageAftermath, entry *DamageSkillEntry, events *[]GameEvent) bool {
+			// 设置兼容旧字段（apply/pass 函数内部检查用）
+			a.OfferJianxiong = true
+			return g.offerJianxiongWindow(a, events)
+		},
+	}
+	g.pendingDamageSkills = append(g.pendingDamageSkills, entry)
+}
+
+// enqueueYijiSkill 遗计入队：摸2张牌后可将至多2张手牌交给其他角色。
+func (g *Game) enqueueYijiSkill(target int) {
+	if !g.hasSkill(target, SkillYiji) {
+		return
+	}
+	// 安全检查：只在 damageAftermath 已初始化时入队
+	if g.damageAftermath == nil {
+		return
+	}
+	entry := DamageSkillEntry{
+		SkillID: skill.IDYiji,
+		Left:    1,
+		OnOffer: func(g *Game, a *DamageAftermath, entry *DamageSkillEntry, events *[]GameEvent) bool {
+			a.OfferYiji = true
+			return g.offerYijiWindow(a, events)
+		},
+	}
+	g.pendingDamageSkills = append(g.pendingDamageSkills, entry)
+}
+
+// enqueueGanglieSkill 刚烈入队：判定→非红桃则来源弃2牌或受伤。
+func (g *Game) enqueueGanglieSkill(target, damage int) {
+	if !g.hasSkill(target, SkillGanglie) {
+		return
+	}
+	a := g.damageAftermath
+	if a == nil {
+		return
+	}
+	entry := DamageSkillEntry{
+		SkillID: skill.IDGanglie,
+		Left:    damage,
+		OnOffer: func(g *Game, a *DamageAftermath, entry *DamageSkillEntry, events *[]GameEvent) bool {
+			if entry.Left <= 0 {
+				return false
+			}
+			// 设置兼容字段：刚烈判定时需要 GanglieLeft 追踪剩余次数
+			a.GanglieLeft = entry.Left
+			return g.offerGanglieWindow(a, events)
+		},
+	}
+	g.pendingDamageSkills = append(g.pendingDamageSkills, entry)
+}
+
+// enqueueFankuiSkill 反馈入队：获得伤害来源一张牌。
+func (g *Game) enqueueFankuiSkill(target, source, damage int) {
+	if !g.hasSkill(target, SkillFankui) || !g.hasTakeableCard(source) {
+		return
+	}
+	// 安全检查：只在 damageAftermath 已初始化时入队
+	if g.damageAftermath == nil {
+		return
+	}
+	entry := DamageSkillEntry{
+		SkillID: skill.IDFankui,
+		Left:    damage,
+		OnOffer: func(g *Game, a *DamageAftermath, entry *DamageSkillEntry, events *[]GameEvent) bool {
+			if entry.Left <= 0 || !g.hasTakeableCard(a.Source) {
+				return false
+			}
+			a.FankuiLeft = entry.Left
+			return g.offerFankuiFromAftermath(a, events)
+		},
+	}
+	g.pendingDamageSkills = append(g.pendingDamageSkills, entry)
 }

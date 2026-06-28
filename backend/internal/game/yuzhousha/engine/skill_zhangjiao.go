@@ -111,8 +111,18 @@ func (g *Game) finishShanDodgeSuccess(seat int, pending *PendingCombat, events *
 			dodgeMsg = fmt.Sprintf("%s 响应【%s】", g.Players[seat].Name, pending.Card.Name)
 		}
 	}
-	if pending.Card.Kind == CardSha && g.offerGuanYuFollowUp(source, seat, events) {
-		return nil
+	if pending.Card.Kind == CardSha {
+		// HookShaMiss：杀被闪抵消（noname: shaMiss）
+		// RolePlayer: 出闪者技能（如雷击）
+		g.runSkillHooks(events, skill.HookCall{
+			Kind: skill.HookShaMiss, Seat: seat, Role: skill.RolePlayer,
+			ShaCtx: &skill.ShaCtx{Source: source, Target: seat, Card: cardView(pending.Card), Damage: pending.Damage},
+		})
+		// RoleSource: 出杀者装备技能（青龙刀/贯石斧等 TagEquipSkill）
+		g.runSkillHooks(events, skill.HookCall{
+			Kind: skill.HookShaMiss, From: source, Role: skill.RoleSource,
+			ShaCtx: &skill.ShaCtx{Source: source, Target: seat, Card: cardView(pending.Card), Damage: pending.Damage},
+		})
 	}
 	// ★ 南蛮/万箭 AOE 恢复：出闪后继续下一个目标
 	if pending.Card.Kind == CardNanMan || pending.Card.Kind == CardWanJian {

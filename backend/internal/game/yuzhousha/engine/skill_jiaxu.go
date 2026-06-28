@@ -155,7 +155,8 @@ func (g *Game) passLuanwu(seat int, events *[]GameEvent) error {
 	}
 	owner := g.Pending.SourceIndex
 	g.Pending = nil
-	if g.ApplyDamageAndCheckDeath(owner, seat, 1, Card{Kind: CardJueDou, Name: "乱武"}, DamageResume{ResumeLuanwu: true, LuanwuOwner: owner}, events) {
+	resume := DamageResume{ResumeLuanwu: true, LuanwuOwner: owner}
+	if g.ApplyDamageAndCheckDeath(owner, seat, 1, Card{Kind: CardJueDou, Name: "乱武"}, resume, events) {
 		return nil
 	}
 	msg := fmt.Sprintf("%s 未出【杀】，受到【乱武】1 点伤害", g.Players[seat].Name)
@@ -167,6 +168,10 @@ func (g *Game) passLuanwu(seat int, events *[]GameEvent) error {
 		SkillID:     skill.IDLuanwu,
 		Message:     msg,
 	})
+	// 走统一伤害技能链（卖血技等），技能链完毕后由 resumeAfterDamageNoSkill 恢复乱武
+	if g.continueAfterDamage(owner, seat, 1, Card{Kind: CardJueDou, Name: "乱武"}, resume, events) {
+		return nil
+	}
 	return g.finishLuanwu(owner, events)
 }
 

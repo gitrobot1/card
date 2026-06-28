@@ -201,6 +201,13 @@ func (s *YuzhoushaService) PlayZhangbaSha(gameID string, userID uint64, card1ID,
 	})
 }
 
+// RespondZhangbaSha 响应阶段丈八蛇矛：两张手牌当杀打出（决斗/南蛮）。
+func (s *YuzhoushaService) RespondZhangbaSha(gameID string, userID uint64, card1ID, card2ID string) (engine.PublicState, error) {
+	return s.act(gameID, userID, func(g *engine.Game, seat int, ev *[]engine.GameEvent) error {
+		return g.RespondZhangbaSha(seat, []string{card1ID, card2ID}, ev)
+	})
+}
+
 func (s *YuzhoushaService) RespondShan(gameID string, userID uint64, cardID string) (engine.PublicState, error) {
 	return s.RespondCard(gameID, userID, cardID)
 }
@@ -323,5 +330,11 @@ func (s *YuzhoushaService) finalize(g *engine.Game, seat int, events []engine.Ga
 		engine.RunAIActions(g, &events)
 	}
 	engine.LogGameState(g, "finalize AFTER AI")
+
+	// "电梯"模式：AI 回合结束后，如果切换到了人类玩家的回合，
+	// 自动调用 beginTurn 初始化新回合（重置出杀次数、醉酒状态等）。
+	// 人类玩家操作后通过 WebSocket 收到完整的 PublicState。
+	g.AutoBeginTurnIfNeeded(&events)
+
 	return g.PublicViewForSeat(seat, events)
 }

@@ -15,9 +15,13 @@ func cardView(c Card) skill.CardView {
 // runSkillHooks 统一技能 hook 入口；新增时机只扩展 skill.HookKind 与 switch 分支。
 func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.HookResult {
 	rt := g.skillRuntime(events)
+
+	// 按角色维度收集 handlers（参考 noname: player/source/target/global）
+	handlers := g.collectRoleHandlers(call)
+
 	switch call.Kind {
 	case skill.HookTargetBlocked:
-		for _, h := range g.playerSkillHandlers(call.Target) {
+		for _, h := range handlers {
 			if h.BlocksTarget(rt, call.Target, call.CardKind) {
 				return skill.HookResult{Bool: true}
 			}
@@ -26,13 +30,13 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 
 	case skill.HookDistanceDelta:
 		sum := 0
-		for _, h := range g.playerSkillHandlers(call.From) {
+		for _, h := range handlers {
 			sum += h.DistanceDelta(rt, call.From, call.To)
 		}
 		return skill.HookResult{Int: sum}
 
 	case skill.HookTrickIgnoresDistance:
-		for _, h := range g.playerSkillHandlers(call.Seat) {
+		for _, h := range handlers {
 			if h.TrickIgnoresDistance(rt, call.Seat, call.TrickKind) {
 				return skill.HookResult{Bool: true}
 			}
@@ -43,7 +47,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 		if trickStaysInJudge(call.TrickKind) {
 			return skill.HookResult{}
 		}
-		for _, h := range g.playerSkillHandlers(call.Seat) {
+		for _, h := range handlers {
 			if err := h.OnInstantTrickUsed(rt, call.Seat, call.TrickKind); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -51,7 +55,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 		return skill.HookResult{}
 
 	case skill.HookCardPlaysAs:
-		for _, h := range g.playerSkillHandlers(call.Seat) {
+		for _, h := range handlers {
 			if h.CardPlaysAs(rt, call.Seat, call.CardKind, call.AsKind, call.Suit) {
 				return skill.HookResult{Bool: true}
 			}
@@ -59,7 +63,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 		return skill.HookResult{}
 
 	case skill.HookUnlimitedSha:
-		for _, h := range g.playerSkillHandlers(call.Seat) {
+		for _, h := range handlers {
 			if h.UnlimitedSha(rt, call.Seat) {
 				return skill.HookResult{Bool: true}
 			}
@@ -71,7 +75,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.DamageCalculated
-		for _, h := range g.playerSkillHandlers(ctx.Target) {
+		for _, h := range handlers {
 			modified, err := h.OnDamageCalculated(rt, ctx)
 			if err != nil {
 				return skill.HookResult{Err: err}
@@ -87,7 +91,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.Damage
-		for _, h := range g.playerSkillHandlers(ctx.Target) {
+		for _, h := range handlers {
 			if err := h.OnDamageDealt(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -99,7 +103,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.BeforeHPChange
-		for _, h := range g.playerSkillHandlers(ctx.Target) {
+		for _, h := range handlers {
 			cancelled, err := h.OnBeforeHPChange(rt, ctx)
 			if err != nil {
 				return skill.HookResult{Err: err}
@@ -115,7 +119,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.HPLost
-		for _, h := range g.playerSkillHandlers(ctx.Seat) {
+		for _, h := range handlers {
 			if err := h.OnHPLost(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -127,7 +131,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.HPChanged
-		for _, h := range g.playerSkillHandlers(ctx.Seat) {
+		for _, h := range handlers {
 			if err := h.OnHPChanged(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -139,7 +143,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.Judge
-		for _, h := range g.playerSkillHandlers(ctx.Seat) {
+		for _, h := range handlers {
 			if err := h.OnJudgeResult(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -153,7 +157,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.ModJudge
-		for _, h := range g.playerSkillHandlers(ctx.Seat) {
+		for _, h := range handlers {
 			if err := h.OnModJudge(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -165,7 +169,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.Discarded
-		for _, h := range g.playerSkillHandlers(ctx.Seat) {
+		for _, h := range handlers {
 			if err := h.OnCardsDiscarded(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -177,7 +181,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.EquipLost
-		for _, h := range g.playerSkillHandlers(ctx.Seat) {
+		for _, h := range handlers {
 			if err := h.OnEquipLost(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -189,7 +193,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.Death
-		for _, h := range g.playerSkillHandlers(ctx.Victim) {
+		for _, h := range handlers {
 			if err := h.OnDeath(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -201,7 +205,7 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 			return skill.HookResult{}
 		}
 		ctx := *call.Death
-		for _, h := range g.playerSkillHandlers(ctx.Victim) {
+		for _, h := range handlers {
 			if err := h.OnAfterDeath(rt, ctx); err != nil {
 				return skill.HookResult{Err: err}
 			}
@@ -212,9 +216,214 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 		// 检查是否有技能阻止无懈可击（参考 noname: playernowuxie）
 		// 遍历所有存活玩家，任一玩家的技能可阻止则返回 true
 		seat := call.Seat
-		for _, h := range g.playerSkillHandlers(seat) {
+		for _, h := range handlers {
 			if h.BlocksWuxiek(rt, seat) {
 				return skill.HookResult{Bool: true}
+			}
+		}
+		return skill.HookResult{}
+
+	// ===== 阶段钩子 =====
+	case skill.HookPhaseBeforeStart:
+		for _, h := range handlers {
+			if h.OnPhaseBeforeStart != nil {
+				if err := h.OnPhaseBeforeStart(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookPhaseBegin:
+		for _, h := range handlers {
+			if h.OnPhaseBegin != nil {
+				if err := h.OnPhaseBegin(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookPhaseEnd:
+		for _, h := range handlers {
+			if h.OnPhaseEnd != nil {
+				if err := h.OnPhaseEnd(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	// ===== 阶段/回合钩子（通过 Decl 回调注册） =====
+	case skill.HookPhaseBeforeEnd:
+		for _, h := range handlers {
+			if h.OnPhaseBeforeEnd != nil {
+				if err := h.OnPhaseBeforeEnd(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookPhaseBeginStart:
+		for _, h := range handlers {
+			if h.OnPhaseBeginStart != nil {
+				if err := h.OnPhaseBeginStart(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookPhaseChange:
+		for _, h := range handlers {
+			if h.OnPhaseChange != nil {
+				if err := h.OnPhaseChange(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookTurnBegin:
+		for _, h := range handlers {
+			if h.OnTurnBegin != nil {
+				if err := h.OnTurnBegin(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookTurnEnd:
+		for _, h := range handlers {
+			if err := h.OnTurnEnd(rt, call.Seat); err != nil {
+				return skill.HookResult{Err: err}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookRoundStart:
+		for _, h := range handlers {
+			if h.OnRoundStart != nil {
+				if err := h.OnRoundStart(rt, call.Seat); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	// ===== 杀流程钩子 =====
+	case skill.HookShaBegin:
+		if call.ShaCtx == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.ShaCtx
+		for _, h := range handlers {
+			if h.OnShaBegin != nil {
+				if err := h.OnShaBegin(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookBecomeShaTarget:
+		if call.BecomeTarget == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.BecomeTarget
+		for _, h := range handlers {
+			if h.OnBecomeShaTarget != nil {
+				if err := h.OnBecomeShaTarget(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookShaMiss:
+		if call.ShaCtx == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.ShaCtx
+		for _, h := range handlers {
+			if h.OnShaMiss != nil {
+				if err := h.OnShaMiss(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookShaHit:
+		if call.ShaCtx == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.ShaCtx
+		for _, h := range handlers {
+			if h.OnShaHit != nil {
+				if err := h.OnShaHit(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	// ===== 伤害流程钩子 =====
+	case skill.HookDamageBegin:
+		if call.Damage == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.Damage
+		for _, h := range handlers {
+			if h.OnDamageBegin != nil {
+				if err := h.OnDamageBegin(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookDamageEnd:
+		if call.Damage == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.Damage
+		for _, h := range handlers {
+			if h.OnDamageEnd != nil {
+				if err := h.OnDamageEnd(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	// ===== 锦囊钩子 =====
+	case skill.HookUseCard:
+		if call.UseCard == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.UseCard
+		for _, h := range handlers {
+			if h.OnUseCard != nil {
+				if err := h.OnUseCard(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
+			}
+		}
+		return skill.HookResult{}
+
+	case skill.HookUseCardToTarget:
+		if call.UseCard == nil {
+			return skill.HookResult{}
+		}
+		ctx := *call.UseCard
+		for _, h := range handlers {
+			if h.OnUseCardToTarget != nil {
+				if err := h.OnUseCardToTarget(rt, ctx); err != nil {
+					return skill.HookResult{Err: err}
+				}
 			}
 		}
 		return skill.HookResult{}
@@ -222,6 +431,101 @@ func (g *Game) runSkillHooks(events *[]GameEvent, call skill.HookCall) skill.Hoo
 	default:
 		return skill.HookResult{}
 	}
+}
+
+// collectRoleHandlers 按角色维度收集技能 handlers（参考 noname: player/source/target/global）。
+// 支持优先级排序（Priority 降序，FirstDo 排最前，LastDo 排最后）。
+//
+// 兼容旧调用：如果未显式设置 Role 且 Seat 为 0 但 Target 非 0，自动回退为 RoleTarget。
+// 后续新增 HookCall 应显式设置 Role 字段。
+func (g *Game) collectRoleHandlers(call skill.HookCall) []skill.Handler {
+	role := call.Role
+	seat := call.Seat
+
+	// 兼容旧调用：未显式设置 Role/Seat 时，从上下文字段自动推断
+	if role == 0 && call.Seat == 0 {
+		if call.Target > 0 {
+			role = skill.RoleTarget
+			seat = call.Target
+		} else if call.Damage != nil && call.Damage.Target > 0 {
+			seat = call.Damage.Target
+		} else if call.BeforeHPChange != nil && call.BeforeHPChange.Target > 0 {
+			seat = call.BeforeHPChange.Target
+		} else if call.HPLost != nil && call.HPLost.Seat > 0 {
+			seat = call.HPLost.Seat
+		} else if call.HPChanged != nil && call.HPChanged.Seat > 0 {
+			seat = call.HPChanged.Seat
+		} else if call.Judge != nil && call.Judge.Seat > 0 {
+			seat = call.Judge.Seat
+		} else if call.Discarded != nil && call.Discarded.Seat > 0 {
+			seat = call.Discarded.Seat
+		} else if call.EquipLost != nil && call.EquipLost.Seat > 0 {
+			seat = call.EquipLost.Seat
+		} else if call.Death != nil && call.Death.Victim > 0 {
+			seat = call.Death.Victim
+		}
+	}
+
+	var handlers []skill.Handler
+	switch role {
+	case skill.RoleSource:
+		handlers = g.playerSkillHandlers(call.From)
+	case skill.RoleTarget:
+		handlers = g.playerSkillHandlers(call.Target)
+	case skill.RoleGlobal:
+		// 遍历所有存活玩家
+		for i := range g.Players {
+			if g.Players[i].HP > 0 {
+				handlers = append(handlers, g.playerSkillHandlers(i)...)
+			}
+		}
+	default: // RolePlayer
+		// 优先用兼容推断出的 seat，否则用 call.Seat
+		if seat > 0 {
+			handlers = g.playerSkillHandlers(seat)
+		} else {
+			handlers = g.playerSkillHandlers(call.Seat)
+		}
+	}
+
+	// 按优先级排序：Priority 降序，FirstDo 排最前，LastDo 排最后
+	if len(handlers) > 1 {
+		handlers = sortHandlersByPriority(handlers)
+	}
+	return handlers
+}
+
+// sortHandlersByPriority 按技能优先级排序（Priority 降序，FirstDo/LostDo 首尾优先）。
+func sortHandlersByPriority(handlers []skill.Handler) []skill.Handler {
+	firstDo := make([]skill.Handler, 0)
+	lastDo := make([]skill.Handler, 0)
+	middle := make([]skill.Handler, 0)
+
+	for _, h := range handlers {
+		decl := h.Decl
+		if decl.FirstDo {
+			firstDo = append(firstDo, h)
+		} else if decl.LastDo {
+			lastDo = append(lastDo, h)
+		} else {
+			middle = append(middle, h)
+		}
+	}
+
+	// 中间部分按 Priority 降序
+	for i := 0; i < len(middle); i++ {
+		for j := i + 1; j < len(middle); j++ {
+			if middle[j].Decl.Priority > middle[i].Decl.Priority {
+				middle[i], middle[j] = middle[j], middle[i]
+			}
+		}
+	}
+
+	result := make([]skill.Handler, 0, len(handlers))
+	result = append(result, firstDo...)
+	result = append(result, middle...)
+	result = append(result, lastDo...)
+	return result
 }
 
 func (g *Game) targetBlockedBySkill(target int, cardKind string) bool {
@@ -337,7 +641,7 @@ func (g *Game) triggerChongzhenWithEvents(seat int, card Card, asKind string, ev
 	taken := g.Players[opponent].Hand[0]
 	g.Players[opponent].Hand = g.Players[opponent].Hand[1:]
 	g.Players[seat].Hand = append(g.Players[seat].Hand, taken)
-	g.syncCounts()
+	g.SyncCounts()
 	
 	msg := fmt.Sprintf("%s 发动【冲阵】，获得 %s 的一张手牌", g.Players[seat].Name, g.Players[opponent].Name)
 	g.Message = msg
@@ -406,9 +710,9 @@ func (g *Game) runCardsDiscardedHooks(seat int, reason string, cards []Card, eve
 	})
 }
 
-func (g *Game) runCardResolvedHooks(seat int, card Card, events *[]GameEvent) {
+func (g *Game) runCardResolvedHooks(seat int, card Card, originalKind string, events *[]GameEvent) {
 	rt := g.skillRuntime(events)
-	ctx := skill.CardResolvedCtx{Seat: seat, Card: cardView(card)}
+	ctx := skill.CardResolvedCtx{Seat: seat, Card: cardView(card), OriginalKind: originalKind}
 	for _, h := range g.playerSkillHandlers(seat) {
 		if err := h.OnCardResolved(rt, ctx); err != nil {
 			return

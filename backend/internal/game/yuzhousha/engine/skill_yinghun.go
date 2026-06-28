@@ -93,7 +93,7 @@ func (g *Game) YinghunDiscard(target int, cardIDs []string, events *[]GameEvent)
 		}
 		discarded := g.removeHandCard(target, idx, events)
 		g.DiscardPile = append(g.DiscardPile, discarded)
-		g.syncCounts()
+		g.SyncCounts()
 		g.runCardsDiscardedHooks(target, "yinghun", []Card{discarded}, events)
 		discardDone++
 	}

@@ -79,15 +79,7 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 
 	// 通用：如果是装备牌被技能变牌（cardPlaysAs 返回 true），先移除装备，再按变牌逻辑处理
 	if isEquipKind(cardObj.Kind) {
-		// 奇袭：装备区黑色牌视为过河拆桥
-		if g.getSkillCounter(seat, counterQixiActive) > 0 && skill.IsBlackSuit(cardObj.Suit) {
-			discarded := g.removeEquipCard(seat, zone, events)
-			g.DiscardPile = append(g.DiscardPile, discarded)
-			g.notifyEquipLost(seat, discarded, "skill", events)
-			g.appendSkillEvent(events, skill.IDQixi, seat, -1, fmt.Sprintf("%s 使用【奇袭】", g.Players[seat].Name))
-			return g.playTrickAsGuoHe(seat, target, events)
-		}
-		// 变牌为杀（武圣/龙胆等）
+		// 变牌为杀（武圣/龙胆等）—— 通过声明式 cardPlaysAs 钩子判断
 		if g.cardPlaysAs(seat, cardObj, CardSha) && g.canUseSha(seat) && g.isValidPlayTarget(seat, target.SeatIndex, CardSha) {
 			discarded := g.removeEquipCard(seat, zone, events)
 			g.notifyEquipLost(seat, discarded, "skill", events)
@@ -104,7 +96,7 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 		if g.cardPlaysAs(seat, cardObj, CardShan) {
 			// 出牌阶段不出闪
 		}
-		// 变牌为锦囊（国色/立牧等）
+		// 变牌为锦囊（国色/立牧/奇袭等）—— 通过声明式 cardPlaysAs 钩子判断
 		if g.cardPlaysAs(seat, cardObj, CardLeBu) || g.cardPlaysAs(seat, cardObj, CardGuoHe) || g.cardPlaysAs(seat, cardObj, CardTanNang) || g.cardPlaysAs(seat, cardObj, CardJueDou) {
 			discarded := g.removeEquipCard(seat, zone, events)
 			g.notifyEquipLost(seat, discarded, "skill", events)
@@ -128,18 +120,23 @@ func (g *Game) PlayCardWithTarget(seat int, cardID string, target PlayTarget, ev
 		return g.playEquip(seat, cardID, events)
 	}
 
-	// 手牌：奇袭
-	if g.getSkillCounter(seat, counterQixiActive) > 0 && skill.IsBlackSuit(cardObj.Suit) {
-		discarded := g.removeHandCard(seat, idx, events)
-		g.DiscardPile = append(g.DiscardPile, discarded)
-		g.runCardsDiscardedHooks(seat, "cost", []Card{discarded}, events)
-		g.appendSkillEvent(events, skill.IDQixi, seat, -1, fmt.Sprintf("%s 使用【奇袭】", g.Players[seat].Name))
-		return g.playTrickAsGuoHe(seat, target, events)
-	}
+	// 手牌：通过声明式 cardPlaysAs 变牌（奇袭/武圣/国色等由各自的 CardPlaysAs 钩子处理）
 
 	if cardObj.Kind != CardSha && g.cardPlaysAs(seat, cardObj, CardSha) {
 		if g.canUseSha(seat) && g.isValidPlayTarget(seat, target.SeatIndex, CardSha) {
 			return g.playSha(seat, cardID, target.SeatIndex, events)
+		}
+	}
+
+	// 手牌变牌为锦囊（奇袭/国色/双雄等 —— 通过声明式 cardPlaysAs 钩子）
+	trickKinds := []string{CardGuoHe, CardTanNang, CardLeBu, CardJueDou}
+	for _, trickKind := range trickKinds {
+		if g.cardPlaysAs(seat, cardObj, trickKind) {
+			played := g.removeHandCard(seat, idx, events)
+			g.DiscardPile = append(g.DiscardPile, played)
+			g.runCardsDiscardedHooks(seat, "cost", []Card{played}, events)
+			played = g.convertCardToKind(played, trickKind)
+			return g.playTrickWithCard(seat, played, target, events)
 		}
 	}
 
@@ -197,17 +194,17 @@ func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, targetSpe
 		return ErrInvalidTarget
 	}
 
-	// 检查是否因龙胆而将闪当杀使用，如果是则触发冲阵
-	g.triggerChongzhenWithEvents(seat, played, CardSha, events)
+	// 记录牌的原始类型
+	originalKind := played.Kind
+
+	// 卡牌转换发生（如龙胆 闪→杀）：信号给关联技能（如冲阵）
+	if originalKind != CardSha && g.hasSkill(seat, skill.IDLongdan) {
+		g.setSkillCounter(seat, "longdan_activated", 1)
+	}
 
 	// 如果牌本身不是杀（通过技能变牌，如武圣/龙胆），统一转为普通杀
 	if !isSha(played.Kind) {
 		played = g.convertCardToKind(played, CardSha)
-	}
-
-	// 激昂：使用红色杀时摸一张牌
-	if g.hasSkill(seat, skill.IDJiang) && skill.IsJiangCard(CardSha, played.Suit) {
-		_ = g.drawSkillCards(seat, skill.IDJiang, 1, "", events)
 	}
 
 	// 朱雀羽扇：将普通杀转为火杀
@@ -254,7 +251,6 @@ func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, targetSpe
 	g.appendWushuangMessage(seat, CardSha, &msg)
 
 	g.Phase = PhaseResponse
-	tieqiPending := g.hasSkill(seat, SkillTieqi)
 	g.Pending = &PendingCombat{
 		SourceIndex:     seat,
 		TargetIndex:     targetIndex,
@@ -263,28 +259,13 @@ func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, targetSpe
 		RequiredKind:    CardShan,
 		Damage:          damage,
 		IgnoreArmor:     ignoreArmor,
-		TieqiPending:    tieqiPending,
+		TieqiPending:    false, // 由 OnUseCardToTarget Hook 声明式设置
+		OriginalKind:    originalKind,
 		ResponsesNeeded: g.wushuangResponsesNeeded(seat, CardSha),
 		ActorSeat:       targetIndex,
 		SubjectSeat:     targetIndex,
 	}
-	g.initPojunOnShaPending(seat, targetIndex, g.Pending)
-	
-	// 破军技能：如果源有破军且目标有可拿的牌，直接打开选牌窗口
-	if g.hasSkill(seat, SkillPojun) && g.hasTakeableCard(targetIndex) {
-		g.Message = msg
-		g.resetTimer()
-		*events = append(*events, GameEvent{
-			Type:        "play_sha",
-			PlayerIndex: seat,
-			TargetIndex: targetIndex,
-			Card:        &played,
-			Message:     g.Message,
-		})
-		g.notifyBecameTarget(targetIndex, seat, played, events)
-		return g.enterPojunPlacing(events)
-	}
-	
+
 	g.Message = msg
 	g.resetTimer()
 
@@ -296,16 +277,38 @@ func (g *Game) playShaWithCard(seat int, played Card, targetIndex int, targetSpe
 		Message:     g.Message,
 	})
 	g.notifyBecameTarget(targetIndex, seat, played, events)
+	// HookShaBegin：杀开始结算（noname: shaBegin, step 0）
+	// RoleSource: 出杀者技能（预留）
+	g.runSkillHooks(events, skill.HookCall{
+		Kind: skill.HookShaBegin, From: seat, Role: skill.RoleSource,
+		ShaCtx: &skill.ShaCtx{Source: seat, Target: targetIndex, Card: cardView(played), Damage: damage},
+	})
+	// RoleTarget: 目标装备技能（仁王盾等，待 TagEquipSkill 基础设施后接入）
+	g.runSkillHooks(events, skill.HookCall{
+		Kind: skill.HookShaBegin, Target: targetIndex, Role: skill.RoleTarget,
+		ShaCtx: &skill.ShaCtx{Source: seat, Target: targetIndex, Card: cardView(played), Damage: damage},
+	})
+	// HookUseCard：使用牌时（noname: useCard）
+	// 技能在此介入：激昂（使用红色杀/决斗时摸牌）
+	g.runSkillHooks(events, skill.HookCall{
+		Kind: skill.HookUseCard, Seat: seat, Role: skill.RolePlayer,
+		UseCard: &skill.UseCardCtx{Seat: seat, Target: targetIndex, Card: cardView(played)},
+	})
+	// HookBecomeShaTarget：成为杀的目标后，仁王盾检查之后——琉璃等技能在此介入
+	g.runSkillHooks(events, skill.HookCall{
+		Kind: skill.HookBecomeShaTarget, Target: targetIndex, Role: skill.RoleTarget,
+		BecomeTarget: &skill.BecomeTargetCtx{Seat: targetIndex, Source: seat, Card: cardView(played)},
+	})
 	// 方天画戟：最后一张手牌出杀时，从前端传入的额外目标列表依次结算
 	// 参考 noname: fangtian_skill, mod.selectTarget: range[1] += 2
 	if g.canFangtianMultiTarget(seat) && !guanYuFollow && len(targetSpec.FangtianExtraTargets) > 0 {
 		g.startFangtianMultiSha(seat, targetSpec.FangtianExtraTargets, played, events)
 	}
-	if g.canOfferLiuli(targetIndex) {
-		g.offerLiuliWindow(targetIndex, events)
-	} else {
-		_ = g.advanceShaBeforeTargetResponse(events)
+	// 若 Hook 已打开窗口则暂停，否则进入杀目标后阶段
+	if g.Pending != nil && g.Pending.WindowKind != "" {
+		return nil
 	}
+	_ = g.advanceShaBeforeTargetResponse(events)
 	return nil
 }
 
@@ -362,11 +365,6 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 		return ErrInvalidTarget
 	}
 
-	// 激昂：使用【决斗】时摸一张牌
-	if g.hasSkill(seat, skill.IDJiang) && played.Kind == CardJueDou {
-		_ = g.drawSkillCards(seat, skill.IDJiang, 1, "", events)
-	}
-
 	effectTarget := targetSpec.SeatIndex
 	if effectTarget < 0 || effectTarget >= len(g.Players) {
 		effectTarget = target
@@ -390,6 +388,15 @@ func (g *Game) playTrickWithCard(seat int, played Card, targetSpec PlayTarget, e
 		Card:              &played,
 		Message:           fmt.Sprintf("%s 使用【%s】", g.Players[seat].Name, played.Name),
 	})
+
+	// HookUseCard：使用锦囊牌（noname: useCard）
+	// 技能在此介入：集智（使用锦囊后摸牌）
+	if !trickStaysInJudge(played.Kind) {
+		g.runSkillHooks(events, skill.HookCall{
+			Kind: skill.HookUseCard, Seat: seat, Role: skill.RolePlayer,
+			UseCard: &skill.UseCardCtx{Seat: seat, Target: targetSpec.SeatIndex, Card: cardView(played)},
+		})
+	}
 
 	// 图射：使用非装备牌指定目标后，若没有基本牌，摸X张牌
 	g.tryTriggerTushe(seat, played, targetSpec.SeatIndex, events)
@@ -1177,11 +1184,13 @@ func (g *Game) playEquip(seat int, cardID string, events *[]GameEvent) error {
 	if old != nil {
 		g.DiscardPile = append(g.DiscardPile, *old)
 		g.notifyEquipLost(seat, *old, "replace", events)
+		g.removeEquipSkill(seat, old.Kind) // 移除旧装备技能
 		// 被替换的是白银狮子且装备者受伤 → 回血
 		if wasBaiyin && equipSlot(played.Kind) == EquipArmor {
 			g.handleBaiyinLose(seat, events)
 		}
 	}
+	g.injectEquipSkill(seat, played.Kind) // 注入新装备技能
 	g.Message = fmt.Sprintf("%s 装备【%s】", g.Players[seat].Name, played.Name)
 	*events = append(*events, GameEvent{
 		Type:        "equip",
@@ -1273,7 +1282,7 @@ func (g *Game) takeTargetCard(target int, spec PlayTarget, events *[]GameEvent) 
 		}
 		card = p.Hand[0]
 		p.Hand = p.Hand[1:]
-		g.syncCounts()
+		g.SyncCounts()
 		g.runHandEmptyHooks(target, events)
 		return card, "手牌", true
 	case EquipWeapon:
@@ -1400,7 +1409,7 @@ func tannangOnEachTake(g *Game, card Card, label string, events *[]GameEvent) er
 	target := g.Pending.SubjectSeat
 	msg := fmt.Sprintf("%s 获得 %s 的%s", g.Players[source].Name, g.Players[target].Name, label)
 	g.Message = msg
-	g.syncCounts()
+	g.SyncCounts()
 	*events = append(*events, GameEvent{
 		Type:        "trick_effect",
 		PlayerIndex: source,
@@ -1634,28 +1643,38 @@ func (g *Game) restorePendingAfterDying(saved *PendingCombat, events *[]GameEven
 	case saved.RequiredKind == "tiesuo":
 		// 铁索连环AOE恢复：濒死结束后继续下一个人
 		// 链式伤害值 = saved.Damage（上一个人的最终伤害值）
-		Logf("restorePendingAfterDying: tiesuo aoe resume, source=%d amount=%d rest=%v", source, saved.Damage, queue)
-		g.continueTiesuoAoe(source, saved.Damage, saved.Card, queue, events)
-		return true
+		if len(queue) > 0 {
+			Logf("restorePendingAfterDying: tiesuo aoe resume, source=%d amount=%d rest=%v", source, saved.Damage, queue)
+			g.continueTiesuoAoe(source, saved.Damage, saved.Card, queue, events)
+			return true
+		}
 	case saved.Card.Kind == CardNanMan:
-		g.continueNanManAfterTarget(source, queue, events)
-		return true
+		if len(queue) > 0 {
+			g.continueNanManAfterTarget(source, queue, events)
+			return true
+		}
 	case saved.Card.Kind == CardWanJian:
-		g.continueWanJianAfterTarget(source, queue, events)
-		return true
+		if len(queue) > 0 {
+			g.continueWanJianAfterTarget(source, queue, events)
+			return true
+		}
 	case saved.ResponseMode == ResponseModeWuguPick:
 		// 五谷丰登选牌被濒死中断，恢复选牌流程
 		g.Pending = saved
 		g.Phase = PhaseResponse
 		g.resetTimer()
 		return true
-	default:
-		// 恢复通用 Pending
-		g.Pending = saved
-		g.Phase = PhaseResponse
-		g.resetTimer()
-		return true
+	case saved.ResponseMode == ResponseModeSkillGanglieOffer,
+		saved.ResponseMode == ResponseModeSkillGanglieChoice,
+		saved.ResponseMode == ResponseModeSkillFankui:
+		// 伤害技能链窗口（刚烈/反馈）：不恢复，由 advanceDamageAftermath 继续处理
+		return false
 	}
+	// 恢复通用 Pending
+	g.Pending = saved
+	g.Phase = PhaseResponse
+	g.resetTimer()
+	return true
 }
 
 func (g *Game) startTaoYuanHeal(source, target int, rest []int, events *[]GameEvent) {

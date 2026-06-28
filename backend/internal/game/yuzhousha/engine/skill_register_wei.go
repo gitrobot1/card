@@ -12,10 +12,11 @@ func registerWeiSkills() {
 			ID: skill.IDFankui, Name: "反馈", Kind: skill.KindPassive,
 			Desc: "当你受到1点伤害后，你可以获得伤害来源的一张牌。",
 		},
-		CanActivate: fankuiCanActivate,
-		Activate:    fankuiActivate,
-		AIPriority:  fankuiAIPriority,
-		AIActivate:  fankuiAIActivate,
+		CanActivate:  fankuiCanActivate,
+		Activate:     fankuiActivate,
+		AIPriority:   fankuiAIPriority,
+		AIActivate:   fankuiAIActivate,
+		OnDamageEnd:  feedbackOnDamageEnd,
 	})
 
 	skill.Register(skill.Decl{
@@ -23,10 +24,11 @@ func registerWeiSkills() {
 			ID: skill.IDGuicai, Name: "鬼才", Kind: skill.KindActive,
 			Desc: "在任意判定牌生效前，你可以打出一张手牌代替之。",
 		},
-		CanActivate: guicaiCanActivate,
-		Activate:    guicaiActivate,
-		AIPriority:  guicaiAIPriority,
-		AIActivate:  guicaiAIActivate,
+		CanActivate:    guicaiCanActivate,
+		Activate:       guicaiActivate,
+		AIPriority:     guicaiAIPriority,
+		AIActivate:     guicaiAIActivate,
+		CanModifyJudge: guicaiCanModifyJudge,
 	})
 
 	skill.Register(skill.Decl{
@@ -54,6 +56,7 @@ func registerWeiSkills() {
 		Activate:    jianxiongActivate,
 		AIPriority:  jianxiongAIPriority,
 		AIActivate:  jianxiongAIActivate,
+		OnDamageEnd: jianxiongOnDamageEnd,
 	})
 
 	skill.Register(skill.Decl{
@@ -65,6 +68,7 @@ func registerWeiSkills() {
 		Activate:    ganglieActivate,
 		AIPriority:  ganglieAIPriority,
 		AIActivate:  ganglieAIActivate,
+		OnDamageEnd: ganglieOnDamageEnd,
 	})
 
 	skill.Register(skill.Decl{
@@ -105,6 +109,7 @@ func registerWeiSkills() {
 		Activate:    yijiActivate,
 		AIPriority:  yijiAIPriority,
 		AIActivate:  yijiAIActivate,
+		OnDamageEnd: yijiOnDamageEnd,
 	})
 }
 
@@ -175,6 +180,15 @@ func guicaiAIActivate(r skill.Runtime, seat int) error {
 		return r.PassGuicai(seat)
 	}
 	return r.ApplyGuicaiReplace(seat, ids[0])
+}
+
+// guicaiCanModifyJudge 鬼才交互式改判能力声明（替代硬编码 hasSkill(SkillGuicai)）。
+// 具体条件检查（手牌数量等）由 offerNextModifyJudge 负责。
+func guicaiCanModifyJudge(r skill.Runtime, seat int) (bool, string) {
+	if !r.HasSkill(seat, skill.IDGuicai) {
+		return false, ""
+	}
+	return true, skill.IDGuicai
 }
 
 func luoshenCanActivate(r skill.Runtime, seat int) bool {
@@ -389,4 +403,51 @@ func aiPickYijiGiveRuntime(r skill.Runtime, seat int) (target int, ids []string)
 		return target, nil
 	}
 	return target, hand[len(hand)-give:]
+}
+
+// ============================================================================
+// OnDamageEnd 回调（声明式卖血技注册）
+// 参考 noname: trigger: { player: "damageEnd" }
+// ============================================================================
+
+func jianxiongOnDamageEnd(r skill.Runtime, ctx skill.DamageCtx) error {
+	gr, ok := r.(*gameSkillRuntime)
+	if !ok {
+		return nil
+	}
+	gr.g.enqueueJianxiongSkill(ctx.Target)
+	return nil
+}
+
+func ganglieOnDamageEnd(r skill.Runtime, ctx skill.DamageCtx) error {
+	if ctx.Source < 0 {
+		return nil // 必须有伤害来源
+	}
+	gr, ok := r.(*gameSkillRuntime)
+	if !ok {
+		return nil
+	}
+	gr.g.enqueueGanglieSkill(ctx.Target, ctx.Amount)
+	return nil
+}
+
+func feedbackOnDamageEnd(r skill.Runtime, ctx skill.DamageCtx) error {
+	if ctx.Source < 0 {
+		return nil // 必须有伤害来源
+	}
+	gr, ok := r.(*gameSkillRuntime)
+	if !ok {
+		return nil
+	}
+	gr.g.enqueueFankuiSkill(ctx.Target, ctx.Source, ctx.Amount)
+	return nil
+}
+
+func yijiOnDamageEnd(r skill.Runtime, ctx skill.DamageCtx) error {
+	gr, ok := r.(*gameSkillRuntime)
+	if !ok {
+		return nil
+	}
+	gr.g.enqueueYijiSkill(ctx.Target)
+	return nil
 }

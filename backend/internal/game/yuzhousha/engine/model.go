@@ -124,8 +124,11 @@ type PendingCombat struct {
 	SkillID       string `json:"skill_id,omitempty"`
 	JijiangLord   int    `json:"jijiang_lord,omitempty"`
 	JijiangUse    bool   `json:"jijiang_use,omitempty"`
-	TieqiPending  bool   `json:"tieqi_pending,omitempty"`
-	ShaUnblockable bool  `json:"sha_unblockable,omitempty"`
+	TieqiPending     bool   `json:"tieqi_pending,omitempty"`
+	ChongzhenPending bool   `json:"chongzhen_pending,omitempty"` // 冲阵待触发（龙胆变牌后）
+	ChongzhenDone    bool   `json:"chongzhen_done,omitempty"`    // 冲阵已执行（防重复触发）
+	OriginalKind     string `json:"original_kind,omitempty"`      // 牌使用前的原始类型（用于龙胆判断）
+	ShaUnblockable   bool   `json:"sha_unblockable,omitempty"`
 	FankuiRemaining int  `json:"fankui_remaining,omitempty"`
 	FankuiResumeMode string `json:"fankui_resume_mode,omitempty"`
 	FankuiResumeCard Card  `json:"fankui_resume_card,omitempty"`

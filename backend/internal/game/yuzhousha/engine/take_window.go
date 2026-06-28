@@ -84,6 +84,8 @@ func (g *Game) OpenTakeWindow(cfg TakeWindowConfig, events *[]GameEvent) error {
 		SubjectSeat:  cfg.SubjectSeat,
 		OriginSeat:   cfg.OriginSeat,
 	}
+	Logf("OpenTakeWindow: ActorSeat=%d TargetIndex=%d SourceIndex=%d RespMode=%s",
+		g.Pending.ActorSeat, g.Pending.TargetIndex, g.Pending.SourceIndex, cfg.ResponseMode)
 	g.applyTakeWindowLegacyCounters(cfg)
 	return g.attachTakeWindow(cfg, events)
 }
@@ -166,7 +168,8 @@ func (g *Game) validateTakeActor(actor int) error {
 	}
 	if g.Pending.WindowKind != WindowKindTake && g.Pending.ResponseMode != ResponseModeSkillFankui &&
 		g.Pending.ResponseMode != ResponseModeSkillTuxi &&
-		g.Pending.ResponseMode != ResponseModeSkillPojun {
+		g.Pending.ResponseMode != ResponseModeSkillPojun &&
+		g.Pending.ResponseMode != ResponseModeSkillChongzhen {
 		return ErrWrongPhase
 	}
 	if !g.IsActorSeat(actor) {

@@ -56,8 +56,13 @@ func (g *Game) RespondCard(seat int, cardID string, events *[]GameEvent) error {
 		return ErrInvalidCard
 	}
 
-	// 检查是否因龙胆而将杀当闪打出，如果是则触发冲阵
-	g.triggerChongzhenWithEvents(seat, cardObj, requiredKind, events)
+	// 记录牌的原始类型（冲阵等技能检测龙胆变牌用）
+	originalKind := cardObj.Kind
+
+	// 卡牌转换发生（如龙胆 杀→闪）：信号给关联技能（如冲阵）
+	if originalKind != requiredKind && g.hasSkill(seat, skill.IDLongdan) {
+		g.setSkillCounter(seat, "longdan_activated", 1)
+	}
 
 	// 从对应区域移除牌
 	var played Card
@@ -73,6 +78,8 @@ func (g *Game) RespondCard(seat int, cardID string, events *[]GameEvent) error {
 	}
 	g.DiscardPile = append(g.DiscardPile, played)
 	g.runCardsDiscardedHooks(seat, "play", []Card{played}, events)
+	// OnCardResolved：响应牌结算后广播（冲阵等技能检测龙胆变牌用）
+	g.runCardResolvedHooks(seat, played, originalKind, events)
 	source := pending.SourceIndex
 	responseType := "respond_" + requiredKind
 
@@ -136,13 +143,7 @@ func (g *Game) resolvePendingDodgeSuccess(seat int, pending *PendingCombat, even
 		}
 		return g.continueAoeAfterTarget(pending.SourceIndex, pending.Card, required, queue, events)
 	}
-	// 贯石斧：杀被闪抵消后， attacker 可弃两张牌令杀命中
-	if pending.Card.Kind == CardSha {
-		source := pending.SourceIndex
-		if g.offerGuanshifu(source, seat, pending.Card, pending.Damage, pending.ReturnIndex, events) {
-			return nil
-		}
-	}
+	// 贯石斧：已迁移到 TagEquipSkill → OnShaMiss(RoleSource) Decl Hook
 	if g.offerLeijiAfterShan(seat, pending, events) {
 		return nil
 	}
@@ -602,9 +603,10 @@ func (g *Game) resolvePendingMiss(events *[]GameEvent) error {
 			damage = 1
 		}
 		// 构建带 AoeResume 的 DamageResume（参考 noname: damage step 5 自动濒死 + AOE 恢复）
+		// 将 AOE 恢复信息同时注入 DamageEvent.AoeResume，确保濒死路径不丢失 AOE 队列。
 		aoeResume := DamageResume{}
 		g.setAoeResume(&aoeResume, pending.SourceIndex, damage, pending.Card, pending.AoeQueue, false)
-		if g.ApplyDamageAndCheckDeath(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, aoeResume, events) {
+		if g.ApplyDamageAndCheckDeathWithAoe(pending.SourceIndex, pending.TargetIndex, damage, pending.Card, aoeResume, events) {
 			// 濒死阶段启动，startDyingWindow 已保存当前 Pending 到 SavedPending
 			return nil
 		}

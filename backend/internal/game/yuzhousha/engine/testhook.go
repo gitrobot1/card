@@ -11,8 +11,6 @@ import (
 
 // 以下导出仅供 backend/test 下的外部测试使用（需 -tags cardtest）。
 
-func (g *Game) SyncCounts() { g.syncCounts() }
-
 func (g *Game) CanUseSha(seat int) bool { return g.canUseSha(seat) }
 
 func (g *Game) CardPlaysAsForTest(seat int, card Card, asKind string) bool {

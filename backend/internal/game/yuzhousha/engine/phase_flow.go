@@ -69,7 +69,12 @@ func (g *Game) runPhaseStep(seat, num int, events *[]GameEvent) {
 	}
 
 	// 阶段完成后继续下一阶段（参考 noname: step 11 goto(8)）
+	// 人类玩家的出牌阶段不自动推进，等待前端 EndPlay 请求
 	phaseEv.OnAfter = func(g *Game, ev *GameEventInstance, evs *[]GameEvent) error {
+		if phase.StepKey == StepPlay && !g.Players[seat].IsAI && g.Pending == nil {
+			// 人类玩家出牌阶段：不推进，等待 EndPlay
+			return nil
+		}
 		g.runPhaseStep(seat, num+1, evs)
 		return nil
 	}
@@ -210,7 +215,7 @@ func (g *Game) executePlayPhase(seat int, events *[]GameEvent) error {
 	// 高达1号：斩将
 	g.gundamZhanjiang(seat, events)
 
-	// AI 自动出牌
+	// AI 自动出牌；人类玩家由前端驱动（Phase=Playing, TurnStep=StepPlay, Pending=nil）
 	if g.Players[seat].IsAI {
 		runAIPlayPhase(g, seat, events)
 	}
@@ -276,7 +281,8 @@ func (g *Game) finishPhaseLoop(seat int, events *[]GameEvent) {
 		Message:     fmt.Sprintf("%s 结束回合", g.Players[seat].Name),
 	})
 
-	// 切换到下一个玩家（参考 noname: phaseLoop step 3 → goto(1)）
+	// 切换到下一个玩家，但不自动开始回合。
+	// 回合启动由外部 NextTurn 请求驱动（前端/AI），确保每个回合都是独立的"电梯旅程"。
 	g.CurrentTurn = g.nextTurnSeat(seat)
-	g.beginTurn(events)
+	g.TurnStep = "" // 清空 TurnStep，标记回合已结束，AutoBeginTurnIfNeeded 据此初始化新回合
 }

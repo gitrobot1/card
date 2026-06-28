@@ -25,13 +25,38 @@ func (g *Game) startDyingWindow(victim int, ctx DyingContext, events *[]GameEven
 		return true
 	}
 	ctx.Victim = victim
+
+	// 嵌套濒死保护：如果当前已在 AOE 恢复链中（外层 dyingContext 有 AOE 信息），
+	// 但新濒死的 resume 没有 AOE 信息（如刚烈导致来源濒死），则继承外层的 AOE 信息。
+	// 避免内层濒死覆盖外层 AOE 恢复链，导致 AOE 断裂。
+	if !ctx.Resume.AoeResume.Active && g.dyingContext != nil && g.dyingContext.Resume.AoeResume.Active {
+		ctx.Resume.AoeResume = g.dyingContext.Resume.AoeResume
+		Logf("startDyingWindow: nested dying, inheriting outer AoeResume Active=%v Rest=%v",
+			ctx.Resume.AoeResume.Active, ctx.Resume.AoeResume.Rest)
+	}
+
 	Logf("startDyingWindow: victim=%d AoeResume.Active=%v Rest=%v Card=%s",
 		victim, ctx.Resume.AoeResume.Active, ctx.Resume.AoeResume.Rest, ctx.Resume.AoeResume.Card.Kind)
 	g.dyingContext = &ctx
-	// 保存当前 Pending（如果有），濒死结束后恢复
+	// 保存当前 Pending（如果有），濒死结束后恢复。
+	// 如果当前 Pending 没有 AOE 队列信息但 damageAftermath 中有活跃的 AOE 恢复链，
+	// 则将 AOE 信息注入 SavedPending，确保嵌套濒死结束后 AOE 链不丢失。
 	var saved *PendingCombat
 	if g.Pending != nil {
 		cp := *g.Pending
+		// 注入 AOE 恢复信息（刚烈/反馈等技能窗口没有 AoeQueue，但外层有 AOE 链）
+		if len(cp.AoeQueue) == 0 && g.damageAftermath != nil && g.damageAftermath.Resume.AoeResume.Active {
+			ar := g.damageAftermath.Resume.AoeResume
+			cp.AoeQueue = append([]int(nil), ar.Rest...)
+			cp.Card = ar.Card
+			cp.SourceIndex = ar.Source
+			cp.Damage = ar.Amount
+			cp.RequiredKind = ""
+			if ar.Tiesuo {
+				cp.RequiredKind = "tiesuo"
+			}
+			Logf("startDyingWindow: injected AOE info into SavedPending Rest=%v Tiesuo=%v", ar.Rest, ar.Tiesuo)
+		}
 		saved = &cp
 	}
 	g.Phase = PhaseResponse
@@ -69,6 +94,13 @@ func (g *Game) afterDamageApplied(source, target, damage int, card Card, resume 
 	}
 	if g.isJueqingHarm(source) {
 		return g.finishJueqingDeath(source, target, events)
+	}
+	// 嵌套濒死保护：如果当前已在 AOE 恢复链中（damageAftermath 中有 AOE 信息），
+	// 但新濒死的 resume 没有 AOE 信息（如刚烈导致来源濒死），则继承当前的 AOE 信息。
+	// 避免内层濒死覆盖外层 AOE 恢复链，导致 AOE 断裂。
+	if !resume.AoeResume.Active && g.damageAftermath != nil && g.damageAftermath.Resume.AoeResume.Active {
+		resume.AoeResume = g.damageAftermath.Resume.AoeResume
+		Logf("afterDamageApplied: nested dying, inheriting AoeResume from damageAftermath Rest=%v", resume.AoeResume.Rest)
 	}
 	return g.startDyingWindow(target, DyingContext{
 		Killer: source,
@@ -287,6 +319,7 @@ func (g *Game) scatterPlayerCardsOnDeath(seat int, events *[]GameEvent) {
 	for _, slot := range []*Card{p.Weapon, p.Armor, p.PlusHorse, p.MinusHorse} {
 		if slot != nil {
 			toDiscard = append(toDiscard, *slot)
+			g.removeEquipSkill(seat, slot.Kind) // TagEquipSkill: 死亡时移除装备技能
 		}
 	}
 	p.Weapon, p.Armor, p.PlusHorse, p.MinusHorse = nil, nil, nil, nil
@@ -302,7 +335,7 @@ func (g *Game) scatterPlayerCardsOnDeath(seat int, events *[]GameEvent) {
 		return
 	}
 	g.DiscardPile = append(g.DiscardPile, toDiscard...)
-	g.syncCounts()
+	g.SyncCounts()
 	*events = append(*events, GameEvent{
 		Type:        "death_scatter",
 		PlayerIndex: seat,

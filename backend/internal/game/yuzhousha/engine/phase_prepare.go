@@ -84,7 +84,7 @@ func (g *Game) StartPeekDeck(seat int, skillID string, events *[]GameEvent) erro
 		g.DrawPile = g.DrawPile[1:]
 		revealed = append(revealed, c)
 	}
-	g.syncCounts()
+	g.SyncCounts()
 
 	meta := h.Meta()
 	g.Phase = PhaseResponse
@@ -147,7 +147,7 @@ func (g *Game) FinishPeekDeck(seat int, req PeekDeckRequest, events *[]GameEvent
 
 	g.DrawPile = append(topCards, g.DrawPile...)
 	g.DrawPile = append(g.DrawPile, bottomCards...)
-	g.syncCounts()
+	g.SyncCounts()
 
 	skillID := g.Pending.SkillID
 	skillName := skillID
@@ -279,7 +279,7 @@ func (g *Game) applyPeekDeckSplit(seat int, topCards, bottomCards []Card, events
 	}
 	g.DrawPile = append(topCards, g.DrawPile...)
 	g.DrawPile = append(g.DrawPile, bottomCards...)
-	g.syncCounts()
+	g.SyncCounts()
 
 	skillID := g.Pending.SkillID
 	skillName := skillID
@@ -473,7 +473,7 @@ func (g *Game) startJudgeWuxiekWindow(seat int, judgeCard Card, events *[]GameEv
 		// 未知判定牌类型（可能是空牌或已被移除），直接移除并继续
 		g.removeJudgeCard(seat, judgeCard.ID)
 		g.DiscardPile = append(g.DiscardPile, judgeCard)
-		g.syncCounts()
+		g.SyncCounts()
 		return g.processNextJudgeCard(seat, events)
 	}
 
@@ -639,7 +639,7 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 
 	// 判定牌放入弃牌堆（参考 noname: callback 阶段统一处理牌归属）
 	g.DiscardPile = append(g.DiscardPile, judgeCard)
-	g.syncCounts()
+	g.SyncCounts()
 
 	isClub := judgeCard.Suit == "C"
 	isHeart := judgeCard.Suit == "H"
@@ -655,7 +655,7 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 			msg := fmt.Sprintf("%s 的【乐不思蜀】判定生效（%s），跳过出牌阶段", g.Players[seat].Name, label)
 			g.Message = msg
 			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: false, Message: msg})
-			g.syncCounts()
+			g.SyncCounts()
 			// 直接跳转到弃牌阶段（参考 noname: skipList + checkSkipped）
 			g.SkipToPhase(seat, "phaseDiscard", events)
 			return nil
@@ -664,7 +664,7 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 		msg := fmt.Sprintf("%s 的【乐不思蜀】判定无效（%s）", g.Players[seat].Name, label)
 		g.Message = msg
 		*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: true, Message: msg})
-		g.syncCounts()
+		g.SyncCounts()
 		return g.processNextJudgeCard(seat, events)
 
 	case skill.JudgeBingliang:
@@ -679,7 +679,7 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 			g.Message = msg
 			*events = append(*events, GameEvent{Type: "judge_result", PlayerIndex: seat, Card: &judgeCard, Success: true, Message: msg})
 		}
-		g.syncCounts()
+		g.SyncCounts()
 		return g.processNextJudgeCard(seat, events)
 
 	case skill.JudgeShandian:
@@ -692,6 +692,10 @@ func (g *Game) applyPhaseJudgeResult(seat int, reason skill.JudgeReason, judgeCa
 			lightningCard := Card{Kind: CardShanDian, Name: "闪电", DamageType: DamageTypeThunder}
 			if g.ApplyDamageAndCheckDeath(seat, seat, 3, lightningCard, DamageResume{}, events) {
 				return nil // 濒死处理中
+			}
+			// 走统一伤害技能链（卖血技等）
+			if g.continueAfterDamage(seat, seat, 3, lightningCard, DamageResume{}, events) {
+				return nil
 			}
 		} else {
 			g.transferShandian(seat, judgeCard, events)
@@ -749,7 +753,7 @@ func (g *Game) handleWuxiekCounterPass(events *[]GameEvent) error {
 				// 乐/兵被无懈后直接弃置
 				g.DiscardPile = append(g.DiscardPile, judgeCard)
 			}
-			g.syncCounts()
+			g.SyncCounts()
 			*events = append(*events, GameEvent{
 				Type:        "wuxiek_cancel_judge",
 				PlayerIndex: seat,
@@ -954,26 +958,25 @@ func (g *Game) finishTurn(seat int, events *[]GameEvent) error {
 	if g.IsFinished() {
 		return nil
 	}
-	
+
 	// 触发回合结束后的清理工作
 	g.runTurnEndCleanup(seat, events)
-	
+
 	// 重置玩家状态
 	g.Players[seat].Drunk = false
-	
+
 	// 发送回合结束事件
 	*events = append(*events, GameEvent{
 		Type:        "turn_end",
 		PlayerIndex: seat,
 		Message:     fmt.Sprintf("%s 结束回合", g.Players[seat].Name),
 	})
-	
-	// 切换到下一个玩家
+
+	// 切换到下一个玩家，但不自动开始回合。
+	// 回合启动由外部 NextTurn 请求驱动（前端/AI）。
 	g.CurrentTurn = g.nextTurnSeat(g.CurrentTurn)
-	
-	// 开始下一个玩家的回合
-	g.beginTurn(events)
-	
+	g.TurnStep = ""
+
 	return nil
 }
 
@@ -996,7 +999,7 @@ func (g *Game) flipJudgeCard(events *[]GameEvent, seat int) (Card, bool) {
 	
 	card := g.DrawPile[0]
 	g.DrawPile = g.DrawPile[1:]
-	g.syncCounts()
+	g.SyncCounts()
 	
 	label := suitSymbol(card.Suit) + rankLabel(card.Rank)
 	*events = append(*events, GameEvent{

@@ -17,6 +17,17 @@ func catalogSkills() []Decl {
 				ID: IDLongdan, Name: "龙胆", Kind: KindPassive,
 				Desc: "你可以将一张【杀】当【闪】、【闪】当【杀】使用或打出。",
 			},
+			ViewAs: &ViewAsConfig{
+				AsKind:     "sha", // 主变牌方向：闪当杀
+				SelectCard: 1,
+				Position:   "h",
+				Prompt:     "将一张闪当杀使用（龙胆）",
+				FilterKinds: []string{"shan"},
+				Passive:     true,
+				FilterCard: func(r Runtime, seat int, card CardView) bool {
+					return card.Kind == "shan"
+				},
+			},
 			CardPlaysAs: func(r Runtime, seat int, cardKind, asKind, suit string) bool {
 				if !r.HasSkill(seat, IDLongdan) {
 					return false
@@ -80,6 +91,17 @@ func catalogSkills() []Decl {
 				ID: IDQingguo, Name: "倾国", Kind: KindPassive,
 				Desc: "你可以将一张黑色手牌当【闪】使用或打出。",
 			},
+			ViewAs: &ViewAsConfig{
+				AsKind:         "shan",
+				SelectCard:     1,
+				Position:       "h",
+				Prompt:         "将一张黑色牌当闪使用（倾国）",
+				FilterSuitColor: "black",
+				Passive:         true,
+				FilterCard: func(r Runtime, seat int, card CardView) bool {
+					return IsBlackSuit(card.Suit)
+				},
+			},
 			CardPlaysAs: func(r Runtime, seat int, cardKind, asKind, suit string) bool {
 				if !r.HasSkill(seat, IDQingguo) || asKind != "shan" {
 					return false
@@ -91,6 +113,20 @@ func catalogSkills() []Decl {
 			Meta: Meta{
 				ID: IDJiji, Name: "急救", Kind: KindPassive,
 				Desc: "你于回合外可以将一张红色牌当【桃】使用。",
+			},
+			ViewAs: &ViewAsConfig{
+				AsKind:         "tao",
+				SelectCard:     1,
+				Position:       "h",
+				Prompt:         "将一张红色牌当桃使用（急救）",
+				FilterSuitColor: "red",
+				Passive:         true,
+				FilterCard: func(r Runtime, seat int, card CardView) bool {
+					return IsRedSuit(card.Suit)
+				},
+				ViewAsFilter: func(r Runtime, seat int) bool {
+					return r.CurrentTurn() != seat // 回合外
+				},
 			},
 			CardPlaysAs: func(r Runtime, seat int, _, asKind, suit string) bool {
 				if !r.HasSkill(seat, IDJiji) || asKind != "tao" {
@@ -260,12 +296,23 @@ func catalogSkills() []Decl {
 				ID: IDJiang, Name: "激昂", Kind: KindPassive,
 				Desc: "每当你成为【决斗】或【红色杀】的目标以及你使用的【决斗】或【红色杀】时，你摸一张牌。",
 			},
+			// OnUseCard：使用牌时（noname: trigger: { player: "useCard" }）
+			// 使用红色杀或决斗时摸一张牌
+			OnUseCard: func(r Runtime, ctx UseCardCtx) error {
+				if !r.HasSkill(ctx.Seat, IDJiang) || !IsJiangCard(ctx.Card.Kind, ctx.Card.Suit) {
+					return nil
+				}
+				return r.DrawSkillCards(ctx.Seat, IDJiang, 1, "")
+			},
+			// OnBecomeTarget：成为牌的目标时（noname: trigger: { target: "useCardToTarget" }）
 			OnBecomeTarget: func(r Runtime, ctx BecomeTargetCtx) error {
 				if !r.HasSkill(ctx.Seat, IDJiang) || !IsJiangCard(ctx.Card.Kind, ctx.Card.Suit) {
 					return nil
 				}
 				return r.DrawSkillCards(ctx.Seat, IDJiang, 1, "")
 			},
+			// OnCardResolved：牌结算后（noname: trigger: { player: "useCardEnd" }）
+			// 覆盖决斗被无懈抵消等场景
 			OnCardResolved: func(r Runtime, ctx CardResolvedCtx) error {
 				if !r.HasSkill(ctx.Seat, IDJiang) || !IsJiangCard(ctx.Card.Kind, ctx.Card.Suit) {
 					return nil

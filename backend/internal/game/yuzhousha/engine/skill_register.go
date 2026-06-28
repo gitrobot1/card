@@ -37,6 +37,19 @@ func registerComplexSkills() {
 			ID: skill.IDWusheng, Name: "武圣", Kind: skill.KindActive,
 			Desc: "出牌阶段，你可以将一张红色牌当【杀】使用或打出（含红色装备牌）；未发动时红色牌按原牌型使用。",
 		},
+		ViewAs: &skill.ViewAsConfig{
+			AsKind:         CardSha,
+			SelectCard:     1,
+			Position:       "he",
+			Prompt:         "将一张红色牌当杀使用",
+			FilterSuitColor: "red",
+			FilterCard: func(r skill.Runtime, seat int, card skill.CardView) bool {
+				return skill.IsRedSuit(card.Suit)
+			},
+			IsActive: func(r skill.Runtime, seat int) bool {
+				return r.SkillCounter(seat, counterWushengActive) > 0
+			},
+		},
 		CanActivate: wushengCanActivate,
 		Activate:    wushengActivate,
 		CardPlaysAs: wushengCardPlaysAs,
@@ -49,10 +62,11 @@ func registerComplexSkills() {
 			ID: skill.IDTieqi, Name: "铁骑", Kind: skill.KindActive,
 			Desc: "当你使用【杀】指定目标后，你可以进行判定；若不为红色，目标不能出【闪】。",
 		},
-		CanActivate: tieqiCanActivate,
-		Activate:    tieqiActivate,
-		AIPriority:  tieqiAIPriority,
-		AIActivate:  tieqiAIActivate,
+		CanActivate:        tieqiCanActivate,
+		Activate:           tieqiActivate,
+		OnUseCardToTarget:  tieqiOnUseCardToTarget,
+		AIPriority:         tieqiAIPriority,
+		AIActivate:         tieqiAIActivate,
 	})
 }
 
@@ -199,6 +213,28 @@ func wushengAIPriority(r skill.Runtime, seat int) int {
 
 func wushengAIActivate(r skill.Runtime, seat int) error {
 	return r.ToggleWusheng(seat)
+}
+
+// tieqiOnUseCardToTarget 铁骑的 OnUseCardToTarget 回调。
+// 在杀指定目标后设置 Pending.TieqiPending = true，让门控函数知道需要等待铁骑判定。
+// 注意：advanceShaBeforeTargetResponse 会被多次调用（铁骑判定完成后回调），
+// 需要通过 ShaUnblockable 判断是否已经处理过铁骑，避免重复设置。
+func tieqiOnUseCardToTarget(r skill.Runtime, ctx skill.UseCardCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+	pending := g.Pending
+	if pending == nil || pending.Card.Kind != CardSha {
+		return nil
+	}
+	if ctx.Seat != pending.SourceIndex {
+		return nil
+	}
+	// 铁骑尚未处理过（TieqiPending=false 且 ShaUnblockable=false），才设置标记
+	if !pending.TieqiPending && !pending.ShaUnblockable {
+		pending.TieqiPending = true
+		pending.WindowKind = WindowKindRespond // 电梯暂停：通用检测自动捕获
+	}
+	return nil
 }
 
 func tieqiCanActivate(r skill.Runtime, seat int) bool {

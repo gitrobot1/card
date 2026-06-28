@@ -31,6 +31,10 @@ type yzsRespondRequest struct {
 	CardID string `json:"card_id"`
 }
 
+type yzsZhangbaRespondRequest struct {
+	CardIDs []string `json:"card_ids"` // 丈八蛇矛响应：两张手牌ID
+}
+
 type yzsDiscardRequest struct {
 	CardIDs []string `json:"card_ids"`
 }
@@ -278,6 +282,21 @@ func (h *YuzhoushaHandler) PlayCard(c *gin.Context) {
 
 func (h *YuzhoushaHandler) RespondShan(c *gin.Context) {
 	h.RespondCard(c)
+}
+
+func (h *YuzhoushaHandler) RespondZhangba(c *gin.Context) {
+	var req yzsZhangbaRespondRequest
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.CardIDs) != 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+	userID, _ := currentUser(c)
+	state, err := h.Games.RespondZhangbaSha(c.Param("gameId"), userID, req.CardIDs[0], req.CardIDs[1])
+	if err != nil {
+		writeYuzhoushaError(c, err)
+		return
+	}
+	h.writeGameResponse(c, c.Param("gameId"), userID, state)
 }
 
 func (h *YuzhoushaHandler) RespondCard(c *gin.Context) {

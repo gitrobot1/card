@@ -38,7 +38,7 @@ func (g *Game) ActivateGuose(seat, target int, cardID string, events *[]GameEven
 	// 移除手牌
 	played := g.removeHandCard(seat, idx, events)
 	g.DiscardPile = append(g.DiscardPile, played)
-	g.syncCounts()
+	g.SyncCounts()
 	g.runCardsDiscardedHooks(seat, "cost", []Card{played}, events)
 
 	// 创建转化的乐不思蜀牌

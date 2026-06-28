@@ -164,7 +164,7 @@ func (g *Game) ApplyJieDaoSha(seat int, cardID string, events *[]GameEvent) erro
 	}
 	shaCard := g.removeHandCard(seat, idx, events)
 	g.DiscardPile = append(g.DiscardPile, shaCard)
-	g.syncCounts()
+	g.SyncCounts()
 
 	jiedaoMsg := fmt.Sprintf("%s 对 %s 使用【杀】（响应【借刀杀人】）",
 		g.Players[seat].Name, g.Players[shaTarget].Name)
@@ -224,9 +224,10 @@ func (g *Game) ApplyJieDaoGiveWeapon(seat int, events *[]GameEvent) error {
 	}
 
 	// 移除武器，加入使用者手牌
+	g.removeEquipSkill(seat, weapon.Kind) // TagEquipSkill: 移除装备技能
 	g.Players[seat].Weapon = nil
 	g.Players[source].Hand = append(g.Players[source].Hand, *weapon)
-	g.syncCounts()
+	g.SyncCounts()
 
 	msg := fmt.Sprintf("%s 将 %s 交给 %s（响应【借刀杀人】）",
 		g.Players[seat].Name, weapon.Name, g.Players[source].Name)

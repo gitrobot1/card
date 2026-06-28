@@ -34,6 +34,7 @@ type Game struct {
 	Players          []Player
 	Pending          *PendingCombat
 	damageAftermath  *DamageAftermath
+	pendingDamageSkills []DamageSkillEntry // OnDamageEnd Hook 回调收集的临时技能队列
 	dyingContext     *DyingContext
 	leijiSavedPending *PendingCombat
 	leijiShanSeat    int
@@ -90,8 +91,9 @@ type PublicState struct {
 	MyHand           []Card         `json:"my_hand,omitempty"`
 	TurnDeadlineUnix int64          `json:"turn_deadline_unix"`
 	Events           []GameEvent    `json:"events"`
-	ActivatableSkills []SkillMeta   `json:"activatable_skills,omitempty"`
-	GameOverStats    *GameOverStats `json:"game_over_stats,omitempty"` // 游戏结束时填充
+	ActivatableSkills []SkillMeta          `json:"activatable_skills,omitempty"`
+	ViewAsSkills      []skill.ViewAsSkillInfo `json:"view_as_skills,omitempty"` // 当前可用的变牌技能
+	GameOverStats    *GameOverStats    `json:"game_over_stats,omitempty"` // 游戏结束时填充
 }
 
 func (g *Game) HasAI() bool {
@@ -120,10 +122,10 @@ func (g *Game) setupDeck() {
 	}
 	g.DrawPile = deck
 	g.DiscardPile = nil
-	g.syncCounts()
+	g.SyncCounts()
 }
 
-func (g *Game) syncCounts() {
+func (g *Game) SyncCounts() {
 	for i := range g.Players {
 		g.Players[i].HandCount = len(g.Players[i].Hand)
 	}
@@ -324,7 +326,7 @@ func (g *Game) removeHandCard(seat, idx int, events *[]GameEvent) Card {
 	p := &g.Players[seat]
 	c := p.Hand[idx]
 	p.Hand = append(p.Hand[:idx], p.Hand[idx+1:]...)
-	g.syncCounts()
+	g.SyncCounts()
 	g.runHandEmptyHooks(seat, events)
 	return c
 }
@@ -538,6 +540,7 @@ func (g *Game) PublicViewForSeat(seat int, events []GameEvent) PublicState {
 		TurnDeadlineUnix: g.TurnDeadlineUnix,
 		Events:           events,
 		ActivatableSkills: g.ListActivatableSkills(seat),
+		ViewAsSkills:      g.ListViewAsSkills(seat, g.Phase, ""),
 		GameOverStats:    gameOverStats,
 	}
 }

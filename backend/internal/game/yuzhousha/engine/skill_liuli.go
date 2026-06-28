@@ -40,6 +40,7 @@ func (g *Game) offerLiuliWindow(victim int, events *[]GameEvent) bool {
 	}
 	redirect := g.liuliRedirectTarget(victim)
 	g.Pending.ResponseMode = ResponseModeSkillLiuli
+	g.Pending.WindowKind = WindowKindChoice // 电梯暂停标记
 	g.Pending.EffectTarget = redirect
 	g.Pending.SkillID = skill.IDLiuli
 	msg := fmt.Sprintf("%s 可发动【流离】，弃一张牌将【杀】转移给 %s", g.Players[victim].Name, g.Players[redirect].Name)
@@ -82,7 +83,7 @@ func (g *Game) ApplyLiuli(seat int, cardID string, redirect int, events *[]GameE
 
 	discarded := g.removeHandCard(seat, idx, events)
 	g.DiscardPile = append(g.DiscardPile, discarded)
-	g.syncCounts()
+	g.SyncCounts()
 	g.runCardsDiscardedHooks(seat, "cost", []Card{discarded}, events)
 
 	msg := fmt.Sprintf("%s 发动【流离】，弃 %s，【杀】目标改为 %s", g.Players[seat].Name, discarded.Label, g.Players[redirect].Name)
@@ -119,6 +120,7 @@ func (g *Game) PassLiuli(seat int, events *[]GameEvent) error {
 	}
 	g.Pending.ResponseMode = ""
 	g.Pending.SkillID = ""
+	g.Pending.WindowKind = "" // 清除电梯暂停标记
 	msg := fmt.Sprintf("%s 未发动【流离】", g.Players[seat].Name)
 	g.Message = msg
 	g.resetTimer()

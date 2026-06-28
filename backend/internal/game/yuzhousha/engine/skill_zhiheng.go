@@ -30,7 +30,7 @@ func (g *Game) ActivateZhiheng(seat int, cardIDs []string, events *[]GameEvent) 
 		discarded = append(discarded, g.removeHandCard(seat, idx, events))
 	}
 	g.DiscardPile = append(g.DiscardPile, discarded...)
-	g.syncCounts()
+	g.SyncCounts()
 	g.runCardsDiscardedHooks(seat, "cost", discarded, events)
 	g.drawCards(seat, len(discarded), events)
 	g.setSkillCounter(seat, counterZhihengUsed, 1)

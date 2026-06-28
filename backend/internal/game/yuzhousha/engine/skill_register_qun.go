@@ -6,6 +6,10 @@ import (
 	"github.com/time/card/backend/internal/game/yuzhousha/skill"
 )
 
+const (
+	ResponseModeSkillChongzhen = "skill_chongzhen"
+)
+
 func registerQunSkills() {
 	// 刘焉-图射
 	skill.Register(skill.Decl{
@@ -65,10 +69,11 @@ func registerQunSkills() {
 			ID: skill.IDGuidao, Name: "鬼道", Kind: skill.KindActive,
 			Desc: "在任意判定牌生效前，你可以用一张黑色手牌替换之。",
 		},
-		CanActivate: guidaoCanActivate,
-		Activate:    guidaoActivate,
-		AIPriority:  guidaoAIPriority,
-		AIActivate:  guidaoAIActivate,
+		CanActivate:    guidaoCanActivate,
+		Activate:       guidaoActivate,
+		AIPriority:     guidaoAIPriority,
+		AIActivate:     guidaoAIActivate,
+		CanModifyJudge: guidaoCanModifyJudge,
 	})
 	skill.Register(skill.Decl{
 		Meta: skill.Meta{
@@ -86,6 +91,16 @@ func registerQunSkills() {
 		},
 		CanActivate: qingnangCanActivate,
 		Activate:    qingnangActivate,
+	})
+
+	// SP赵云-冲阵（声明式：攻击端 OnUseCardToTarget → TakeWindow，响应端 OnCardResolved → 拿牌）
+	skill.Register(skill.Decl{
+		Meta: skill.Meta{
+			ID: skill.IDChongzhen, Name: "冲阵", Kind: skill.KindPassive,
+			Desc: "当你发动【龙胆】时，你可以获得对方的一张手牌。",
+		},
+		OnUseCardToTarget: chongzhenOnUseCardToTarget,
+		OnCardResolved:    chongzhenOnCardResolved,
 	})
 }
 
@@ -224,6 +239,15 @@ func guidaoAIActivate(r skill.Runtime, seat int) error {
 	return r.PassGuidao(seat)
 }
 
+// guidaoCanModifyJudge 鬼道交互式改判能力声明（替代硬编码 hasSkill(SkillGuidao)）。
+// 具体条件检查（黑色手牌等）由 offerNextModifyJudge 负责。
+func guidaoCanModifyJudge(r skill.Runtime, seat int) (bool, string) {
+	if !r.HasSkill(seat, skill.IDGuidao) {
+		return false, ""
+	}
+	return true, skill.IDGuidao
+}
+
 func qingnangCanActivate(r skill.Runtime, seat int) bool {
 	if !r.HasSkill(seat, skill.IDQingnang) {
 		return false
@@ -276,4 +300,138 @@ func qingnangActivate(r skill.Runtime, seat int, req skill.ActivateReq) error {
 	g.appendSkillEvent(events, skill.IDQingnang, seat, target, g.Message)
 	g.resetTimer()
 	return nil
+}
+
+// chongzhenOnCardResolved 冲阵的 OnCardResolved 回调（响应端：杀当闪打出后触发）。
+// 通过 "longdan_activated" counter 检测龙胆是否被激活（而不是推断 OriginalKind）。
+func chongzhenOnCardResolved(r skill.Runtime, ctx skill.CardResolvedCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+	// 检查龙胆激活信号（攻击端由 OnUseCardToTarget 处理，这里只处理响应端）
+	if g.getSkillCounter(ctx.Seat, "longdan_activated") <= 0 {
+		return nil
+	}
+	g.setSkillCounter(ctx.Seat, "longdan_activated", 0) // 消耗信号
+	// 只检查是否有正在进行的交互窗口（Take/Discard/Choice），普通 Respond 不跳过
+	if g.Pending != nil && (g.Pending.WindowKind == WindowKindTake ||
+		g.Pending.WindowKind == WindowKindDiscard || g.Pending.WindowKind == WindowKindChoice) {
+		return nil
+	}
+	opponent := g.opponentOf(ctx.Seat)
+	if opponent < 0 || len(g.Players[opponent].Hand) == 0 {
+		return nil
+	}
+	taken := g.Players[opponent].Hand[0]
+	g.Players[opponent].Hand = g.Players[opponent].Hand[1:]
+	g.Players[ctx.Seat].Hand = append(g.Players[ctx.Seat].Hand, taken)
+	g.SyncCounts()
+	msg := fmt.Sprintf("%s 发动【冲阵】，获得 %s 的一张手牌", g.Players[ctx.Seat].Name, g.Players[opponent].Name)
+	g.Message = msg
+	*gr.events = append(*gr.events, GameEvent{
+		Type: "chongzhen_take", PlayerIndex: ctx.Seat, TargetIndex: opponent,
+		Card: &taken, SkillID: skill.IDChongzhen, Message: msg,
+	})
+	return nil
+}
+
+// chongzhenOnUseCardToTarget 冲阵的 OnUseCardToTarget 回调（电梯式：Hook 直接打开 TakeWindow）。
+// 通过 "longdan_activated" counter 检测龙胆是否被激活（而不是推断 OriginalKind）。
+func chongzhenOnUseCardToTarget(r skill.Runtime, ctx skill.UseCardCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+
+	// 检查并消耗龙胆激活信号（必须在所有 return 之前，防止残留）
+	if g.getSkillCounter(ctx.Seat, "longdan_activated") <= 0 {
+		return nil
+	}
+	g.setSkillCounter(ctx.Seat, "longdan_activated", 0)
+
+	pending := g.Pending
+	if pending == nil || pending.Card.Kind != CardSha {
+		return nil
+	}
+	if ctx.Seat != pending.SourceIndex {
+		return nil
+	}
+	// 已执行过或已有窗口活跃，跳过
+	if pending.ChongzhenDone || pending.WindowKind != "" {
+		return nil
+	}
+	// 对手没有手牌则不触发
+	if !g.hasTakeableCard(ctx.Target) {
+		return nil
+	}
+
+	pending.ChongzhenDone = true
+	return enterChongzhenTake(g, gr.events)
+}
+
+// enterChongzhenTake 打开冲阵选牌窗口（复用手顺手牵羊的 TakeWindow 模式）。
+func enterChongzhenTake(g *Game, events *[]GameEvent) error {
+	p := g.Pending
+	if p == nil {
+		return ErrWrongPhase
+	}
+	source := p.SourceIndex
+	target := p.TargetIndex
+
+	msg := fmt.Sprintf("%s 发动【冲阵】，获得 %s 的一张手牌", g.Players[source].Name, g.Players[target].Name)
+	g.Message = msg
+	g.appendSkillEvent(events, skill.IDChongzhen, source, target, msg)
+	return g.OpenTakeWindowOnPending(TakeWindowConfig{
+		SkillID:          skill.IDChongzhen,
+		ResponseMode:     ResponseModeSkillChongzhen,
+		ActorSeat:        source,
+		SubjectSeat:      target,
+		OriginSeat:       source,
+		MaxTake:          1,
+		Destination:      TakeDestination{Zone: ZoneHand, Seat: source},
+		Message:          msg,
+		EventType:        "chongzhen_take",
+		PassClosesWindow: true,
+		PickTarget:       aiPickChongzhenTake,
+		OnEachTake:       chongzhenOnEachTake,
+		OnComplete:       chongzhenTakeComplete,
+	}, events)
+}
+
+func chongzhenOnEachTake(g *Game, card Card, label string, events *[]GameEvent) error {
+	p := g.Pending
+	if p == nil {
+		return ErrWrongPhase
+	}
+	source := p.ActorSeat
+	target := p.SubjectSeat
+	msg := fmt.Sprintf("%s 发动【冲阵】，获得 %s 的%s", g.Players[source].Name, g.Players[target].Name, label)
+	g.Message = msg
+	*events = append(*events, GameEvent{
+		Type:        "chongzhen_take",
+		PlayerIndex: source,
+		TargetIndex: target,
+		Card:        &card,
+		SkillID:     skill.IDChongzhen,
+		Message:     msg,
+	})
+	return nil
+}
+
+// chongzhenTakeComplete 冲阵选牌完成 → 清除窗口 → 回到杀流程。
+func chongzhenTakeComplete(g *Game, events *[]GameEvent) error {
+	p := g.Pending
+	if p == nil {
+		return ErrWrongPhase
+	}
+	p.ResponseMode = ""
+	p.SkillID = ""
+	FillPendingRoles(p)
+	g.resetTimer()
+	return g.advanceShaBeforeTargetResponse(events)
+}
+
+func aiPickChongzhenTake(g *Game, source, victim int) (zone, cardID string, ok bool) {
+	if len(g.Players[victim].Hand) > 0 {
+		return "hand", g.Players[victim].Hand[0].ID, true
+	}
+	_ = source
+	return "", "", false
 }

@@ -172,149 +172,9 @@ async function onPickerCancel() {
           </div>
 
           <div class="ddz__hand-side yzs__hand-side">
-            <!-- 自己竖长头像卡片（左右布局：左侧血量竖排，右侧装备+技能） -->
-            <div
-              class="yzs__hero-card yzs__hero-card--self"
-              :class="{
-                'yzs__hero-card--active': (isMyTurn || isMyDiscard) && !isFinished && !isResponse,
-                'yzs__seat--hit': hitFlashSeat === mySeat,
-                'yzs__seat--block': blockFlashSeat === mySeat,
-                'yzs__hero-card--tiesuo-targetable': isSelfTiesuoTargetable,
-                'yzs__hero-card--tiesuo-selected': isSelfTiesuoSelected,
-                'yzs__hero-card--chained': isSelfChained,
-                'yzs__hero-card--dead': (myPlayer?.hp ?? 0) <= 0,
-              }"
-              :data-seat="mySeat"
-              @click="onSelfSeatClick"
-            >
-              <!-- 左侧：血量竖排 + 手牌数（右下角，手牌数在最底部） -->
-              <div class="yzs__hero-left">
-                <div class="yzs__hero-hp-col">
-                  <span v-for="i in (myPlayer?.max_hp ?? 0)" :key="i" class="yzs__hp-dot" :class="{ 'yzs__hp-dot--lost': i > (myPlayer?.hp ?? 0) }" />
-                </div>
-                <span v-if="myPlayer" class="yzs__hero-hand-tag">{{ myHand.length }}</span>
-              </div>
-
-              <!-- 右侧：武将名 + 装备区 -->
-              <div class="yzs__hero-right">
-                <!-- 武将名（居中） -->
-                <div class="yzs__hero-name-btn yzs__hero-name-btn--self">
-                  <span>{{ myPlayer?.character.name }}</span>
-                </div>
-
-                <!-- 装备区（4行固定占位，变牌模式下可点击选择） -->
-                <div class="yzs__hero-equips">
-                  <div
-                    class="yzs__equip-line"
-                    :class="{
-                      'yzs__equip-line--filled': !!myPlayer?.weapon,
-                      'yzs__equip-line--clickable': !!myPlayer?.weapon && canInteract && (
-                        (wushengMode && isRedCard(myPlayer?.weapon)) ||
-                        (qixiMode && isBlackCard(myPlayer?.weapon)) ||
-                        (guoseMode && isDiamondCard(myPlayer?.weapon)) ||
-                        shuangxiongMode
-                      )
-                    }"
-                    :title="myPlayer?.weapon ? equipTagTitle(myPlayer.weapon) : '武器'"
-                    @click="myPlayer?.weapon && selectCard(myPlayer.weapon.id)"
-                  >
-                    <template v-if="myPlayer?.weapon">
-                      <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.weapon.suit)}`">{{ suitSymbol(myPlayer.weapon.suit) }}</span>
-                      <span class="yzs__equip-name">{{ equipTagLabel(myPlayer.weapon) }}</span>
-                      <span class="yzs__equip-range">{{ weaponRange(myPlayer.weapon.kind) }}</span>
-                    </template>
-                    <template v-else>
-                      <span class="yzs__equip-placeholder">武器</span>
-                    </template>
-                  </div>
-                  <div
-                    class="yzs__equip-line"
-                    :class="{
-                      'yzs__equip-line--filled': !!myPlayer?.armor,
-                      'yzs__equip-line--clickable': !!myPlayer?.armor && canInteract && (
-                        (wushengMode && isRedCard(myPlayer?.armor)) ||
-                        (qixiMode && isBlackCard(myPlayer?.armor)) ||
-                        (guoseMode && isDiamondCard(myPlayer?.armor)) ||
-                        shuangxiongMode
-                      )
-                    }"
-                    :title="myPlayer?.armor ? equipTagTitle(myPlayer.armor) : '防具'"
-                    @click="myPlayer?.armor && selectCard(myPlayer.armor.id)"
-                  >
-                    <template v-if="myPlayer?.armor">
-                      <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.armor.suit)}`">{{ suitSymbol(myPlayer.armor.suit) }}</span>
-                      <span class="yzs__equip-name">{{ equipTagLabel(myPlayer.armor) }}</span>
-                    </template>
-                    <template v-else>
-                      <span class="yzs__equip-placeholder">防具</span>
-                    </template>
-                  </div>
-                  <div
-                    class="yzs__equip-line"
-                    :class="{
-                      'yzs__equip-line--filled': !!myPlayer?.plus_horse,
-                      'yzs__equip-line--clickable': !!myPlayer?.plus_horse && canInteract && (
-                        (wushengMode && isRedCard(myPlayer?.plus_horse)) ||
-                        (qixiMode && isBlackCard(myPlayer?.plus_horse)) ||
-                        (guoseMode && isDiamondCard(myPlayer?.plus_horse)) ||
-                        shuangxiongMode
-                      )
-                    }"
-                    :title="myPlayer?.plus_horse ? equipTagTitle(myPlayer.plus_horse) : '+1马'"
-                    @click="myPlayer?.plus_horse && selectCard(myPlayer.plus_horse.id)"
-                  >
-                    <template v-if="myPlayer?.plus_horse">
-                      <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.plus_horse.suit)}`">{{ suitSymbol(myPlayer.plus_horse.suit) }}</span>
-                      <span class="yzs__equip-name">+1马</span>
-                    </template>
-                    <template v-else>
-                      <span class="yzs__equip-placeholder">+1马</span>
-                    </template>
-                  </div>
-                  <div
-                    class="yzs__equip-line"
-                    :class="{
-                      'yzs__equip-line--filled': !!myPlayer?.minus_horse,
-                      'yzs__equip-line--clickable': !!myPlayer?.minus_horse && canInteract && (
-                        (wushengMode && isRedCard(myPlayer?.minus_horse)) ||
-                        (qixiMode && isBlackCard(myPlayer?.minus_horse)) ||
-                        (guoseMode && isDiamondCard(myPlayer?.minus_horse)) ||
-                        shuangxiongMode
-                      )
-                    }"
-                    :title="myPlayer?.minus_horse ? equipTagTitle(myPlayer.minus_horse) : '-1马'"
-                    @click="myPlayer?.minus_horse && selectCard(myPlayer.minus_horse.id)"
-                  >
-                    <template v-if="myPlayer?.minus_horse">
-                      <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.minus_horse.suit)}`">{{ suitSymbol(myPlayer.minus_horse.suit) }}</span>
-                      <span class="yzs__equip-name">-1马</span>
-                    </template>
-                    <template v-else>
-                      <span class="yzs__equip-placeholder">-1马</span>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 外部状态栏：左判定 | 右标记（始终占位，宽度=卡片宽） -->
-            <div class="yzs__hero-status-bar">
-              <div class="yzs__status-judge-side">
-                <span v-for="judge in judgeAreaCards(myPlayer)" :key="judge.id" class="yzs__judge-tag">{{ judgeCardShortName(judge.kind) }}</span>
-              </div>
-              <div class="yzs__status-mark-side">
-                <span
-                  v-for="mark in visibleMarks(myPlayer)"
-                  :key="mark.name"
-                  class="yzs__equip-tag yzs__equip-tag--mark"
-                >
-                  {{ mark.name }}{{ mark.count }}
-                </span>
-              </div>
-            </div>
-
+            <!-- 技能竖排（卡片左侧） -->
             <div class="ddz__seat-stack ddz__seat-stack--self">
-              <div v-if="myCharacterSkills.length" class="yzs__skill-bar">
+              <div v-if="myCharacterSkills.length" class="yzs__skill-bar yzs__skill-bar--vertical">
                 <button
                   v-for="skill in myCharacterSkills"
                   :key="skill.id"
@@ -451,6 +311,149 @@ async function onPickerCancel() {
                 :show-timer="showSeatTimer(mySeat)"
                 :seconds="secondsLeft"
               />
+            </div>
+
+            <!-- 自己竖长头像卡片（左右布局：左侧血量竖排，右侧装备） -->
+            <div class="yzs__hero-card-wrapper">
+              <div
+                class="yzs__hero-card yzs__hero-card--self"
+                :class="{
+                  'yzs__hero-card--active': (isMyTurn || isMyDiscard) && !isFinished && !isResponse,
+                  'yzs__seat--hit': hitFlashSeat === mySeat,
+                  'yzs__seat--block': blockFlashSeat === mySeat,
+                  'yzs__hero-card--tiesuo-targetable': isSelfTiesuoTargetable,
+                  'yzs__hero-card--tiesuo-selected': isSelfTiesuoSelected,
+                  'yzs__hero-card--chained': isSelfChained,
+                  'yzs__hero-card--dead': (myPlayer?.hp ?? 0) <= 0,
+                }"
+                :data-seat="mySeat"
+                @click="onSelfSeatClick"
+              >
+                <!-- 左侧：血量竖排 + 手牌数（右下角，手牌数在最底部） -->
+                <div class="yzs__hero-left">
+                  <div class="yzs__hero-hp-col">
+                    <span v-for="i in (myPlayer?.max_hp ?? 0)" :key="i" class="yzs__hp-dot" :class="{ 'yzs__hp-dot--lost': i > (myPlayer?.hp ?? 0) }" />
+                  </div>
+                  <span v-if="myPlayer" class="yzs__hero-hand-tag">{{ myHand.length }}</span>
+                </div>
+
+                <!-- 右侧：武将名 + 装备区 -->
+                <div class="yzs__hero-right">
+                  <!-- 武将名（居中） -->
+                  <div class="yzs__hero-name-btn yzs__hero-name-btn--self">
+                    <span>{{ myPlayer?.character.name }}</span>
+                  </div>
+
+                  <!-- 装备区（4行固定占位，变牌模式下可点击选择） -->
+                  <div class="yzs__hero-equips">
+                    <div
+                      class="yzs__equip-line"
+                      :class="{
+                        'yzs__equip-line--filled': !!myPlayer?.weapon,
+                        'yzs__equip-line--clickable': !!myPlayer?.weapon && canInteract && (
+                          (wushengMode && isRedCard(myPlayer?.weapon)) ||
+                          (qixiMode && isBlackCard(myPlayer?.weapon)) ||
+                          (guoseMode && isDiamondCard(myPlayer?.weapon)) ||
+                          shuangxiongMode
+                        )
+                      }"
+                      :title="myPlayer?.weapon ? equipTagTitle(myPlayer.weapon) : '武器'"
+                      @click="myPlayer?.weapon && selectCard(myPlayer.weapon.id)"
+                    >
+                      <template v-if="myPlayer?.weapon">
+                        <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.weapon.suit)}`">{{ suitSymbol(myPlayer.weapon.suit) }}</span>
+                        <span class="yzs__equip-name">{{ equipTagLabel(myPlayer.weapon) }}</span>
+                        <span class="yzs__equip-range">{{ weaponRange(myPlayer.weapon.kind) }}</span>
+                      </template>
+                      <template v-else>
+                        <span class="yzs__equip-placeholder">武器</span>
+                      </template>
+                    </div>
+                    <div
+                      class="yzs__equip-line"
+                      :class="{
+                        'yzs__equip-line--filled': !!myPlayer?.armor,
+                        'yzs__equip-line--clickable': !!myPlayer?.armor && canInteract && (
+                          (wushengMode && isRedCard(myPlayer?.armor)) ||
+                          (qixiMode && isBlackCard(myPlayer?.armor)) ||
+                          (guoseMode && isDiamondCard(myPlayer?.armor)) ||
+                          shuangxiongMode
+                        )
+                      }"
+                      :title="myPlayer?.armor ? equipTagTitle(myPlayer.armor) : '防具'"
+                      @click="myPlayer?.armor && selectCard(myPlayer.armor.id)"
+                    >
+                      <template v-if="myPlayer?.armor">
+                        <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.armor.suit)}`">{{ suitSymbol(myPlayer.armor.suit) }}</span>
+                        <span class="yzs__equip-name">{{ equipTagLabel(myPlayer.armor) }}</span>
+                      </template>
+                      <template v-else>
+                        <span class="yzs__equip-placeholder">防具</span>
+                      </template>
+                    </div>
+                    <div
+                      class="yzs__equip-line"
+                      :class="{
+                        'yzs__equip-line--filled': !!myPlayer?.plus_horse,
+                        'yzs__equip-line--clickable': !!myPlayer?.plus_horse && canInteract && (
+                          (wushengMode && isRedCard(myPlayer?.plus_horse)) ||
+                          (qixiMode && isBlackCard(myPlayer?.plus_horse)) ||
+                          (guoseMode && isDiamondCard(myPlayer?.plus_horse)) ||
+                          shuangxiongMode
+                        )
+                      }"
+                      :title="myPlayer?.plus_horse ? equipTagTitle(myPlayer.plus_horse) : '+1马'"
+                      @click="myPlayer?.plus_horse && selectCard(myPlayer.plus_horse.id)"
+                    >
+                      <template v-if="myPlayer?.plus_horse">
+                        <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.plus_horse.suit)}`">{{ suitSymbol(myPlayer.plus_horse.suit) }}</span>
+                        <span class="yzs__equip-name">+1马</span>
+                      </template>
+                      <template v-else>
+                        <span class="yzs__equip-placeholder">+1马</span>
+                      </template>
+                    </div>
+                    <div
+                      class="yzs__equip-line"
+                      :class="{
+                        'yzs__equip-line--filled': !!myPlayer?.minus_horse,
+                        'yzs__equip-line--clickable': !!myPlayer?.minus_horse && canInteract && (
+                          (wushengMode && isRedCard(myPlayer?.minus_horse)) ||
+                          (qixiMode && isBlackCard(myPlayer?.minus_horse)) ||
+                          (guoseMode && isDiamondCard(myPlayer?.minus_horse)) ||
+                          shuangxiongMode
+                        )
+                      }"
+                      :title="myPlayer?.minus_horse ? equipTagTitle(myPlayer.minus_horse) : '-1马'"
+                      @click="myPlayer?.minus_horse && selectCard(myPlayer.minus_horse.id)"
+                    >
+                      <template v-if="myPlayer?.minus_horse">
+                        <span class="yzs__equip-suit" :class="`yzs__equip-suit--${suitColor(myPlayer.minus_horse.suit)}`">{{ suitSymbol(myPlayer.minus_horse.suit) }}</span>
+                        <span class="yzs__equip-name">-1马</span>
+                      </template>
+                      <template v-else>
+                        <span class="yzs__equip-placeholder">-1马</span>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 外部状态栏：左判定 | 右标记（始终占位，宽度=卡片宽） -->
+              <div class="yzs__hero-status-bar">
+                <div class="yzs__status-judge-side">
+                  <span v-for="judge in judgeAreaCards(myPlayer)" :key="judge.id" class="yzs__judge-tag">{{ judgeCardShortName(judge.kind) }}</span>
+                </div>
+                <div class="yzs__status-mark-side">
+                  <span
+                    v-for="mark in visibleMarks(myPlayer)"
+                    :key="mark.name"
+                    class="yzs__equip-tag yzs__equip-tag--mark"
+                  >
+                    {{ mark.name }}{{ mark.count }}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

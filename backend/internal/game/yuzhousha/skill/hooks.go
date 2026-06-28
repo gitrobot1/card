@@ -3,6 +3,16 @@ package skill
 // HookKind 引擎广播的技能 hook 类型；play/judge 等只调 engine.runSkillHooks。
 type HookKind string
 
+// HookRole 技能触发时的角色维度（参考 noname: player/source/target/global）。
+type HookRole int
+
+const (
+	RolePlayer HookRole = iota // 事件主体（如"自己受伤"）
+	RoleSource                  // 事件来源（如"自己造成伤害"）
+	RoleTarget                  // 事件目标（如"被指定为目标"）
+	RoleGlobal                  // 全局监听（如"任何人判定"）
+)
+
 const (
 	HookTargetBlocked       HookKind = "target_blocked"
 	HookDistanceDelta       HookKind = "distance_delta"
@@ -19,8 +29,31 @@ const (
 	HookModJudge            HookKind = "mod_judge"       // mod.judge 被动修改判定结果（参考 noname: mod.judge）
 	HookJudgeFixing         HookKind = "judge_fixing"    // 判定修正后最终确认（参考 noname: judgeFixing）
 	HookBlocksWuxiek        HookKind = "blocks_wuxiek"   // 阻止无懈可击（参考 noname: playernowuxie 技能标签）
-	// 用法：技能注册 Decl{BlocksWuxiek: func(r Runtime, seat int) bool { return true }}
-	// 返回 true 时，该玩家的所有锦囊不可被无懈（类似"完杀"但针对无懈）
+
+	// ===== 阶段钩子（参考 noname: phaseBeforeStart/phaseBeforeEnd/phaseBegin/phaseEnd 等） =====
+	HookPhaseBeforeStart HookKind = "phase_before_start"
+	HookPhaseBeforeEnd   HookKind = "phase_before_end"
+	HookPhaseBeginStart  HookKind = "phase_begin_start"
+	HookPhaseBegin       HookKind = "phase_begin"
+	HookPhaseChange      HookKind = "phase_change"
+	HookPhaseEnd         HookKind = "phase_end"
+	HookRoundStart       HookKind = "round_start"        // 新一轮开始（noname: roundStart）
+	HookTurnBegin        HookKind = "turn_begin"         // 回合开始
+	HookTurnEnd          HookKind = "turn_end"           // 回合结束
+
+	// ===== 杀流程钩子 =====
+	HookShaBegin         HookKind = "sha_begin"          // 杀开始结算（仁王盾触发点，noname: shaBegin）
+	HookBecomeShaTarget  HookKind = "become_sha_target"  // 成为杀的目标后（琉璃等，noname: becomeTarget after shaBegin）
+	HookShaMiss          HookKind = "sha_miss"           // 杀被闪抵消（青龙刀/贯石斧，noname: shaMiss）
+	HookShaHit           HookKind = "sha_hit"            // 杀命中（麒麟弓，noname: shaHit）
+
+	// ===== 伤害流程钩子 =====
+	HookDamageBegin HookKind = "damage_begin" // 伤害开始结算（白银狮子，noname: damageBegin1~4）
+	HookDamageEnd   HookKind = "damage_end"   // 伤害结算完毕（刚烈/反馈，noname: damageEnd）
+
+	// ===== 锦囊/牌使用钩子 =====
+	HookUseCard         HookKind = "use_card"          // 使用牌（集智，noname: useCard）
+	HookUseCardToTarget HookKind = "use_card_to_target" // 牌指定目标后（雌雄双股剑，noname: useCardToTarget)
 	HookCardsDiscarded      HookKind = "cards_discarded"
 	HookEquipLost           HookKind = "equip_lost"
 	HookOnDeath             HookKind = "on_death"       // 阵亡时（亡语，牌还在）
@@ -154,8 +187,9 @@ type HPChangedCtx struct {
 
 // CardResolvedCtx 【杀】/【决斗】生效或被无懈抵消后广播（如【激昂】）。
 type CardResolvedCtx struct {
-	Seat int
-	Card CardView
+	Seat         int
+	Card         CardView
+	OriginalKind string // 牌使用前的原始类型（龙胆变牌检测用）
 }
 
 // BecomeTargetCtx 成为某张牌的目标时广播（如【激昂】）。
@@ -172,9 +206,25 @@ type DeathCtx struct {
 	Reason string // damage | hp_loss | skill（死亡原因）
 }
 
+// ShaCtx 杀流程上下文（noname: shaBegin / shaMiss / shaHit）。
+type ShaCtx struct {
+	Source int      // 出杀者
+	Target int      // 目标
+	Card   CardView // 杀牌
+	Damage int      // 伤害值
+}
+
+// UseCardCtx 使用牌上下文（noname: useCard / useCardToTarget）。
+type UseCardCtx struct {
+	Seat   int      // 使用者
+	Target int      // 目标
+	Card   CardView // 使用的牌
+}
+
 // HookCall 单次 hook 调用的参数；按 Kind 填对应字段。
 type HookCall struct {
 	Kind HookKind
+	Role HookRole // 技能角色维度（默认 RolePlayer）
 
 	Seat   int
 	From   int
@@ -194,6 +244,9 @@ type HookCall struct {
 	HPChanged      *HPChangedCtx
 	Judge          *JudgeCtx
 	ModJudge       *ModJudgeCtx
+	ShaCtx         *ShaCtx      // 杀流程上下文
+	UseCard        *UseCardCtx  // 使用牌上下文
+	BecomeTarget   *BecomeTargetCtx // 成为目标上下文
 	Discarded      *CardsDiscardedCtx
 	EquipLost      *EquipLostCtx
 }

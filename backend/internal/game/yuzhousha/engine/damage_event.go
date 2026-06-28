@@ -1,5 +1,7 @@
 package engine
 
+import "github.com/time/card/backend/internal/game/yuzhousha/skill"
+
 // ============================================================================
 // 伤害事件（参考 noname 04-damage-system.md）
 // 伤害是完整的 GameEvent：damageBegin → damage(扣血) → dying(濒死) → damageEnd
@@ -18,6 +20,9 @@ type DamageEvent struct {
 	NoTrigger   bool // 跳过技能触发（参考 noname notrigger）
 	Unreal      bool // 视为伤害，不扣血（参考 noname unreal）
 	IgnoreArmor bool // 青釭剑无视防具（参考 noname: qinggang2 / unequip2）
+	// AOE 恢复信息：AOE 锦囊（南蛮/万箭/铁索）中有人濒死时，
+	// 需要携带 AOE 队列信息进入濒死流程，避免 AOE 链断裂。
+	AoeResume DamageResume
 }
 
 // ============================================================================
@@ -56,7 +61,11 @@ func (g *Game) StartDamageEvent(params DamageEvent, events *[]GameEvent) {
 			ev.FinishEvent()
 			return nil
 		}
-		// TODO: trigger("damageBegin1") → trigger("damageBegin4")
+		// trigger("damageBegin") → 技能在此介入（如白银狮子减免）
+		g.runSkillHooks(evs, skill.HookCall{
+			Kind: skill.HookDamageBegin, Seat: params.Target, Role: skill.RolePlayer,
+			Damage: &skill.DamageCtx{Source: params.Source, Target: params.Target, Amount: params.Amount},
+		})
 		return nil
 	}
 
@@ -95,9 +104,10 @@ func (g *Game) StartDamageEvent(params DamageEvent, events *[]GameEvent) {
 		}
 
 		// 自动濒死检查（参考 noname: step 5, if hp<=0 → player.dying(event)）
-		// 濒死通过 afterDamageApplied 接入现有系统（后续迁移到 GameEvent 子事件）
+		// 使用 params.AoeResume 携带 AOE 恢复信息进入濒死流程，
+		// 避免 AOE 锦囊（南蛮/万箭/铁索）中有人濒死时 AOE 链断裂。
 		if !params.NoDying && p.HP <= 0 {
-			resume := DamageResume{}
+			resume := params.AoeResume
 			g.afterDamageApplied(params.Source, target, actualDamage, params.Card, resume, evs)
 		}
 
@@ -106,13 +116,19 @@ func (g *Game) StartDamageEvent(params DamageEvent, events *[]GameEvent) {
 
 	// OnEnd: damageEnd（参考 noname: 刚烈、反馈等在此触发）
 	damageEv.OnEnd = func(g *Game, ev *GameEventInstance, evs *[]GameEvent) error {
-		// TODO: trigger("damageEnd") → 刚烈、反馈等卖血技
+		g.runSkillHooks(evs, skill.HookCall{
+			Kind: skill.HookDamageEnd, Seat: params.Target, Role: skill.RolePlayer,
+			Damage: &skill.DamageCtx{Source: params.Source, Target: params.Target, Amount: params.Amount},
+		})
 		return nil
 	}
 
 	// OnAfter: damageSource（参考 noname: step 6）
 	damageEv.OnAfter = func(g *Game, ev *GameEventInstance, evs *[]GameEvent) error {
-		// TODO: trigger("damageSource")
+		g.runSkillHooks(evs, skill.HookCall{
+			Kind: skill.HookDamageEnd, From: params.Source, Role: skill.RoleSource,
+			Damage: &skill.DamageCtx{Source: params.Source, Target: params.Target, Amount: params.Amount},
+		})
 		return nil
 	}
 
@@ -131,11 +147,31 @@ func (g *Game) applyDamageAndCheckDeathImpl(source, target, amount int, damageCa
 	}
 
 	g.StartDamageEvent(DamageEvent{
-		Source: source,
-		Target: target,
-		Amount: amount,
-		Card:   damageCard,
-		Nature: damageCard.DamageType,
+		Source:      source,
+		Target:      target,
+		Amount:      amount,
+		Card:        damageCard,
+		Nature:      damageCard.DamageType,
+		IgnoreArmor: resume.IgnoreArmor,
+	}, events)
+
+	return g.Players[target].HP <= 0 && !g.IsFinished()
+}
+
+// applyDamageAndCheckDeathWithAoeImpl 同 applyDamageAndCheckDeathImpl，但将 AOE 恢复信息注入 DamageEvent。
+// 用于南蛮/万箭/铁索等 AOE 锦囊中有人濒死时，濒死流程能携带 AOE 队列信息继续后续目标。
+func (g *Game) applyDamageAndCheckDeathWithAoeImpl(source, target, amount int, damageCard Card, resume DamageResume, events *[]GameEvent) bool {
+	if amount <= 0 || target < 0 || target >= len(g.Players) {
+		return false
+	}
+
+	g.StartDamageEvent(DamageEvent{
+		Source:     source,
+		Target:     target,
+		Amount:     amount,
+		Card:       damageCard,
+		Nature:     damageCard.DamageType,
+		AoeResume:  resume, // 注入 AOE 恢复信息，濒死时不丢失 AOE 队列
 	}, events)
 
 	return g.Players[target].HP <= 0 && !g.IsFinished()

@@ -93,7 +93,7 @@ func (g *Game) ApplyTianxiang(seat int, cardID string, events *[]GameEvent) erro
 
 	discarded := g.removeHandCard(seat, idx, events)
 	g.DiscardPile = append(g.DiscardPile, discarded)
-	g.syncCounts()
+	g.SyncCounts()
 
 	msg := fmt.Sprintf("%s 发动【天香】，弃 %s，伤害转给 %s", g.Players[seat].Name, discarded.Label, g.Players[redirect].Name)
 	g.Message = msg
@@ -182,6 +182,19 @@ func (g *Game) finalizeDamageHit(source, target, damage int, card Card, resume D
 		Damage:      damage,
 		Message:     g.damageMessage(victim, card.Name, damage),
 	})
+	// HookShaHit：杀命中（noname: shaHit）
+	if card.Kind == CardSha || isSha(card.Kind) {
+		// RolePlayer: 目标技能
+		g.runSkillHooks(events, skill.HookCall{
+			Kind: skill.HookShaHit, Seat: target, Role: skill.RolePlayer,
+			ShaCtx: &skill.ShaCtx{Source: source, Target: target, Card: cardView(card), Damage: damage},
+		})
+		// RoleSource: 出杀者装备技能（麒麟弓等 TagEquipSkill）
+		g.runSkillHooks(events, skill.HookCall{
+			Kind: skill.HookShaHit, From: source, Role: skill.RoleSource,
+			ShaCtx: &skill.ShaCtx{Source: source, Target: target, Card: cardView(card), Damage: damage},
+		})
+	}
 
 	// 类比南蛮入侵：先濒死，濒死结束后再传导
 	// 濒死前先设置 Pending，让 restorePendingAfterDying 能恢复铁索AOE

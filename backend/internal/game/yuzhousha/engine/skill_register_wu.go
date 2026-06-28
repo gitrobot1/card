@@ -63,6 +63,19 @@ func registerWuSkills() {
 			ID: skill.IDQixi, Name: "奇袭", Kind: skill.KindActive,
 			Desc: "出牌阶段，你可以将一张黑色的牌当过河拆桥打出，包括装备区的牌。",
 		},
+		ViewAs: &skill.ViewAsConfig{
+			AsKind:         CardGuoHe,
+			SelectCard:     1,
+			Position:       "he",
+			Prompt:         "将一张黑色牌当过河拆桥使用",
+			FilterSuitColor: "black",
+			FilterCard: func(r skill.Runtime, seat int, card skill.CardView) bool {
+				return skill.IsBlackSuit(card.Suit)
+			},
+			IsActive: func(r skill.Runtime, seat int) bool {
+				return r.SkillCounter(seat, counterQixiActive) > 0
+			},
+		},
 		CanActivate: qixiCanActivate,
 		Activate:    qixiActivate,
 		CardPlaysAs: qixiCardPlaysAs,
@@ -102,10 +115,11 @@ func registerWuSkills() {
 			ID: skill.IDLiuli, Name: "流离", Kind: skill.KindPassive,
 			Desc: "当你成为【杀】的目标时，你可以弃置一张牌，将此【杀】转移给攻击范围内的另一名其他角色。",
 		},
-		CanActivate: liuliCanActivate,
-		Activate:    liuliActivate,
-		AIPriority:  liuliAIPriority,
-		AIActivate:  liuliAIActivate,
+		CanActivate:        liuliCanActivate,
+		Activate:           liuliActivate,
+		OnBecomeShaTarget:  liuliOnBecomeShaTarget,
+		AIPriority:         liuliAIPriority,
+		AIActivate:         liuliAIActivate,
 	})
 
 	skill.Register(skill.Decl{
@@ -124,10 +138,11 @@ func registerWuSkills() {
 			ID: skill.IDPojun, Name: "破军", Kind: skill.KindActive,
 			Desc: "当你使用【杀】指定一个目标后，你可以将其至多X张牌扣置于该角色的武将牌旁（X为其体力值），若如此做，当前回合结束后，该角色获得这些牌。当你使用【杀】对手牌数与装备数均不大于你的角色造成伤害时，此伤害+1。",
 		},
-		CanActivate: pojunCanActivate,
-		Activate:    pojunActivate,
-		AIPriority:  pojunAIPriority,
-		AIActivate:  pojunAIActivate,
+		CanActivate:       pojunCanActivate,
+		Activate:          pojunActivate,
+		OnUseCardToTarget: pojunOnUseCardToTarget,
+		AIPriority:        pojunAIPriority,
+		AIActivate:        pojunAIActivate,
 	})
 
 	skill.Register(skill.Decl{
@@ -498,6 +513,38 @@ func hunziAIActivate(r skill.Runtime, seat int) error {
 	return r.AwakenHunzi(seat)
 }
 
+// pojunOnUseCardToTarget 破军的 OnUseCardToTarget 回调。
+// 在杀指定目标后初始化 PojunMax（目标体力值）并检查是否伤害+1。
+// 注意：advanceShaBeforeTargetResponse 会被多次调用（如铁骑判定完成后回调），
+// 需检查 PojunMax 是否已设置，避免重复初始化。
+func pojunOnUseCardToTarget(r skill.Runtime, ctx skill.UseCardCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+	pending := g.Pending
+	if pending == nil || pending.Card.Kind != CardSha {
+		return nil
+	}
+	if ctx.Seat != pending.SourceIndex {
+		return nil
+	}
+	// 已有活跃窗口，不重复开
+	if pending.WindowKind != "" {
+		return nil
+	}
+	// 破军首次初始化（幂等：PojunMax==0 时仅执行一次）
+	if pending.PojunMax == 0 {
+		g.initPojunOnShaPending(ctx.Seat, ctx.Target, pending)
+	}
+	// 直接打开破军选牌窗口（复用手顺手牵羊的 TakeWindow）
+	if pending.PojunPlaced < pending.PojunMax && pending.PojunMax > 0 {
+		if !g.hasTakeableCard(ctx.Target) {
+			return g.finishPojunPlacement(gr.events)
+		}
+		return g.enterPojunPlacing(gr.events)
+	}
+	return nil
+}
+
 func pojunCanActivate(r skill.Runtime, seat int) bool {
 	return r.Phase() == PhaseResponse && r.PendingResponseMode() == ResponseModeSkillPojun &&
 		r.PendingPojunForSource(seat) && r.HasSkill(seat, skill.IDPojun)
@@ -524,4 +571,12 @@ func pojunAIPriority(r skill.Runtime, seat int) int {
 
 func pojunAIActivate(r skill.Runtime, seat int) error {
 	return r.AutoPojunPlacing(seat)
+}
+
+// liuliOnBecomeShaTarget 流离 OnBecomeShaTarget 回调（HookBecomeShaTarget RoleTarget 广播触发）。
+func liuliOnBecomeShaTarget(r skill.Runtime, ctx skill.BecomeTargetCtx) error {
+	gr := r.(*gameSkillRuntime)
+	g := gr.g
+	_ = g.offerLiuliWindow(ctx.Seat, gr.events)
+	return nil
 }

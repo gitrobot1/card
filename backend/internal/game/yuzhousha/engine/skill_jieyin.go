@@ -35,7 +35,7 @@ func (g *Game) ActivateJieyin(seat, target int, cardIDs []string, events *[]Game
 		discarded = append(discarded, g.removeHandCard(seat, idx, events))
 	}
 	g.DiscardPile = append(g.DiscardPile, discarded...)
-	g.syncCounts()
+	g.SyncCounts()
 	g.runCardsDiscardedHooks(seat, "cost", discarded, events)
 
 	sp.HP++

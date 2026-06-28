@@ -25,6 +25,24 @@ const (
 	ResponseModeJudgeFlipped      = "judge_flipped" // 判定翻牌后、改判前的中间阶段
 )
 
+// 装备技能 ID 常量（TagEquipSkill：装备时注入角色 SkillIDs，卸下时移除）
+const (
+	EquipSkillRenwang  = "equip_renwang"  // 仁王盾：黑色杀无效（OnShaBegin）
+	EquipSkillChixiong = "equip_chixiong" // 雌雄双股剑：异性出杀选牌（OnUseCardToTarget）
+	EquipSkillGuanYu   = "equip_guanyu"   // 青龙偃月刀：杀被闪后追加杀（OnShaMiss）
+	EquipSkillGuanshi  = "equip_guanshi"  // 贯石斧：杀被闪后弃牌强制命中（OnShaMiss）
+	EquipSkillQilin    = "equip_qilin"    // 麒麟弓：杀命中后拆马（OnShaHit）
+)
+
+// equipCardKindToSkillID 装备牌 Kind → 装备技能 ID 映射。
+var equipCardKindToSkillID = map[string]string{
+	CardArmorRenwang: EquipSkillRenwang,
+	CardWeapon8:      EquipSkillChixiong,
+	CardWeapon3:      EquipSkillGuanYu,
+	CardWeapon9:      EquipSkillGuanshi,
+	CardWeapon5:      EquipSkillQilin,
+}
+
 type (
 	SkillKind       = skill.Kind
 	SkillMeta       = skill.Meta
@@ -236,6 +254,16 @@ func (r *gameSkillRuntime) HasBlackCard(seat int) bool {
 	return false
 }
 
+// CardSuit 返回指定玩家手牌中某张牌的花色。
+func (r *gameSkillRuntime) CardSuit(seat int, cardID string) string {
+	for _, c := range r.g.Players[seat].Hand {
+		if c.ID == cardID {
+			return c.Suit
+		}
+	}
+	return ""
+}
+
 func (r *gameSkillRuntime) AlivePlayerCount() int { return r.g.alivePlayerCount() }
 func (r *gameSkillRuntime) DrawPileCount() int  { return len(r.g.DrawPile) }
 func (r *gameSkillRuntime) StartPeekDeck(seat int, skillID string) error {
@@ -265,6 +293,27 @@ func (g *Game) playerSkillIDs(seat int) []string {
 		return nil
 	}
 	return append([]string(nil), g.Players[seat].Character.SkillIDs...)
+}
+
+// injectEquipSkill 装备牌装上时，注入对应的装备技能 ID 到角色 SkillIDs。
+// 参考 noname: equipSkill — 装备时激活技能，卸下时自动移除。
+func (g *Game) injectEquipSkill(seat int, cardKind string) {
+	if skillID, ok := equipCardKindToSkillID[cardKind]; ok {
+		g.Players[seat].Character.SkillIDs = append(g.Players[seat].Character.SkillIDs, skillID)
+	}
+}
+
+// removeEquipSkill 装备牌卸下/替换时，从角色 SkillIDs 移除对应的装备技能 ID。
+func (g *Game) removeEquipSkill(seat int, cardKind string) {
+	if skillID, ok := equipCardKindToSkillID[cardKind]; ok {
+		ids := g.Players[seat].Character.SkillIDs
+		for i, id := range ids {
+			if id == skillID {
+				g.Players[seat].Character.SkillIDs = append(ids[:i], ids[i+1:]...)
+				return
+			}
+		}
+	}
 }
 
 func (g *Game) hasSkill(seat int, skillID string) bool {
@@ -387,6 +436,67 @@ func (g *Game) ListActivatableSkills(seat int) []SkillMeta {
 		}
 	}
 	return out
+}
+
+// ListViewAsSkills 列出指定座位当前可用的变牌技能。
+// 参考 noname: chooseToUse/chooseToRespond 中收集 viewAs 技能的逻辑。
+// 系统不知道有什么技能，只收集所有注册了 ViewAs 且条件满足的技能。
+//
+// phase: "play"（出牌阶段）或 "response"（响应阶段）
+// requiredKind: 响应阶段需要的牌类型（出牌阶段传空字符串表示所有类型）
+func (g *Game) ListViewAsSkills(seat int, phase string, requiredKind string) []skill.ViewAsSkillInfo {
+	if g.IsFinished() {
+		return nil
+	}
+	rt := g.skillRuntime(nil)
+	out := make([]skill.ViewAsSkillInfo, 0)
+	for _, h := range g.playerSkillHandlers(seat) {
+		va := h.ViewAs()
+		if va == nil {
+			continue
+		}
+		// 响应阶段：只收集匹配 requiredKind 的变牌技能
+		if phase == "response" && va.AsKind != requiredKind {
+			continue
+		}
+		// ViewAsFilter 检查是否有可用的牌
+		if va.ViewAsFilter != nil && !va.ViewAsFilter(rt, seat) {
+			continue
+		}
+		// IsActive 检查技能是否已激活（如武圣已点击激活）
+		isActive := true
+		if va.IsActive != nil {
+			isActive = va.IsActive(rt, seat)
+		}
+		// CanActivate 检查（如果有定义）
+		if h.CanActivate != nil && !h.CanActivate(rt, seat) {
+			continue
+		}
+		out = append(out, skill.ViewAsSkillInfo{
+			SkillID:        h.Meta().ID,
+			SkillName:      h.Meta().Name,
+			AsKind:         va.AsKind,
+			SelectCard:     va.SelectCard,
+			Position:       va.Position,
+			Prompt:         va.Prompt,
+			IsActive:       isActive,
+			FilterSuits:    va.FilterSuits,
+			FilterSuitColor: va.FilterSuitColor,
+			FilterKinds:    va.FilterKinds,
+			Passive:        va.Passive,
+		})
+	}
+	return out
+}
+
+// FindViewAsHandler 根据技能ID查找变牌技能的 Handler。
+func (g *Game) FindViewAsHandler(seat int, skillID string) (skill.Handler, bool) {
+	for _, h := range g.playerSkillHandlers(seat) {
+		if h.Meta().ID == skillID && h.HasViewAs() {
+			return h, true
+		}
+	}
+	return skill.Handler{}, false
 }
 
 func (g *Game) UseSkill(seat int, req UseSkillRequest, events *[]GameEvent) error {

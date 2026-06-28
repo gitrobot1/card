@@ -15,7 +15,7 @@ func (g *Game) revealDeckTop(events *[]GameEvent, seat int) (Card, bool) {
 	}
 	card := g.DrawPile[0]
 	g.DrawPile = g.DrawPile[1:]
-	g.syncCounts()
+	g.SyncCounts()
 	*events = append(*events, GameEvent{
 		Type:        "judge_flip",
 		PlayerIndex: seat,
@@ -59,7 +59,7 @@ func (g *Game) applyLuoshenJudgeResult(seat int, judgeCard Card, events *[]GameE
 		return g.continueAfterPrepare(seat, events)
 	}
 	g.Players[seat].Hand = append(g.Players[seat].Hand, judgeCard)
-	g.syncCounts()
+	g.SyncCounts()
 	msg := fmt.Sprintf("%s 【洛神】判定 %s 为黑色，获得该牌", g.Players[seat].Name, judgeCard.Label)
 	g.Message = msg
 	*events = append(*events, GameEvent{

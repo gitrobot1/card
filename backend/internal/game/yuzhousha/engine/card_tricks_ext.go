@@ -77,37 +77,12 @@ func (g *Game) respondHuoGongDiscard(seat int, cardID string, events *[]GameEven
 		Message:     g.damageMessage(&g.Players[target], card.Name, damage),
 	})
 	g.Pending = nil
-	// 火攻造成的是火焰伤害
+	// 火攻造成的是火焰伤害，走统一伤害技能链（卖血技等）
+	// 铁索传导由 continueAfterDamage 内部处理
 	fireCard := card
 	fireCard.DamageType = DamageTypeFire
-	// 类比南蛮：濒死前设置 Pending，濒死时自动保存，结束后恢复
-	if g.isChained(target) {
-		chainSeats := make([]int, 0)
-		for seat := range g.Players {
-			if seat == target || !g.isChained(seat) || g.Players[seat].HP <= 0 {
-				continue
-			}
-			chainSeats = append(chainSeats, seat)
-		}
-		g.setChained(target, false)
-		g.Pending = &PendingCombat{
-			SourceIndex:  source,
-			TargetIndex:  target,
-			EffectTarget: target,
-			Card:         fireCard,
-			Damage:       damage,
-			AoeQueue:     chainSeats,
-			ReturnIndex:  source,
-			RequiredKind: "tiesuo",
-		}
-	}
-	// 未濒死：清理 Pending 并启动传导
-	if g.Pending != nil && g.Pending.RequiredKind == "tiesuo" {
-		g.Pending = nil
-		g.spreadChainedFireDamage(source, target, damage, fireCard, events)
-		if g.Pending != nil && g.Pending.ResponseMode == ResponseModeDying {
-			return nil
-		}
+	if g.continueAfterDamage(source, target, damage, fireCard, DamageResume{}, events) {
+		return nil
 	}
 	g.Phase = PhasePlaying
 	g.TurnStep = StepPlay

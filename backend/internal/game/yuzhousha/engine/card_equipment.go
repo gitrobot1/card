@@ -6,7 +6,7 @@ import "fmt"
 
 const counterChained = "chained"
 
-// removeEquipCard 从装备区移除牌
+// removeEquipCard 从装备区移除牌（卸下装备时同时移除对应的装备技能ID）。
 func (g *Game) removeEquipCard(seat int, zone string, events *[]GameEvent) Card {
 	p := &g.Players[seat]
 	var card *Card
@@ -29,7 +29,8 @@ func (g *Game) removeEquipCard(seat int, zone string, events *[]GameEvent) Card 
 	if card == nil {
 		return Card{}
 	}
-	g.syncCounts()
+	g.removeEquipSkill(seat, card.Kind) // TagEquipSkill: 移除装备技能
+	g.SyncCounts()
 	return *card
 }
 
@@ -253,9 +254,11 @@ func (g *Game) startTiesuoAoe(source, amount int, card Card, remaining []int, ev
 	}
 
 	// 构建带 AoeResume 的 DamageResume，扣血+自动濒死
+	// 使用 ApplyDamageAndCheckDeathWithAoe 将 AOE 信息注入 DamageEvent，
+	// 确保铁索传导中有人濒死时 AOE 链不因濒死流程而断裂。
 	dyingResume := DamageResume{}
 	g.setAoeResume(&dyingResume, source, dmg, card, rest, true)
-	if g.ApplyDamageAndCheckDeath(source, seat, dmg, card, dyingResume, events) {
+	if g.ApplyDamageAndCheckDeathWithAoe(source, seat, dmg, card, dyingResume, events) {
 		return
 	}
 	*events = append(*events, GameEvent{

@@ -440,6 +440,13 @@ export function discardYuzhoushaCards(gameId: string, cardIds: string[]) {
   })
 }
 
+export function respondZhangbaSha(gameId: string, cardIDs: [string, string]) {
+  return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/respond-zhangba`, {
+    method: 'POST',
+    body: JSON.stringify({ card_ids: cardIDs }),
+  })
+}
+
 export function passYuzhoushaPrepare(gameId: string) {
   return apiFetch<YuzhoushaState>(`/api/games/yuzhousha/${gameId}/prepare/pass`, {
     method: 'POST',

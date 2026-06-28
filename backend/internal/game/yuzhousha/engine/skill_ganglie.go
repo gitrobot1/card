@@ -99,15 +99,22 @@ func (g *Game) GanglieTakeDamage(source int, events *[]GameEvent) error {
 		return ErrWrongPhase
 	}
 	owner := g.Pending.GanglieOwner
-	g.Pending = nil
+	// 保存当前的 DamageAftermath（杀伤害的技能链，包含反馈等），
+	// 因为刚烈扣血可能触发濒死，濒死流程会创建新的 DamageAftermath 覆盖旧的。
+	savedAftermath := g.damageAftermath
 	if g.ApplyDamageAndCheckDeath(owner, source, 1, Card{Name: "刚烈"}, DamageResume{}, events) {
-		g.damageAftermath = nil
+		// 进入了濒死流程，恢复杀伤害的 DamageAftermath
+		// 濒死结束后 resolveDyingSaved 会调用 continueAfterDamage 创建刚烈伤害的 DamageAftermath，
+		// 但刚烈伤害没有技能链需要处理，所以恢复原来的 DamageAftermath 继续杀伤害的技能链。
+		g.damageAftermath = savedAftermath
 		return nil
 	}
+	g.damageAftermath = savedAftermath
 	msg := fmt.Sprintf("%s 受到【刚烈】1 点伤害", g.Players[source].Name)
 	*events = append(*events, GameEvent{
 		Type: "ganglie_damage", PlayerIndex: owner, TargetIndex: source, Damage: 1, Message: msg,
 	})
+	g.Pending = nil
 	if g.advanceDamageAftermath(events) {
 		return nil
 	}
@@ -142,7 +149,7 @@ func (g *Game) GanglieDiscard(source int, cardIDs []string, events *[]GameEvent)
 		g.DiscardPile = append(g.DiscardPile, c)
 		discarded = append(discarded, c)
 	}
-	g.syncCounts()
+	g.SyncCounts()
 	g.Pending = nil
 	msg := fmt.Sprintf("%s 弃置2张牌以响应【刚烈】", g.Players[source].Name)
 	g.appendSkillEvent(events, skill.IDGanglie, owner, source, msg)

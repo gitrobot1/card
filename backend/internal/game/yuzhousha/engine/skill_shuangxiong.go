@@ -51,7 +51,7 @@ func (g *Game) ActivateShuangxiongDraw(seat int, events *[]GameEvent) error {
 	card := g.DrawPile[0]
 	g.DrawPile = g.DrawPile[1:]
 	g.Players[seat].Hand = append(g.Players[seat].Hand, card)
-	g.syncCounts()
+	g.SyncCounts()
 
 	refRed := isRedSuit(card.Suit)
 	g.setSkillCounter(seat, counterDrawChoicePending, 0)

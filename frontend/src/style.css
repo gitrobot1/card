@@ -492,7 +492,7 @@ body {
 }
 
 .ddz__table {
-  --ddz-bottom-height: 210px;
+  --ddz-bottom-height: 280px;
   --ddz-prompt-height: 88px;
   position: relative;
   display: flex;
@@ -916,11 +916,14 @@ body {
 .ddz__hand-side {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: row;
+  align-items: flex-end;
   justify-content: flex-end;
-  padding-bottom: 6px;
+  padding-bottom: 0px;
   min-width: 156px;
+  align-self: flex-end;
+  padding-top: 0px;
+  gap: 4px;
 }
 
 .ddz__hand .hand-cards {
@@ -3849,19 +3852,21 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding-bottom: 8px;
+  padding-top: 0px;
+  padding-bottom: 0px;
   box-sizing: border-box;
   z-index: 4;
 }
 
+/* ===== 2v2 布局（两边顶到底，不留间距） ===== */
 .yzs__arena--2v2 {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 2.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(140px, 200px) 1fr minmax(140px, 200px);
   grid-template-rows: auto 1fr;
   grid-template-areas:
     '. seat-top .'
     'seat-left center seat-right';
-  gap: 4px 8px;
+  gap: 4px 4px;
 }
 
 .yzs__cross-seat--top {
@@ -3872,14 +3877,16 @@ body {
 
 .yzs__cross-seat--left {
   grid-area: seat-left;
-  justify-self: end;
-  align-self: center;
+  justify-self: start;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__cross-seat--right {
   grid-area: seat-right;
-  justify-self: start;
-  align-self: center;
+  justify-self: end;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__middle--2v2-center {
@@ -3888,29 +3895,38 @@ body {
 
 .yzs__cross-seat {
   z-index: 3;
-  max-width: min(220px, 30vw);
+  max-width: none;
 }
 
+/* 2v2 缩小角色卡片 */
+.yzs__cross-seat .yzs__hero-card {
+  width: 135px;
+  height: 172px;
+}
+
+/* ===== 3人局布局（两边顶到底） ===== */
 .yzs__arena--3p {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 2.2fr) minmax(0, 1fr);
+  grid-template-columns: minmax(140px, 200px) 1fr minmax(140px, 200px);
   grid-template-rows: auto 1fr;
   grid-template-areas:
     '. center .'
     'seat-left . seat-right';
-  gap: 4px 8px;
+  gap: 4px 4px;
 }
 
 .yzs__chain-seat--left {
   grid-area: seat-left;
-  justify-self: end;
-  align-self: center;
+  justify-self: start;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__chain-seat--right {
   grid-area: seat-right;
-  justify-self: start;
-  align-self: center;
+  justify-self: end;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__middle--3p-center {
@@ -3920,22 +3936,29 @@ body {
 
 .yzs__chain-seat {
   z-index: 3;
-  max-width: min(220px, 30vw);
+  max-width: none;
 }
 
+/* 3人局缩小角色卡片 */
+.yzs__chain-seat .yzs__hero-card {
+  width: 135px;
+  height: 172px;
+}
+
+/* ===== 3v3 布局（两边顶到底，顶部3人+左右各1人） ===== */
 .yzs__arena--3v3 {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 2fr) minmax(0, 1fr);
+  grid-template-columns: minmax(130px, 170px) 1fr 1fr 1fr minmax(130px, 170px);
   grid-template-rows: auto 1fr;
   grid-template-areas:
-    'seat-left-top seat-top seat-right-top'
-    'seat-left center seat-right';
-  gap: 4px 8px;
+    '. seat-left-top seat-top seat-right-top .'
+    'seat-left . center . seat-right';
+  gap: 4px 2px;
 }
 
 .yzs__hex-seat--left-top {
   grid-area: seat-left-top;
-  justify-self: end;
+  justify-self: center;
   align-self: end;
 }
 
@@ -3947,20 +3970,22 @@ body {
 
 .yzs__hex-seat--right-top {
   grid-area: seat-right-top;
-  justify-self: start;
+  justify-self: center;
   align-self: end;
 }
 
 .yzs__hex-seat--left {
   grid-area: seat-left;
-  justify-self: end;
-  align-self: center;
+  justify-self: start;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__hex-seat--right {
   grid-area: seat-right;
-  justify-self: start;
-  align-self: center;
+  justify-self: end;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__middle--3v3-center {
@@ -3969,42 +3994,41 @@ body {
 
 .yzs__hex-seat {
   z-index: 3;
-  max-width: min(200px, 28vw);
+  max-width: none;
 }
 
+/* 3v3 缩小角色卡片 */
+.yzs__hex-seat .yzs__hero-card {
+  width: 130px;
+  height: 165px;
+}
+
+/* ===== 5人局布局（顶部2人+左右各1人，参照8人局） ===== */
 .yzs__arena--identity5 {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 2fr) minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 140px 1fr 1fr 140px;
+  grid-template-rows: auto 1fr;
   grid-template-areas:
-    '. pent-top .'
-    'pent-left center pent-right-top'
-    '. pent-bottom .';
-  gap: 4px 8px;
+    'p1 pent-top-1 pent-top-2 p4'
+    'pent-left center center pent-right-top';
+  gap: 4px 4px;
 }
 
-.yzs__pent-seat--top {
-  grid-area: pent-top;
-  justify-self: center;
-  align-self: end;
-}
+.yzs__pent-seat--top-1 { grid-area: pent-top-1; justify-self: center; align-self: start; padding-top: 4px; }
+.yzs__pent-seat--top-2 { grid-area: pent-top-2; justify-self: center; align-self: start; padding-top: 4px; }
 
 .yzs__pent-seat--left {
   grid-area: pent-left;
-  justify-self: end;
-  align-self: center;
+  justify-self: center;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__pent-seat--right-top {
   grid-area: pent-right-top;
-  justify-self: start;
-  align-self: center;
-}
-
-.yzs__pent-seat--bottom {
-  grid-area: pent-bottom;
   justify-self: center;
   align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__middle--identity5-center {
@@ -4014,61 +4038,52 @@ body {
 
 .yzs__pent-seat {
   z-index: 3;
-  max-width: min(200px, 28vw);
+  max-width: none;
 }
 
+/* 5人局缩小角色卡片 */
+.yzs__pent-seat .yzs__hero-card {
+  width: 135px;
+  height: 172px;
+}
+
+/* ===== 8人局布局（顶部5人一排，左右各1人，参考官方三国杀） ===== */
 .yzs__arena--identity8 {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(120px, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto auto 1fr auto auto;
+  grid-template-columns: 120px 120px 1fr 1fr 1fr 1fr 1fr 120px 120px;
+  grid-template-rows: auto 1fr;
   grid-template-areas:
-    '. oct-left-top oct-top oct-right-top .'
-    'oct-left . center . oct-right'
-    '. . center . .'
-    'oct-left-bottom . center . oct-right-bottom';
-  gap: 2px 6px;
+    'oct-top-1 s2 oct-top-2 s1 oct-top-3 s9 oct-top-4 s8 oct-top-5'
+    'oct-left s11 center center center center center s19 oct-right';
+  gap: 2px 2px;
+  align-items: start;
 }
 
-.yzs__oct-seat--top {
-  grid-area: oct-top;
-  justify-self: center;
-  align-self: end;
+/* 占位槽（不可见） */
+.yzs__slot-ghost {
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.yzs__oct-seat--left-top {
-  grid-area: oct-left-top;
-  justify-self: end;
-  align-self: end;
-}
-
-.yzs__oct-seat--right-top {
-  grid-area: oct-right-top;
-  justify-self: start;
-  align-self: end;
-}
+/* 顶部座位：1和5在最两侧，3在中间 */
+.yzs__oct-seat--top-1 { grid-area: oct-top-1; justify-self: center; align-self: start; padding-top: 4px; }
+.yzs__oct-seat--top-5 { grid-area: oct-top-5; justify-self: center; align-self: start; padding-top: 4px; }
+.yzs__oct-seat--top-3 { grid-area: oct-top-3; justify-self: center; align-self: start; padding-top: 4px; }
+.yzs__oct-seat--top-2 { grid-area: oct-top-2; justify-self: center; align-self: start; padding-top: 4px; }
+.yzs__oct-seat--top-4 { grid-area: oct-top-4; justify-self: center; align-self: start; padding-top: 4px; }
 
 .yzs__oct-seat--left {
   grid-area: oct-left;
-  justify-self: end;
-  align-self: center;
+  justify-self: center;
+  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__oct-seat--right {
   grid-area: oct-right;
-  justify-self: start;
-  align-self: center;
-}
-
-.yzs__oct-seat--left-bottom {
-  grid-area: oct-left-bottom;
-  justify-self: end;
+  justify-self: center;
   align-self: start;
-}
-
-.yzs__oct-seat--right-bottom {
-  grid-area: oct-right-bottom;
-  justify-self: start;
-  align-self: start;
+  padding-top: 0px;
 }
 
 .yzs__middle--identity8-center {
@@ -4078,7 +4093,39 @@ body {
 
 .yzs__oct-seat {
   z-index: 3;
-  max-width: min(180px, 22vw);
+  max-width: min(140px, 16vw);
+}
+
+/* 8人局缩小角色卡片 */
+.yzs__oct-seat .yzs__hero-card {
+  width: 120px;
+  height: 155px;
+}
+.yzs__oct-seat .yzs__hero-left {
+  width: 18px;
+}
+.yzs__oct-seat .yzs__hp-dot {
+  width: 10px;
+  height: 10px;
+}
+.yzs__oct-seat .yzs__hero-name-btn {
+  font-size: 11px;
+  padding: 2px 3px;
+}
+.yzs__oct-seat .yzs__equip-line {
+  font-size: 8px;
+  min-height: 14px;
+  padding: 1px 2px;
+}
+.yzs__oct-seat .yzs__hero-hand-tag {
+  font-size: 12px;
+}
+.yzs__oct-seat .yzs__hero-status-bar {
+  width: 120px;
+}
+.yzs__oct-seat .yzs__equip-placeholder,
+.yzs__oct-seat .yzs__equip-name {
+  font-size: 8px;
 }
 
 .ddz__badge--identity-hidden {
@@ -4178,6 +4225,13 @@ body {
 .yzs__hand-side {
   order: 2;
   flex-shrink: 0;
+  align-self: flex-end;
+  padding-top: 0px;
+  padding-bottom: 0px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 .yzs__hand-cards {
@@ -5106,6 +5160,30 @@ body {
   justify-content: center;
   margin-top: 8px;
   max-width: 200px;
+}
+
+/* 竖排技能栏（在玩家卡片左侧） */
+.yzs__skill-bar--vertical {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  margin-top: 0;
+  max-width: 64px;
+  gap: 3px;
+  align-items: stretch;
+}
+
+.yzs__skill-bar--vertical .yzs__skill-btn {
+  font-size: 10px;
+  padding: 3px 5px;
+  white-space: nowrap;
+}
+
+/* 玩家卡片包装器（hero-card + 状态栏） */
+.yzs__hero-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .yzs__skill-hint {

@@ -22,7 +22,7 @@ func (g *Game) executeRendeGive(source, target int, cardIDs []string, events *[]
 		given = append(given, g.removeHandCard(source, idx, events))
 	}
 	g.Players[target].Hand = append(g.Players[target].Hand, given...)
-	g.syncCounts()
+	g.SyncCounts()
 
 	g.addSkillCounter(source, counterRendeGiven, len(given))
 	total := g.getSkillCounter(source, counterRendeGiven)

@@ -12,6 +12,8 @@ const (
 )
 
 func (g *Game) offerFankuiFromAftermath(a *DamageAftermath, events *[]GameEvent) bool {
+	Logf("offerFankuiFromAftermath: Source=%d(%s) Target=%d(%s) FankuiLeft=%d",
+		a.Source, g.Players[a.Source].Name, a.Target, g.Players[a.Target].Name, a.FankuiLeft)
 	msg := fmt.Sprintf("%s 可发动【反馈】获得 %s 一张牌", g.Players[a.Target].Name, g.Players[a.Source].Name)
 	err := g.OpenTakeWindow(TakeWindowConfig{
 		SkillID:         skill.IDFankui,
@@ -47,13 +49,21 @@ func (g *Game) offerFankuiAfterDamage(target, source, damage int, resumeMode str
 	if g.damageAftermath == nil {
 		return false
 	}
-	g.damageAftermath.OfferJianxiong = false
-	g.damageAftermath.GanglieLeft = 0
-	if g.damageAftermath.FankuiLeft <= 0 {
+	// 过滤：只保留反馈条目，移除其他卖血技能
+	a := g.damageAftermath
+	filtered := make([]DamageSkillEntry, 0)
+	for _, entry := range a.SkillQueue {
+		if entry.SkillID == skill.IDFankui {
+			filtered = append(filtered, entry)
+		}
+	}
+	if len(filtered) == 0 {
 		g.damageAftermath = nil
 		return false
 	}
-	return g.offerFankuiFromAftermath(g.damageAftermath, events)
+	a.SkillQueue = filtered
+	a.FankuiLeft = filtered[0].Left // 兼容旧字段
+	return g.offerFankuiFromAftermath(a, events)
 }
 
 // FankuiTakeFrom 从伤害来源处拿牌（TakeWindow 薄封装，P1 迁移）。
@@ -82,11 +92,16 @@ func (g *Game) resumeAfterFankui(events *[]GameEvent) error {
 }
 
 func (g *Game) applyTieqiJudgeResult(seat int, judgeCard Card, events *[]GameEvent) error {
+	// 恢复原始 Pending（当前 Pending 是判定窗口的，原 Pending 保存在 SavedPending 中）
+	if g.Pending != nil && g.Pending.SavedPending != nil {
+		g.Pending = g.Pending.SavedPending
+	}
 	pending := g.Pending
 	if pending == nil {
 		return ErrWrongPhase
 	}
 	pending.TieqiPending = false
+	pending.WindowKind = "" // 清除电梯暂停标记
 	msg := fmt.Sprintf("【铁骑】判定 %s", judgeCard.Label)
 	if !isRedSuit(judgeCard.Suit) {
 		pending.ShaUnblockable = true
@@ -97,6 +112,7 @@ func (g *Game) applyTieqiJudgeResult(seat int, judgeCard Card, events *[]GameEve
 	}
 	g.Message = msg
 	g.resetTimer()
+	g.Phase = PhaseResponse // 恢复响应阶段（passModifyJudge 可能已修改）
 	g.appendSkillEvent(events, skill.IDTieqi, seat, pending.TargetIndex, msg)
 	return g.advanceShaBeforeTargetResponse(events)
 }

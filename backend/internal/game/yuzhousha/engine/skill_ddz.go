@@ -119,7 +119,7 @@ func (g *Game) ApplyDdzJudgeCancel(seat int, cardIDs []string, events *[]GameEve
 		played := g.removeHandCard(seat, idx, events)
 		g.DiscardPile = append(g.DiscardPile, played)
 	}
-	g.syncCounts()
+	g.SyncCounts()
 
 	resume := g.Pending.GuicaiResume
 	judgeSeat := g.Pending.GuicaiJudgeSeat

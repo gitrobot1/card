@@ -41,7 +41,7 @@ func (g *Game) resolveWugu(source int, events *[]GameEvent) error {
 	}
 	if count == 0 {
 		g.Message = fmt.Sprintf("%s 使用【五谷丰登】，牌堆不足", g.Players[source].Name)
-		g.syncCounts()
+		g.SyncCounts()
 		return nil
 	}
 	// 初始化已选牌记录
@@ -184,7 +184,7 @@ func (g *Game) pickWuguCardByIndex(seat, idx int, events *[]GameEvent) error {
 	picked := g.Pending.RevealedCards[idx]
 	g.Pending.RevealedCards = append(g.Pending.RevealedCards[:idx], g.Pending.RevealedCards[idx+1:]...)
 	g.Players[seat].Hand = append(g.Players[seat].Hand, picked)
-	g.syncCounts()
+	g.SyncCounts()
 	*events = append(*events, GameEvent{
 		Type:        "wugu_pick",
 		PlayerIndex: seat,

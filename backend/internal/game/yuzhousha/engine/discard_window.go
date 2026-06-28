@@ -132,7 +132,7 @@ func (g *Game) removeCardFromActorZone(actor int, zone ZoneID, cardID string) (C
 			if c.ID == cardID {
 				card := c
 				p.CampCards = append(p.CampCards[:i], p.CampCards[i+1:]...)
-				g.syncCounts()
+				g.SyncCounts()
 				return card, true
 			}
 		}
@@ -141,7 +141,7 @@ func (g *Game) removeCardFromActorZone(actor int, zone ZoneID, cardID string) (C
 			if c.ID == cardID {
 				card := c
 				p.Hand = append(p.Hand[:i], p.Hand[i+1:]...)
-				g.syncCounts()
+				g.SyncCounts()
 				return card, true
 			}
 		}

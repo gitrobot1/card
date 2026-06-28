@@ -170,6 +170,7 @@ async function confirmPick() {
           :class="{ 'yzs-pick__card--selected': selectedId === hero.id }"
           :style="{ '--hero-accent': heroAccent(hero) }"
           @click="selectedId = hero.id"
+          @dblclick="selectedId = hero.id; confirmPick()"
         >
           <span class="yzs-pick__kingdom">{{ kingdomLabel(hero.kingdom) }}</span>
           <h2 class="yzs-pick__name">{{ hero.name }}</h2>

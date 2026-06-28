@@ -85,6 +85,12 @@ func (g *Game) ApplyDamageAndCheckDeath(source, target, amount int, damageCard C
 	return g.applyDamageAndCheckDeathImpl(source, target, amount, damageCard, resume, events)
 }
 
+// ApplyDamageAndCheckDeathWithAoe 同 ApplyDamageAndCheckDeath，但将 AOE 恢复信息注入 DamageEvent。
+// 用于南蛮/万箭/铁索等 AOE 锦囊中有人濒死时，确保 AOE 链不因濒死流程而断裂。
+func (g *Game) ApplyDamageAndCheckDeathWithAoe(source, target, amount int, damageCard Card, resume DamageResume, events *[]GameEvent) bool {
+	return g.applyDamageAndCheckDeathWithAoeImpl(source, target, amount, damageCard, resume, events)
+}
+
 // applyHPLossWithHook 应用血量流失（非伤害扣血）并触发钩子。
 // 用于【蛊惑】、【刚烈】等导致血量流失的技能。
 // 注意：runHPLostHooks 内部已经扣血并触发了 HPChanged 钩子，所以这里不需要重复处理。

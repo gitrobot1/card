@@ -13,6 +13,7 @@ const {
   canCancelWusheng,
   canSubmitBagua,
   canSubmitCancel,
+  canSubmitChixiong,
   canSubmitEndTurn,
   canSubmitFankui,
   canSubmitGanglieDiscard,
@@ -29,6 +30,8 @@ const {
   canSubmitYinghunDiscard,
   discardNeeded,
   isAnimating,
+  isChixiong,
+  isGuanshifu,
   isDyingRescue,
   isFanjianSuit,
   isFankui,
@@ -74,6 +77,13 @@ const {
   submitCancelResponse,
   submitPassAllWuxiek,
   submitCancelWusheng,
+  submitChixiongDiscard,
+  submitChixiongSkip,
+  canSubmitGuanshifu,
+  guanshifuDiscardIds,
+  toggleGuanshifuCard,
+  submitGuanshifuDiscard,
+  submitGuanshifuSkip,
   submitEndTurn,
   submitFanjianSuit,
   submitGanglieDiscard,
@@ -424,6 +434,47 @@ const {
           @click="submitCancelResponse"
         >
           取消
+        </button>
+      </template>
+
+      <template v-else-if="isChixiong">
+        <button
+          type="button"
+          class="ddz__btn ddz__btn--primary"
+          :disabled="!canSubmitChixiong"
+          @click="submitChixiongDiscard"
+        >
+          弃置选中的手牌
+        </button>
+        <button
+          v-if="canSubmitCancel"
+          type="button"
+          class="ddz__btn"
+          @click="submitChixiongSkip"
+        >
+          跳过（让对方摸牌）
+        </button>
+      </template>
+
+      <template v-else-if="isGuanshifu">
+        <p class="yzs__action-hint">
+          选中手牌/装备（共选{{ guanshifuDiscardIds.length }}/2张），发动贯石斧强制命中
+        </p>
+        <button
+          type="button"
+          class="ddz__btn ddz__btn--primary"
+          :disabled="!canSubmitGuanshifu"
+          @click="submitGuanshifuDiscard"
+        >
+          弃置并命中
+        </button>
+        <button
+          v-if="canSubmitCancel"
+          type="button"
+          class="ddz__btn"
+          @click="submitGuanshifuSkip"
+        >
+          跳过
         </button>
       </template>
 

@@ -27,7 +27,7 @@ func (g *Game) ActivateFanjian(seat int, cardID string, events *[]GameEvent) err
 		return ErrInvalidCard
 	}
 	given := g.removeHandCard(seat, idx, events)
-	g.syncCounts()
+	g.SyncCounts()
 	g.setSkillCounter(seat, counterFanjianUsed, 1)
 
 	g.Phase = PhaseResponse
@@ -72,7 +72,7 @@ func (g *Game) ResolveFanjianSuit(seat int, chosenSuit string, events *[]GameEve
 	g.Pending = nil
 	card := pending.Card
 	g.DiscardPile = append(g.DiscardPile, card)
-	g.syncCounts()
+	g.SyncCounts()
 
 	match := card.Suit == chosenSuit
 	revealMsg := fmt.Sprintf("%s 选择【%s】，展示 %s", g.Players[seat].Name, suitLabel(chosenSuit), card.Label)

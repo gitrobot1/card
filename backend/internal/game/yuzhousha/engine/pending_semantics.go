@@ -75,6 +75,9 @@ func FillPendingRoles(p *PendingCombat) {
 	case ResponseModeGuoHe, ResponseModeTanNang:
 		// 过河拆桥/顺手牵羊的 TakeWindow：Actor/Subject/WindowKind 由 OpenTakeWindow 已设置，不覆盖
 		return
+	case ResponseModeSkillChongzhen:
+		// 冲阵：OpenTakeWindowOnPending 已正确设置 ActorSeat/SubjectSeat，不覆盖
+		return
 	case ResponseModeWuguPick:
 		p.WindowKind = WindowKindPick
 		p.ActorSeat = p.WuguPickSeat

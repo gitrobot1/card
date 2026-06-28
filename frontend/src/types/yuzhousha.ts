@@ -167,6 +167,20 @@ export interface YzsSeatSlot {
   seat_role?: 'protect' | 'mark' | 'landlord' | 'farmer' | string
 }
 
+export interface YzsViewAsSkill {
+  skill_id: string
+  skill_name: string
+  as_kind: string
+  select_card: number
+  position: string
+  prompt: string
+  is_active: boolean
+  filter_suits?: string[]
+  filter_suit_color?: string
+  filter_kinds?: string[]
+  passive?: boolean
+}
+
 export interface YuzhoushaState {
   id: string
   phase: 'playing' | 'response' | 'finished' | string
@@ -189,6 +203,7 @@ export interface YuzhoushaState {
   turn_deadline_unix: number
   events?: YzsEvent[]
   activatable_skills?: YzsSkillMeta[]
+  view_as_skills?: YzsViewAsSkill[]
   game_over_stats?: YzsGameOverStats
 }
 
@@ -261,4 +276,11 @@ export const YZS_CARD_LABELS: Record<string, string> = {
   tiesuo: '铁索连环',
   plus_horse: '+1马',
   minus_horse: '-1马',
+}
+
+/** 游戏日志条目 */
+export interface GameLogEntry {
+  round: number
+  turn: number
+  msg: string
 }

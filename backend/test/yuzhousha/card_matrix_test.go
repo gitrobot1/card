@@ -45,10 +45,14 @@ func cardMatrixCatalog() []cardMatrixEntry {
 		{kind: engine.CardWeapon7, category: "equip", playable: true},
 		{kind: engine.CardWeapon8, category: "equip", playable: true},
 		{kind: engine.CardWeapon9, category: "equip", playable: true},
+		{kind: engine.CardWeapon10, category: "equip", playable: true},
 		{kind: engine.CardArmor, category: "equip", playable: true},
 		{kind: engine.CardArmorVine, category: "equip", playable: true},
+		{kind: engine.CardArmorRenwang, category: "equip", playable: true},
+		{kind: engine.CardArmorBaiyin, category: "equip", playable: true},
 		{kind: engine.CardHuoGong, category: "trick", playable: true, oppHandCount: 2},
 		{kind: engine.CardTieSuo, category: "trick", playable: true},
+		{kind: engine.CardJieDao, category: "trick", playable: true},
 		{kind: engine.CardShaFire, category: "basic", playable: true},
 		{kind: engine.CardShaThunder, category: "basic", playable: true},
 		{kind: engine.CardPlusHorse, category: "equip", playable: true},
@@ -109,7 +113,8 @@ func resetMatrixBoard(g *engine.Game, testCard engine.Card, rest []engine.Card, 
 
 func playTargetForKind(kind string) int {
 	switch kind {
-	case engine.CardSha, engine.CardGuoHe, engine.CardTanNang,
+	case engine.CardSha, engine.CardShaFire, engine.CardShaThunder,
+		engine.CardGuoHe, engine.CardTanNang,
 		engine.CardJueDou, engine.CardLeBu, engine.CardBingLiang,
 		engine.CardHuoGong:
 		return 1
@@ -222,7 +227,7 @@ func TestSmoke_HeroCardKindMatrix(t *testing.T) {
 			entry := entry
 			name := fmt.Sprintf("%s/%s/%s", h.ID, entry.category, entry.kind)
 			t.Run(name, func(t *testing.T) {
-				t.Parallel()
+				// 注意：不使用 t.Parallel()，因为多个游戏实例同时运行回合循环会互相干扰。
 				runHeroCardMatrixCase(t, h.ID, entry)
 			})
 		}

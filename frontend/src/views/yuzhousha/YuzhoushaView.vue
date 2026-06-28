@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import YzsActionBar from '../../components/yuzhousha/YzsActionBar.vue'
 import YzsHandZone from '../../components/yuzhousha/YzsHandZone.vue'
 import YzsGameOver from '../../components/yuzhousha/YzsGameOver.vue'
+import YzsGameLog from '../../components/yuzhousha/YzsGameLog.vue'
 import YzsCardPicker from '../../components/yuzhousha/YzsCardPicker.vue'
 import type { PickerOption } from '../../components/yuzhousha/YzsCardPicker.vue'
 import { useYuzhoushaSkill } from '../../api/games'
@@ -31,7 +32,10 @@ const {
   selectedTargetCardId,
   submitSkill,
   act,
+  gameLog,
 } = game
+
+const showGameLog = ref(true)
 
 const layoutComponent = computed(() => resolveYzsLayout(state.value?.layout_key))
 const tableSubtitle = computed(() =>
@@ -148,6 +152,13 @@ function onPojunCancel() {
     </section>
 
     <YzsGameOver :state="state" @restart="restart" />
+
+    <!-- 右侧游戏日志 -->
+    <YzsGameLog
+      :entries="gameLog ?? []"
+      :visible="showGameLog"
+      @toggle="showGameLog = !showGameLog"
+    />
 
     <!-- 始终显示的"查看对手牌"按钮 -->
     <button

@@ -58,15 +58,19 @@ func reasonToName(reason skill.JudgeReason) string {
 	}
 }
 
-// afterJudgeFlip 翻牌后：按座位顺序收集所有可改判者，从当前回合玩家下家开始依次询问。
+// afterJudgeFlip 翻牌后：按座位顺序收集所有可改判者，从当前回合角色开始依次询问。
+// 参考 noname: trigger {global:"judge"}，触发顺序从当前回合角色开始逆时针。
 // 每人一次机会，发动后新牌继续问剩下的人，跳过则继续下一个。
 func (g *Game) afterJudgeFlip(judgeSeat int, reason skill.JudgeReason, judgeFunc skill.JudgeFunc, resume string, card Card, events *[]GameEvent) error {
 	if g.offerDdzJudgeCancelWindow(judgeSeat, reason, resume, card, events) {
 		return nil
 	}
 
-	// 收集所有可改判的座位（按座位顺序，从 judgeSeat 下家开始）
-	candidates := g.collectModifyJudgeSeats(judgeSeat)
+	// 收集所有可改判的座位（按座位顺序，从当前回合角色开始，逆时针）
+	// 参考 noname: event.trigger("judge")，current 为当前回合角色
+	startSeat := g.CurrentTurn
+	candidates := g.collectModifyJudgeSeatsFrom(startSeat)
+	Logf("afterJudgeFlip: startSeat=%d(%s) candidates=%v reason=%s", startSeat, g.Players[startSeat].Name, candidates, reason)
 	if len(candidates) == 0 {
 		return g.completeJudgeResume(judgeSeat, reason, judgeFunc, resume, card, events)
 	}
@@ -74,23 +78,62 @@ func (g *Game) afterJudgeFlip(judgeSeat int, reason skill.JudgeReason, judgeFunc
 	return g.offerNextModifyJudge(judgeSeat, reason, judgeFunc, resume, card, candidates, 0, events)
 }
 
-// collectModifyJudgeSeats 按座位顺序收集所有可改判者（从 startSeat 下家开始）
+// collectModifySkillIDs 收集指定座位所有可用的改判技能 ID。
+// 通过 Decl 注册表的 CanModifyJudge 回调查询，不再硬编码技能 ID。
+func (g *Game) collectModifySkillIDs(seat int) []string {
+	var ids []string
+	rt := g.skillRuntime(nil)
+	for _, h := range g.playerSkillHandlers(seat) {
+		if h.CanModifyJudge != nil {
+			if canModify, skillID := h.CanModifyJudge(rt, seat); canModify && skillID != "" {
+				ids = append(ids, skillID)
+			}
+		}
+	}
+	return ids
+}
+
+// collectModifyJudgeSeats 按座位顺序收集所有可改判者（从 startSeat 下家开始）。
+// 通过 Decl 注册表的 CanModifyJudge 回调查询，不再硬编码技能 ID。
+// 已废弃：请使用 collectModifyJudgeSeatsFrom（从当前回合角色开始，符合三国杀规则）。
 func (g *Game) collectModifyJudgeSeats(startSeat int) []int {
 	var seats []int
+	rt := g.skillRuntime(nil)
 	for i := 0; i < len(g.Players); i++ {
 		seat := (startSeat + i + 1) % len(g.Players)
 		if g.Players[seat].HP <= 0 {
 			continue
 		}
-		canModify := false
-		if g.hasSkill(seat, SkillGuicai) && len(g.Players[seat].Hand) > 0 {
-			canModify = true
+		for _, h := range g.playerSkillHandlers(seat) {
+			if h.CanModifyJudge != nil {
+				if canModify, _ := h.CanModifyJudge(rt, seat); canModify {
+					seats = append(seats, seat)
+					break
+				}
+			}
 		}
-		if g.hasSkill(seat, SkillGuidao) && g.hasBlackHandCard(seat) {
-			canModify = true
+	}
+	return seats
+}
+
+// collectModifyJudgeSeatsFrom 按座位顺序收集所有可改判者（从 startSeat 自身开始，逆时针）。
+// 参考 noname: event.trigger("judge")，从当前回合角色开始依次询问。
+// 通过 Decl 注册表的 CanModifyJudge 回调查询，不再硬编码技能 ID。
+func (g *Game) collectModifyJudgeSeatsFrom(startSeat int) []int {
+	var seats []int
+	rt := g.skillRuntime(nil)
+	for i := 0; i < len(g.Players); i++ {
+		seat := (startSeat + i) % len(g.Players) // 从 startSeat 自身开始
+		if g.Players[seat].HP <= 0 {
+			continue
 		}
-		if canModify {
-			seats = append(seats, seat)
+		for _, h := range g.playerSkillHandlers(seat) {
+			if h.CanModifyJudge != nil {
+				if canModify, _ := h.CanModifyJudge(rt, seat); canModify {
+					seats = append(seats, seat)
+					break
+				}
+			}
 		}
 	}
 	return seats
@@ -107,26 +150,27 @@ func (g *Game) offerNextModifyJudge(judgeSeat int, reason skill.JudgeReason, jud
 
 	seat := candidates[idx]
 
-	// 确定此人能用什么技能
-	canGuicai := g.hasSkill(seat, SkillGuicai) && len(g.Players[seat].Hand) > 0
-	canGuidao := g.hasSkill(seat, SkillGuidao) && g.hasBlackHandCard(seat)
+	// 通过 Decl 注册表的 CanModifyJudge 回调查询改判能力（替代硬编码 hasSkill）。
+	// 收集该座位所有可用的改判技能 ID。
+	modifySkills := g.collectModifySkillIDs(seat)
 
-	if !canGuicai && !canGuidao {
+	if len(modifySkills) == 0 {
 		// 条件不再满足，跳过此人
 		return g.offerNextModifyJudge(judgeSeat, reason, judgeFunc, resume, card, candidates, idx+1, events)
 	}
 
 	var respMode string
 	var skillID string
-	if canGuicai && canGuidao {
+	if len(modifySkills) >= 2 {
 		respMode = ResponseModeSkillGuicaiGuidao
 		skillID = "guicai_guidao"
-	} else if canGuicai {
-		respMode = ResponseModeSkillGuicai
-		skillID = skill.IDGuicai
 	} else {
-		respMode = ResponseModeSkillGuidao
-		skillID = skill.IDGuidao
+		skillID = modifySkills[0]
+		if skillID == skill.IDGuicai {
+			respMode = ResponseModeSkillGuicai
+		} else {
+			respMode = ResponseModeSkillGuidao
+		}
 	}
 
 	var saved *PendingCombat
@@ -181,7 +225,7 @@ func (g *Game) resolveModifyReplace(seat int, handCardID string, skillType strin
 	oldJudge := g.Pending.JudgeCard
 	played := g.removeHandCard(seat, idx, events)
 	g.DiscardPile = append(g.DiscardPile, oldJudge)
-	g.syncCounts()
+	g.SyncCounts()
 
 	resume := g.Pending.GuicaiResume
 	judgeSeat := g.Pending.GuicaiJudgeSeat
@@ -208,8 +252,7 @@ func (g *Game) resolveModifyReplace(seat int, handCardID string, skillType strin
 		Message:     msg,
 	})
 
-	// 清除 Pending，用新牌继续问剩下的人
-	g.Pending = nil
+	// 用新牌继续问剩下的人（不在这里清 Pending，由 offerNextModifyJudge 管理）
 	g.Phase = PhasePlaying
 	return g.offerNextModifyJudge(judgeSeat, reason, nil, resume, played, candidates, nextIdx, events)
 }
@@ -234,7 +277,6 @@ func (g *Game) passModifyJudge(seat int, events *[]GameEvent) error {
 	candidates := g.Pending.ModifyCandidates
 	nextIdx := g.Pending.ModifyIndex + 1
 
-	g.Pending = nil
 	g.Phase = PhasePlaying
 	return g.offerNextModifyJudge(judgeSeat, reason, nil, resume, card, candidates, nextIdx, events)
 }

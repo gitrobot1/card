@@ -80,6 +80,7 @@ func runWanJian6pRound(t *testing.T, round int) {
 	g.CurrentTurn = 0
 	g.Phase = engine.PhasePlaying
 	g.TurnStep = engine.StepPlay
+	g.Pending = nil
 
 	// 同步技能元数据
 	for i := range g.Players {
@@ -108,11 +109,18 @@ func runWanJian6pRound(t *testing.T, round int) {
 	// 用 AI 自动驱动整个万箭流程
 	step := 0
 	maxSteps := 300
+	idleCount := 0
 	for step < maxSteps && !g.IsFinished() {
 		acted := engine.RunAIActionStep(g, &events)
 		step++
-		if !acted && g.Phase == engine.PhasePlaying && g.TurnStep == engine.StepPlay && g.Pending == nil {
-			break
+		// 连续多步无动作且 Phase=Playing 时退出（万箭流程已结束）
+		if !acted && g.Phase == engine.PhasePlaying && g.Pending == nil {
+			idleCount++
+			if idleCount >= 3 {
+				break
+			}
+		} else {
+			idleCount = 0
 		}
 		if !acted && g.Phase == engine.PhaseResponse && g.Pending != nil {
 			actor := g.PendingActorSeat()
